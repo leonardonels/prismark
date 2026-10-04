@@ -114,7 +114,20 @@ void ctx_unavailable(pmk_ctx *c, const char *kernel, const char *variant, const 
            variant ? variant : "", mode, reason);
 }
 
+/*
+ * Tests a platform offers at all. The others are left out of its test set rather than reported as
+ * unavailable: phones (Android, iPhone) do not compile code. Compiling in process (K1) runs on desktops
+ * and iPads; the full build (K1x) also starts other programs, which iPadOS does not allow.
+ */
+static int kernel_offered(const pmk_ctx *c, const char *id) {
+  int phone = !strcmp(c->m.os, "android") || !strcmp(c->m.os, "ios");
+  if (!strcmp(id, "K1")) return !phone;
+  if (!strcmp(id, "K1x")) return !phone && strcmp(c->m.os, "ipados");
+  return 1;
+}
+
 int ctx_kernel_selected(const pmk_ctx *c, const char *id) {
+  if (!kernel_offered(c, id)) return 0;
   const char *f = c->cfg.kernels;
   if (!f || !*f) return 1;
   size_t n = strlen(id);

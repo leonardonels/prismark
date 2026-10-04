@@ -39,11 +39,11 @@ typedef struct pmk_result {
   /* throughput kernels */
   const char *size;    /* "burst" or "full" */
   const char *purpose; /* "isa_uplift" for the ISA-uplift series, else NULL */
-  int nthreads;        /* threads (threaded) or copies (instances); 0 for single-core modes */
+  int nthreads;        /* threads (threaded) or copies (K7 instances); 0 for single-core modes */
   int windowed;        /* samples are throughput per window, not times */
   double window_ms;
   pmk_dvec temps;      /* CPU temperature at the end of each window */
-  pmk_dvec job_ns;     /* duration of each complete job (copy 0 for instances) */
+  pmk_dvec job_ns;     /* duration of each complete job */
   double job_work;     /* work units per job (burst series), for throughput = work / time */
   uint64_t input_hash, checksum;
   int checksum_ok;     /* every job of the series produced the same checksum */
@@ -112,7 +112,7 @@ void ctx_emit(pmk_ctx *c, pmk_event_kind kind, const char *phase, const char *ke
               uint32_t steps, const char *fmt, ...) __attribute__((format(printf, 7, 8)));
 /* Records that a kernel could not run in a mode, and why. */
 void ctx_unavailable(pmk_ctx *c, const char *kernel, const char *variant, const char *mode, const char *reason);
-/* True when the kernel filter (cfg.kernels) selects this kernel. */
+/* True when this platform offers the kernel and the kernel filter (cfg.kernels) selects it. */
 int ctx_kernel_selected(const pmk_ctx *c, const char *id);
 /* Waits for the CPU to cool to the idle temperature (if cfg.cooldown and a sensor exists). */
 void ctx_cooldown(pmk_ctx *c, const char *phase);
@@ -144,9 +144,8 @@ double wl_window_ms(const pmk_ctx *c, const pmk_tk *tk);
 
 typedef struct sus_spec {
   const pmk_tk *tk;
-  const void *inst;   /* shared instance (threaded); instances mode creates one per copy */
-  int nthreads;       /* threads sharing each job, or independent copies */
-  int instances;      /* 1: every thread runs its own copy of the job back to back */
+  const void *inst;   /* the kernel instance whose job the threads share */
+  int nthreads;       /* threads sharing each job */
   const int *cpus;    /* nthreads CPUs to pin to, or NULL */
   int min_jobs;       /* do not stop before this many complete jobs (except on cancel) */
 } sus_spec;

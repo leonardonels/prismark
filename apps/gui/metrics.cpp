@@ -45,7 +45,10 @@ std::function<std::optional<Value>(const QJsonObject &)> throughput(QString kern
     } else {
       r = largestN(rows);
     }
-    return r.isEmpty() ? std::nullopt : ci(r["perf_steady"]);
+    if (r.isEmpty()) return std::nullopt;
+    auto v = ci(r["perf_steady"]);
+    if (v) v->unsettled = r.contains("steady_reached") && !r["steady_reached"].toBool();
+    return v;
   };
 }
 
@@ -129,8 +132,9 @@ const QVector<Group> &groups() {
        "How long the CPU waits for main memory, and how punctually it wakes up for tasks that run on a fixed "
        "schedule (audio, games, control loops)."},
       {"isa", "New instructions",
-       "The same code built twice: once for a common older instruction set, once for the newest one this CPU "
-       "supports. Shows how much the newer instructions help."},
+       "The same code built twice: once for the instructions every processor of its kind has (SSE4.2 on Intel and "
+       "AMD, NEON on Arm), once for the newest this processor supports (AVX2 or AVX-512; dot product or SVE2 on "
+       "Arm). Shows how much the newer instructions help."},
   };
   return g;
 }
@@ -138,11 +142,14 @@ const QVector<Group> &groups() {
 const QVector<Metric> &metrics() {
   static const QStringList uplift_modes = {"st_sustained"};
   static const QString kSettle =
-      "It runs until temperature and speed stop changing, and the score is the speed from then on. Quick runs stop "
-      "earlier.";
+      "It keeps running until its speed and temperature stop changing, at least 30 seconds and at most 10 "
+      "minutes; the score is its speed over the last 10 seconds. Quick runs stop after a few seconds, before the "
+      "processor has warmed up.";
   static const QString kUplift =
-      "The same code is built twice, once for a common older instruction set and once for the newest one this "
-      "processor supports, and each version runs on one core until its speed settles.";
+      "The same code is built twice: once for the common baseline (SSE4.2 on Intel and AMD, NEON on Arm) and once "
+      "for the newest instructions this processor supports (AVX2 or AVX-512 on Intel and AMD; dot product or SVE2 "
+      "on Arm). Newer sets mostly process more numbers per step: AVX-512 handles four times as many as SSE4.2. Each "
+      "version runs on one core until its speed settles.";
   static const QString kUpliftRead = "Higher is better. 1.00× means no gain; 1.50× means 50 % faster.";
   static const QString kBurstHow =
       "The task is repeated on a core that is already running, until its time is known to within about 1 %.";
@@ -158,14 +165,6 @@ const QVector<Metric> &metrics() {
        "A small ray tracer draws a fixed scene over and over, every core working on each frame. " + kSettle,
        "Higher is better. Measured in millions of light samples traced per second.", "scaling:K2", true,
        {"mc_threaded"}, "K2", throughput("K2", "mc_threaded")},
-      {"mci_k2", "mc", "Rendering, no teamwork", "3D rendering, each core on its own", "Each core renders its own copy",
-       "M samples/s",
-       "The same renderer, but every core works on its own separate image, with no coordination between them. This "
-       "is the most rendering work the hardware can deliver.",
-       "One independent copy of the renderer per core. " + kSettle,
-       "Higher is better. Compare with “3D rendering on all cores”: the closer the two, the less time the cores lose "
-       "coordinating.",
-       "ratio:R_serial", true, {"mc_instances"}, "K2", throughput("K2", "mc_instances")},
       {"mc_k1", "mc", "Compiling code", "Compiling code on all cores", "All cores compile C++ in memory", "builds/h",
        "How quickly the processor compiles a fixed set of C++ source files using every core: the heart of a "
        "programmer’s build.",
@@ -270,25 +269,25 @@ const QVector<Metric> &metrics() {
       /* New instructions */
       {"u_k2", "isa", "3D rendering", "3D rendering: gain from the newest instructions", "Gain from newest instructions",
        "×", "How much faster the renderer runs when built for the newest instructions this processor supports.",
-       kUplift, kUpliftRead, "", true, uplift_modes, "K2", uplift("K2", "")},
+       kUplift, kUpliftRead, "isa", true, uplift_modes, "K2", uplift("K2", "")},
       {"u_k3", "isa", "Compression", "Compression: gain from the newest instructions", "Gain from newest instructions",
        "×", "How much faster compressing a file gets when built for the newest instructions this processor supports.",
-       kUplift, kUpliftRead, "", true, uplift_modes, "K3", uplift("K3", "")},
+       kUplift, kUpliftRead, "isa", true, uplift_modes, "K3", uplift("K3", "")},
       {"u_k4", "isa", "Opening a photo", "Opening a photo: gain from the newest instructions",
        "Gain from newest instructions", "×",
        "How much faster opening and resizing a photo gets when built for the newest instructions this processor "
        "supports.",
-       kUplift, kUpliftRead, "", true, uplift_modes, "K4", uplift("K4", "")},
+       kUplift, kUpliftRead, "isa", true, uplift_modes, "K4", uplift("K4", "")},
       {"u_k8f", "isa", "Maths, decimal", "Matrix maths with decimal numbers: gain from the newest instructions",
        "Decimal numbers, as in graphics", "×",
        "Multiplying large tables of decimal numbers is the core of graphics and of training AI models. Newer vector "
        "instructions often help a lot here.",
-       kUplift, kUpliftRead, "", true, uplift_modes, "K8", uplift("K8", "fp32")},
+       kUplift, kUpliftRead, "isa", true, uplift_modes, "K8", uplift("K8", "fp32")},
       {"u_k8i", "isa", "Maths, integer", "Matrix maths with small whole numbers: gain from the newest instructions",
        "Small integers, as in AI", "×",
        "Multiplying large tables of small whole numbers is how AI models run on a device. Some processors add "
        "instructions just for this.",
-       kUplift, kUpliftRead, "", true, uplift_modes, "K8", uplift("K8", "int8")},
+       kUplift, kUpliftRead, "isa", true, uplift_modes, "K8", uplift("K8", "int8")},
   };
   return m;
 }
@@ -365,7 +364,7 @@ QString plainKernel(const QString &kernel, const QString &variant) {
 QString plainMode(const QString &mode) {
   static const QMap<QString, QString> names = {
       {"st_burst", "one core, short task"},           {"st_sustained", "one core, after warming up"},
-      {"mc_threaded", "all cores, working together"}, {"mc_instances", "all cores, separate copies"},
+      {"mc_threaded", "all cores, working together"}, {"mc_instances", "all cores, each on its own"},
       {"cold_burst", "started from rest"},            {"periodic", "timer punctuality"},
       {"isa_uplift", "new-instruction gain"},          {"all", "every test"}};
   return names.value(mode, mode);
@@ -373,7 +372,6 @@ QString plainMode(const QString &mode) {
 
 QString plainRatio(const QString &name) {
   static const QMap<QString, QString> names = {
-      {"R_serial", "Teamwork vs. separate copies"},
       {"R_build", "Full build vs. in-memory compile"},
       {"R_resp", "Speed from rest vs. busy"},
       {"U_ISA", "Gain from newest instructions"}};
@@ -393,9 +391,6 @@ QString glossaryHtml() {
        "hours."},
       {"Core, thread", "A core is one processing unit of the CPU. Many CPUs run two threads per core. “All cores” "
                        "tests use every thread the operating system offers."},
-      {"Teamwork vs. separate copies",
-       "“Working together” splits one job between all cores, as real programs do. “Separate copies” gives each core "
-       "its own job, which needs no coordination: the upper limit of the hardware."},
       {"Warming up, steady state",
        "A cool CPU runs faster for a while, then heats up and may slow down (throttling). Long tests keep running "
        "until speed and temperature stop changing, and report the speed from then on."},
@@ -454,4 +449,38 @@ QString plainText(QString text) {
   out.replace(QRegularExpression(QStringLiteral("\\bcore P\\b")), QStringLiteral("fast core"));
   out.replace(QRegularExpression(QStringLiteral("\\bcore E\\b")), QStringLiteral("efficient core"));
   return out;
+}
+
+bool isSimple(const QString &metricId) {
+  static const QStringList simple = {
+      "mc_k2", "mc_k1",  /* All cores: rendering, and compiling (desktop only, one-time setup); the full build is
+                            for experts */
+      "b_k4", "st_k2",   /* One core: an everyday short task, and one core after warming up */
+      "r_1ms", "c_k4",   /* Responsiveness: the penalty in %, and the photo job of One core started from rest */
+      /* None from Memory & timing or New instructions: they describe the processor's insides rather than something
+       * people do, and their effect already shows in the tests above. Those tabs appear only in Advanced. */
+  };
+  return simple.contains(metricId);
+}
+
+QString isaName(const QString &level) {
+  static const QMap<QString, QString> names = {
+      {"x86-64-v2", "SSE4.2"},   {"x86-64-v3", "AVX2"}, {"x86-64-v4", "AVX-512"},
+      {"armv8.2-a", "NEON"},     {"armv8.2-a+dotprod+fp16", "NEON + dot product"},
+      {"armv9-a+sve2", "SVE2"}};
+  return names.value(level, level);
+}
+
+QString isaPair(const QJsonObject &tiers) {
+  QString base = isaName(tiers["baseline"].toObject()["level"].toString());
+  QString max = tiers["max"].toObject()["level"].toString();
+  if (base.isEmpty()) return QString();
+  return max.isEmpty() ? QStringLiteral("%1 only").arg(base) : QStringLiteral("%1 → %2").arg(base, isaName(max));
+}
+
+bool offeredOn(const QString &kernel, const QString &os) {
+  bool phone = os == "android" || os == "ios";
+  if (kernel == "K1") return !phone;
+  if (kernel == "K1x") return !phone && os != "ipados";
+  return true;
 }

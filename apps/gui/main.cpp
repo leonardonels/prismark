@@ -13,6 +13,7 @@
  */
 #include <QApplication>
 #include <QPainter>
+#include <QSvgRenderer>
 #include <QTimer>
 
 #include "mainwindow.h"
@@ -25,13 +26,20 @@ int main(int argc, char **argv) {
   QApplication::setApplicationName("Prismark");
   QApplication::setApplicationVersion(PMK_VERSION);
   MainWindow w;
-  QPixmap icon(256, 256);
-  icon.fill(Qt::transparent);
-  {
-    QPainter p(&icon);
-    paintLogo(p, QRectF(16, 16, 224, 224));
+  /* The window and taskbar icon, drawn from vectors at each size the system may ask for; 32 px and below use
+   * the bolder version with fewer rays, which stays legible. */
+  QIcon icon;
+  QSvgRenderer appIcon(QStringLiteral(":/prismark-app.svg")), smallIcon(QStringLiteral(":/prismark-app-small.svg"));
+  for (int s : {16, 24, 32, 48, 64, 128, 256, 512}) {
+    QPixmap pm(s, s);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    (s <= 32 ? smallIcon : appIcon).render(&p);
+    p.end();
+    icon.addPixmap(pm);
   }
-  QApplication::setWindowIcon(QIcon(icon));
+  QApplication::setWindowIcon(icon);
   w.show();
   QStringList args = QApplication::arguments();
   int run = args.indexOf("--run");

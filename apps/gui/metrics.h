@@ -19,6 +19,7 @@
 
 struct Value {
   double v = NAN, lo = NAN, hi = NAN;
+  bool unsettled = false; /* a long test that hit its time limit before its speed settled */
   bool hasCi() const { return std::isfinite(lo) && std::isfinite(hi); }
 };
 
@@ -39,7 +40,8 @@ struct Group {
  *   read     how to read the number (unit, which direction is better)
  *   context  the chart or comparison that explains the result, shown under the ranking:
  *            "wake" (speed from rest by task length), "scaling:<kernel>" (speed-up by threads),
- *            "ratio:<name>" (a same-workload ratio by threads), "resp:<kernel>" (speed from rest), or ""
+ *            "ratio:R_build" (build-tool overhead by threads), "resp:<kernel>" (speed from rest),
+ *            "isa" (which instruction sets were compared), or ""
  */
 struct Metric {
   QString id, group, name, title, sub, unit, desc, how, read, context;
@@ -71,17 +73,33 @@ const Metric *findMetric(const QString &id);
 /* Reduces a prismark/1 result document; returns false if it is not one. */
 bool summarize(const QJsonObject &doc, const QString &file, RunSummary &out);
 
-/* Reference systems with PLACEHOLDER values (not measurements), until real references exist. */
-QVector<RunSummary> placeholderReferences();
+/* The reference systems built into the app from the repository's references/ folder (references/README.md). */
+QVector<RunSummary> bundledReferences();
+/* Reads one reference file: a result document, or a placeholder with example values. */
+bool readReference(const QString &file, RunSummary &out);
 
 QString formatValue(double v);
 
 /* Plain-language names for the identifiers in result files. Unknown ids are returned unchanged. */
 QString plainKernel(const QString &kernel, const QString &variant = QString()); /* "K2" -> "3D rendering" */
 QString plainMode(const QString &mode);                                       /* "mc_threaded" -> "all cores, working together" */
-QString plainRatio(const QString &name);                                      /* "R_serial" -> "Teamwork vs. separate copies" */
+QString plainRatio(const QString &name);                                      /* "R_build" -> "Full build vs. in-memory compile" */
 QString plainReason(const QString &reason);                                    /* why a test was not measured */
 QString plainText(QString text);                                              /* replaces kernel ids in a runner message */
+
+/*
+ * Simple view: at most two tests per tab, chosen to run on every platform without setup and to be about
+ * something people do. Advanced shows every test.
+ */
+bool isSimple(const QString &metricId);
+
+/* Whether a platform (a result's machine.os) offers a test at all; mirrors kernel_offered() in the engine. */
+bool offeredOn(const QString &kernel, const QString &os);
+
+/* Instruction-set level of a result ("x86-64-v4") as the name people know ("AVX-512"); unknown levels unchanged. */
+QString isaName(const QString &level);
+/* The two instruction sets a run compared, e.g. "SSE4.2 → AVX-512", or "SSE4.2 only" without a newer one. */
+QString isaPair(const QJsonObject &tiers);
 
 /* The glossary shown by "What do these terms mean?", as rich text. */
 QString glossaryHtml();

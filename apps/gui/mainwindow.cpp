@@ -9,6 +9,7 @@
 #include <QComboBox>
 #include <QCoreApplication>
 #include <QDateTime>
+#include <QDebug>
 #include <QDesktopServices>
 #include <QDialog>
 #include <QDialogButtonBox>
@@ -141,10 +142,12 @@ MainWindow::MainWindow() {
     metric_ = m->id;
     group_ = m->group;
   }
+  advanced_ = s.value("advanced", false).toBool();
   input_ = new InputWatch(this);
   connect(input_, &InputWatch::activity, this, &MainWindow::onInputActivity);
   buildUi();
   loadInfo();
+  moveOldDataFolders();
   loadAll();
   for (auto it = runs_.rbegin(); it != runs_.rend(); ++it)
     if (!it->reference) {
@@ -221,17 +224,12 @@ void MainWindow::buildUi() {
   brand->addWidget(sub);
   head->addLayout(brand);
   head->addStretch();
-  groups_ = new Segmented;
-  QStringList names;
-  for (const Group &g : groups()) names << QString(g.label).replace("&&", "&");
-  groups_->setItems(names);
+  groups_ = new Segmented; /* items set in refresh(): Simple shows fewer tabs */
   connect(groups_, &Segmented::changed, this, [this](int i) {
-    group_ = groups()[i].id;
-    for (const Metric &m : metrics())
-      if (m.group == group_) {
-        metric_ = m.id;
-        break;
-      }
+    QVector<QString> shown = visibleGroups();
+    if (i < 0 || i >= shown.size()) return;
+    group_ = shown[i];
+    metric_ = firstVisible(group_);
     refresh();
   });
   head->addWidget(groups_);
@@ -270,6 +268,15 @@ void MainWindow::buildUi() {
   auto *ll = new QVBoxLayout(left);
   ll->setContentsMargins(0, 0, 4, 0);
   ll->setSpacing(8);
+  level_ = new Segmented;
+  level_->setItems({tr("Simple"), tr("Advanced")});
+  level_->setCurrent(advanced_ ? 1 : 0);
+  level_->setToolTip(tr("Simple: a few tests that run everywhere and are easy to relate to.\nAdvanced: every test."));
+  connect(level_, &Segmented::changed, this, [this](int i) {
+    advanced_ = i == 1;
+    QSettings().setValue("advanced", advanced_);
+    refresh();
+  });
   testsTitle_ = sectionLabel(QString());
   testsTitle_->setContentsMargins(4, 0, 0, 2);
   ll->addWidget(testsTitle_);
@@ -279,13 +286,25 @@ void MainWindow::buildUi() {
   cardsLayout_ = new QVBoxLayout;
   cardsLayout_->setSpacing(10);
   ll->addLayout(cardsLayout_);
+  moreTests_ = text(QString(), 9, QFont::Normal, theme().faint);
+  moreTests_->setContentsMargins(4, 2, 4, 0);
+  moreTests_->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
+  connect(moreTests_, &QLabel::linkActivated, this, [this] { level_->setCurrent(1); emit level_->changed(1); });
+  ll->addWidget(moreTests_);
   ll->addStretch();
   auto *ls = new QScrollArea;
   ls->setWidget(left);
   ls->setWidgetResizable(true);
   ls->setFrameShape(QFrame::NoFrame);
-  ls->setFixedWidth(340);
-  body->addWidget(ls);
+  /* the tests column, with the Simple/Advanced switch pinned to its bottom left */
+  auto *leftCol = new QWidget;
+  leftCol->setFixedWidth(340);
+  auto *lc = new QVBoxLayout(leftCol);
+  lc->setContentsMargins(0, 0, 0, 0);
+  lc->setSpacing(10);
+  lc->addWidget(ls, 1);
+  lc->addWidget(level_, 0, Qt::AlignLeft | Qt::AlignBottom);
+  body->addWidget(leftCol);
   cards_.setExclusive(true);
 
   /* test page: what the test is, the ranking, and the chart that explains the highlighted result */
@@ -301,23 +320,15 @@ void MainWindow::buildUi() {
   desc_ = text(QString(), 10.5);
   pl->addWidget(title_);
   pl->addWidget(desc_);
-  auto *about = new QHBoxLayout;
-  about->setContentsMargins(0, 6, 0, 0);
-  about->setSpacing(18);
-  auto column = [&](const QString &head, QLabel *&body) {
-    auto *v = new QVBoxLayout;
-    v->setSpacing(2);
+  auto section = [&](const QString &head, QLabel *&body) {
     QLabel *h = sectionLabel(head);
-    h->setContentsMargins(0, 0, 0, 0);
-    v->addWidget(h);
-    body = text(QString(), 9.5, QFont::Normal, theme().muted);
-    v->addWidget(body);
-    v->addStretch();
-    about->addLayout(v, 1);
+    h->setContentsMargins(0, 8, 0, 0);
+    pl->addWidget(h);
+    body = text(QString(), 10, QFont::Normal, theme().muted);
+    pl->addWidget(body);
   };
-  column(tr("How it is measured"), how_);
-  column(tr("Reading the result"), read_);
-  pl->addLayout(about);
+  section(tr("How it is measured"), how_);
+  section(tr("Reading the result"), read_);
   pl->addWidget(sectionLabel(tr("Ranking")));
   auto *legend = new QHBoxLayout;
   legend->setContentsMargins(0, 0, 0, 4);
@@ -443,15 +454,29 @@ QWidget *MainWindow::buildMeasuringWindow() {
 /* ---------- data ---------- */
 
 QString MainWindow::resultsDir() const {
-  QString d = dataDir() + "/results";
+  QString d = dataDir() + "/results/runs"; /* shared with the command line, which saves here too */
   QDir().mkpath(d);
   return d;
 }
 
 QString MainWindow::referencesDir() const {
-  QString d = dataDir() + "/references";
+  QString d = dataDir() + "/results/references";
   QDir().mkpath(d);
   return d;
+}
+
+/* Older versions kept runs directly in results/ and references in a references/ folder beside it. */
+void MainWindow::moveOldDataFolders() {
+  auto move = [](const QString &from, const QString &to) {
+    for (const QFileInfo &fi : QDir(from).entryInfoList({"*.json"}, QDir::Files)) {
+      QString dest = QDir(to).filePath(fi.fileName());
+      if (!QFileInfo::exists(dest) && !QFile::rename(fi.filePath(), dest))
+        qWarning().noquote() << "could not move" << fi.filePath() << "to" << dest;
+    }
+  };
+  move(dataDir() + "/results", resultsDir());
+  move(dataDir() + "/references", referencesDir());
+  QDir().rmdir(dataDir() + "/references"); /* only if now empty */
 }
 
 QString MainWindow::cliPath() const {
@@ -472,11 +497,15 @@ void MainWindow::loadInfo() {
 }
 
 bool MainWindow::loadFile(const QString &path, bool reference) {
-  QFile f(path);
-  if (!f.open(QIODevice::ReadOnly)) return false;
-  QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
   RunSummary s;
-  if (!doc.isObject() || !summarize(doc.object(), path, s)) return false;
+  if (reference) {
+    if (!readReference(path, s)) return false;
+  } else {
+    QFile f(path);
+    if (!f.open(QIODevice::ReadOnly)) return false;
+    QJsonDocument doc = QJsonDocument::fromJson(f.readAll());
+    if (!doc.isObject() || !summarize(doc.object(), path, s)) return false;
+  }
   s.reference = reference;
   for (RunSummary &r : runs_)
     if (r.id == s.id && r.reference == reference) {
@@ -488,7 +517,7 @@ bool MainWindow::loadFile(const QString &path, bool reference) {
 }
 
 void MainWindow::loadAll() {
-  runs_ = placeholderReferences();
+  runs_ = bundledReferences();
   for (const QFileInfo &fi : QDir(referencesDir()).entryInfoList({"*.json"}, QDir::Files)) loadFile(fi.filePath(), true);
   QFileInfoList mine = QDir(resultsDir()).entryInfoList({"prismark-*.json"}, QDir::Files, QDir::Time | QDir::Reversed);
   for (const QFileInfo &fi : mine) loadFile(fi.filePath(), false); /* oldest first: the last is the latest */
@@ -502,10 +531,30 @@ const RunSummary *MainWindow::selectedRun() const {
 
 /* ---------- views ---------- */
 
+QString MainWindow::firstVisible(const QString &group) const {
+  for (const Metric &m : metrics())
+    if (m.group == group && visible(m)) return m.id;
+  return QString();
+}
+
+QVector<QString> MainWindow::visibleGroups() const {
+  QVector<QString> out;
+  for (const Group &g : groups())
+    if (!firstVisible(g.id).isEmpty()) out << g.id;
+  return out;
+}
+
 void MainWindow::refresh() {
+  QVector<QString> shown = visibleGroups();
+  if (!shown.contains(group_)) group_ = shown.value(0);
+  if (const Metric *m = findMetric(metric_); !m || !visible(*m) || m->group != group_) metric_ = firstVisible(group_);
   banner_->setVisible(std::any_of(runs_.begin(), runs_.end(), [](const RunSummary &r) { return r.placeholder; }));
-  for (int i = 0; i < groups().size(); i++)
-    if (groups()[i].id == group_) groups_->setCurrent(i);
+  QStringList names;
+  for (const QString &id : shown)
+    for (const Group &g : groups())
+      if (g.id == id) names << QString(g.label).replace("&&", "&");
+  groups_->setItems(names);
+  groups_->setCurrent(int(shown.indexOf(group_)));
   refreshTests();
   refreshRanking();
   refreshDetails();
@@ -521,8 +570,13 @@ void MainWindow::refreshTests() {
       testsTitle_->setText(QStringLiteral("%1 · %2").arg(tr("TESTS"), QString(g.label).replace("&&", "&").toUpper()));
       groupDesc_->setText(esc(g.desc));
     }
+  int hidden = 0;
   for (const Metric &m : metrics()) {
     if (m.group != group_) continue;
+    if (!visible(m)) {
+      hidden++;
+      continue;
+    }
     const RunSummary *latest = nullptr;
     for (const RunSummary &r : runs_)
       if (!r.reference && r.metrics.contains(m.id)) latest = &r;
@@ -544,12 +598,20 @@ void MainWindow::refreshTests() {
     cards_.addButton(c);
     cardsLayout_->addWidget(c);
   }
+  const QString link =
+      QStringLiteral("<a href='#' style='color:%1; text-decoration:none'>%2</a>").arg(theme().accent.name(), tr("Advanced"));
+  moreTests_->setText(hidden == 1 ? tr("1 more test on this tab in %1").arg(link)
+                      : hidden    ? tr("%1 more tests on this tab in %2").arg(hidden).arg(link)
+                                  : QString());
+  moreTests_->setVisible(hidden > 0);
   refreshRunLabels();
 }
 
 void MainWindow::refreshRunLabels() {
   bool quick = quick_->isChecked();
   runAll_->setText(quick ? tr("▶  Run all quick") : tr("▶  Run all full"));
+  runAll_->setToolTip(advanced_ ? tr("Runs every test.")
+                                : tr("Runs the tests of the Simple view. Switch to Advanced to run every test."));
   for (QAbstractButton *b : cards_.buttons())
     static_cast<TestCard *>(b)->setRunLabel(quick ? tr("Run quick") : tr("Run full"));
 }
@@ -574,12 +636,14 @@ void MainWindow::refreshRanking() {
     row.yours = !r.reference;
     row.name = r.reference ? r.name : tr("This PC · %1").arg(r.name);
     row.detail = r.reference ? QString("%1 · %2").arg(r.machine["os"].toString(), r.machine["isa"].toString()) : r.date;
+    if (m->group == "isa" && !isaPair(r.tiers).isEmpty()) row.detail = isaPair(r.tiers) + " · " + row.detail;
     if (r.placeholder) row.tags << "placeholder";
     if (r.reference && !r.placeholder) row.tags << "reference";
     if (&r == latest && allRuns_->isChecked()) row.tags << "latest";
     if (r.quick) row.tags << "quick";
     if (!r.complete) row.tags << "partial";
     row.value = r.metrics[m->id];
+    if (row.value.unsettled && !r.quick) row.tags << "did not settle";
     rows.push_back(row);
   }
   bool shown = std::any_of(rows.begin(), rows.end(), [&](const RankRow &x) { return x.runId == selected_; });
@@ -644,17 +708,23 @@ void MainWindow::refreshContext() {
   } else if (kind == "ratio") {
     ChartLine l = byThreads(arg, QString());
     if (l.pts.isEmpty()) return;
-    if (arg == "R_serial")
-      show(tr("Cost of teamwork, by number of threads"),
-           tr("For %1: speed when all threads share one image, divided by speed when each renders its own. 1.0 means "
-              "teamwork costs nothing; 0.9 means 10 % is lost to coordination.").arg(esc(who)));
-    else
-      show(tr("Time added by the build tools, by number of threads"),
-           tr("For %1: time of the full build divided by the time of compiling the same files in memory. 1.0 means "
-              "the tools add nothing; 2.0 means the build takes twice as long as the compiling alone.").arg(esc(who)));
+    show(tr("Time added by the build tools, by number of threads"),
+         tr("For %1: time of the full build divided by the time of compiling the same files in memory. 1.0 means "
+            "the tools add nothing; 2.0 means the build takes twice as long as the compiling alone.").arg(esc(who)));
     auto *ch = new ChartView;
     ch->setData({l}, false, tr("threads"), 0, NAN, false);
     contextLayout_->addWidget(ch);
+  } else if (kind == "isa") {
+    QString pair = isaPair(r->tiers);
+    if (pair.isEmpty()) return;
+    QString base = r->tiers["baseline"].toObject()["level"].toString(),
+            max = r->tiers["max"].toObject()["level"].toString();
+    show(tr("Instruction sets compared"),
+         max.isEmpty() ? tr("For %1: this processor has nothing newer than %2 (%3), so there was no gain to measure.")
+                             .arg(esc(who), esc(isaName(base)), esc(base))
+                       : tr("For %1: <b>%2</b> (%3), the common baseline, against <b>%4</b> (%5), the newest this "
+                            "processor supports. Every row of the ranking shows the pair its computer compared.")
+                             .arg(esc(who), esc(isaName(base)), esc(base), esc(isaName(max)), esc(max)));
   } else if (kind == "resp") {
     for (const auto &x : r->ratios)
       if (x.name == "R_resp" && x.kernel == arg) {
@@ -718,13 +788,20 @@ void MainWindow::refreshDetails() {
   tg->setColumnStretch(0, 1);
   int row = 0;
   QString lastGroup;
+  int hiddenResults = 0;
   for (const Metric &mt : metrics()) {
     if (!r->metrics.contains(mt.id)) continue;
+    if (!visible(mt)) {
+      hiddenResults++;
+      continue;
+    }
     if (mt.group != lastGroup) {
       lastGroup = mt.group;
       for (const Group &gr : groups())
         if (gr.id == mt.group) {
-          QLabel *h = text(QString(gr.label).replace("&&", "&"), 8.5, QFont::DemiBold, t.faint);
+          QString label = QString(gr.label).replace("&&", "&");
+          if (gr.id == "isa" && !isaPair(r->tiers).isEmpty()) label += " · " + isaPair(r->tiers);
+          QLabel *h = text(esc(label), 8.5, QFont::DemiBold, t.faint);
           h->setContentsMargins(0, row ? 6 : 0, 0, 0);
           tg->addWidget(h, row++, 0, 1, 2);
         }
@@ -741,16 +818,28 @@ void MainWindow::refreshDetails() {
     auto *val = text(QStringLiteral("<b>%1</b> <span style='color:%2'>%3</span>").arg(formatValue(v.v), t.muted.name(), esc(mt.unit)), 10);
     val->setAlignment(Qt::AlignRight | Qt::AlignTop);
     val->setWordWrap(false);
-    val->setToolTip(v.hasCi() ? tr("Likely between %1 and %2 %3").arg(formatValue(v.lo), formatValue(v.hi), mt.unit) : QString());
+    QString tip = v.hasCi() ? tr("Likely between %1 and %2 %3").arg(formatValue(v.lo), formatValue(v.hi), mt.unit) : QString();
+    if (v.unsettled && !r->quick) {
+      val->setText(QStringLiteral("<span style='color:%1; font-size:8pt'>%2</span> ").arg(t.warnText.name(), tr("not settled")) + val->text());
+      tip += tr("\nThe speed was still changing when the 10-minute limit was reached.");
+    }
+    val->setToolTip(tip);
     tg->addWidget(val, row++, 1);
   }
   if (!row) tg->addWidget(text(tr("No results in this run."), 9.5, QFont::Normal, t.muted), 0, 0);
   detailsLayout_->addWidget(tests);
+  if (hiddenResults)
+    detailsLayout_->addWidget(text(hiddenResults == 1 ? tr("1 more result in Advanced.") : tr("%1 more results in Advanced.").arg(hiddenResults),
+                                   9, QFont::Normal, t.faint));
 
   /* what was not measured, once per test and reason */
   QStringList un, seen;
   for (const QJsonValue &u : r->unavailable) {
     QJsonObject o = u.toObject();
+    bool relevant = advanced_;
+    for (const Metric &mt : metrics()) relevant |= visible(mt) && mt.kernels == o["kernel"].toString();
+    /* only tests this view shows, and only those the run's platform offers (older phone results list compiling) */
+    if (!relevant || !offeredOn(o["kernel"].toString(), r->machine["os"].toString())) continue;
     QString line = QStringLiteral("<b>%1</b> <span style='color:%2'>— %3</span>")
                        .arg(esc(plainKernel(o["kernel"].toString(), o["variant"].toString())), t.muted.name(),
                             esc(plainReason(o["reason"].toString())));
@@ -837,8 +926,10 @@ void MainWindow::refreshDetails() {
       kv(tgl, trow, tr("Largest cache"), QStringLiteral("%1 MiB").arg(cpu["llc_bytes"].toDouble() / (1 << 20)));
     QJsonObject max = r->tiers["max"].toObject();
     kv(tgl, trow, tr("Instruction sets"),
-       tr("%1 (common) → %2").arg(r->tiers["baseline"].toObject()["level"].toString(),
-                                  max["level"].toString().isEmpty() ? tr("none newer") : max["level"].toString()));
+       tr("%1 (%2) → %3").arg(isaName(r->tiers["baseline"].toObject()["level"].toString()),
+                              r->tiers["baseline"].toObject()["level"].toString(),
+                              max["level"].toString().isEmpty() ? tr("none newer")
+                                                                : QStringLiteral("%1 (%2)").arg(isaName(max["level"].toString()), max["level"].toString())));
     if (!r->harness.isEmpty())
       kv(tgl, trow, tr("Prismark"), tr("%1, built with %2").arg(r->harness["version"].toString(), r->harness["compiler"].toString()));
     if (!r->frontend.isEmpty()) {
@@ -965,8 +1056,27 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
       if (m->modes.contains("st_sustained")) args << "--no-isa-uplift";
     }
   }
+  if (all && !advanced_) { /* Simple: run what the Simple view shows */
+    QStringList modes, kernels;
+    for (const Metric &x : metrics())
+      if (isSimple(x.id)) {
+        for (const QString &md : x.modes)
+          if (!modes.contains(md)) modes << md;
+        if (!kernels.contains(x.kernels)) kernels << x.kernels;
+      }
+    args << "--mode" << modes.join(",") << "--kernels" << kernels.join(",");
+    if (!visibleGroups().contains("isa")) args << "--no-isa-uplift"; /* no New instructions test to fill */
+  }
   if (quick) args << "--quick";
-  bool needK1 = all || (m && m->kernels == "K1"), needK1x = all || (m && m->kernels == "K1x");
+  /* Compile tests need a snapshot: ask when this run includes one. */
+  auto runsKernel = [&](const QString &k) {
+    if (m) return m->kernels == k;
+    if (advanced_) return true;
+    for (const Metric &x : metrics())
+      if (isSimple(x.id) && x.kernels == k) return true;
+    return false;
+  };
+  bool needK1 = runsKernel("K1"), needK1x = runsKernel("K1x");
   if ((needK1 || needK1x) && !confirmCompileTests(needK1, needK1x, all, args)) return;
 
   procOut_ = QDir(resultsDir()).filePath(QStringLiteral("prismark-%1.json").arg(QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss")));
@@ -1218,8 +1328,8 @@ void MainWindow::showDataFolders() {
   QMessageBox box(this);
   box.setWindowTitle(tr("Data folders"));
   box.setTextFormat(Qt::RichText);
-  box.setText(tr("<b>Your saved runs</b><br>%1<br><br><b>Reference results</b> — put real reference prismark-*.json "
-                 "files here<br>%2<br><br><b>Compile-test snapshot</b><br>%3<br><br><b>Runner</b><br>%4")
+  box.setText(tr("<b>Your saved runs</b><br>%1<br><br><b>Your reference systems</b> — result files, or placeholder "
+                 "files as described in references/README.md, added to the built-in ones<br>%2<br><br><b>Compile-test snapshot</b><br>%3<br><br><b>Runner</b><br>%4")
                   .arg(esc(resultsDir()), esc(referencesDir()), esc(defaultSnapshotDir()),
                        esc(cliPath().isEmpty() ? tr("not found") : cliPath())));
   QPushButton *open = box.addButton(tr("Open results folder"), QMessageBox::ActionRole);

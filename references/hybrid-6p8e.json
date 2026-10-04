@@ -1,0 +1,36 @@
+{
+  "schema": "prismark-reference/1",
+  "placeholder": true,
+  "name": "Hybrid laptop x86-64, 6P + 8E cores",
+  "machine": {
+    "os": "windows",
+    "isa": "x86_64",
+    "cpus": 20,
+    "types": "12×P + 8×E"
+  },
+  "newest_instructions": "x86-64-v3",
+  "results": {
+    "mc_k2": {"value": 41.7, "uncertainty": 0.03},
+    "mc_k1": {"value": 83, "uncertainty": 0.03},
+    "mc_k1x": {"value": 388, "uncertainty": 0.04},
+    "st_k2": {"value": 3.9, "uncertainty": 0.01},
+    "st_k1": {"value": 8.7, "uncertainty": 0.01},
+    "b_k3": {"value": 11.8, "uncertainty": 0.01},
+    "b_k4": {"value": 31.6, "uncertainty": 0.01},
+    "b_k5": {"value": 14.9, "uncertainty": 0.01},
+    "b_k6": {"value": 11, "uncertainty": 0.01},
+    "r_1ms": {"value": 49, "uncertainty": 0.06},
+    "r_10ms": {"value": 90, "uncertainty": 0.02},
+    "c_k4": {"value": 38.8, "uncertainty": 0.04},
+    "c_k6": {"value": 14.9, "uncertainty": 0.04},
+    "m_lat1": {"value": 104, "uncertainty": 0.01},
+    "m_latn": {"value": 121, "uncertainty": 0.01},
+    "j_idle": {"value": 520},
+    "j_load": {"value": 2400},
+    "u_k2": {"value": 1.04, "uncertainty": 0.01},
+    "u_k3": {"value": 0.99, "uncertainty": 0.01},
+    "u_k4": {"value": 1.09, "uncertainty": 0.01},
+    "u_k8f": {"value": 1.55, "uncertainty": 0.01},
+    "u_k8i": {"value": 1.41, "uncertainty": 0.01}
+  }
+}

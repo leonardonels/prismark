@@ -11,44 +11,48 @@ namespace {
 Theme g_theme;
 QString g_family;
 
+/*
+ * Amber on warm greys: charcoal and paper backgrounds, one amber accent for what is yours or selected, and no
+ * gradients. The placeholder warning is blue so it never reads as the accent; colour otherwise means data.
+ */
 const Theme kDark = {
     true,
-    QColor(11, 13, 19),     /* bg */
-    QColor(20, 23, 32),     /* card */
-    QColor(28, 32, 44),     /* raised */
-    QColor(38, 43, 58),     /* border */
-    QColor(236, 238, 245),  /* text */
-    QColor(145, 152, 172),  /* muted */
-    QColor(92, 99, 118),    /* faint */
-    QColor(124, 108, 255),  /* accent */
-    QColor(78, 163, 255),   /* accent2 (gradient end) */
-    QColor(40, 37, 78),     /* accentSoft */
-    QColor(70, 77, 96),     /* ref */
-    QColor(30, 34, 46),     /* track */
-    QColor(58, 46, 14),     /* warnBg */
-    QColor(246, 214, 128),  /* warnText */
+    QColor(20, 19, 17),     /* bg */
+    QColor(28, 26, 23),     /* card */
+    QColor(36, 34, 30),     /* raised */
+    QColor(52, 49, 43),     /* border */
+    QColor(235, 232, 225),  /* text */
+    QColor(167, 162, 151),  /* muted */
+    QColor(113, 108, 98),   /* faint */
+    QColor(232, 163, 60),   /* accent */
+    QColor(29, 20, 5),      /* onAccent */
+    QColor(58, 44, 21),     /* accentSoft */
+    QColor(91, 87, 79),     /* ref */
+    QColor(40, 38, 31),     /* track */
+    QColor(44, 58, 74),     /* warnBg */
+    QColor(169, 200, 238),  /* warnText */
     QColor(92, 207, 152),   /* good */
     QColor(240, 138, 118),  /* bad */
 };
 
 const Theme kLight = {
     false,
-    QColor(242, 244, 249),
-    QColor(255, 255, 255),
-    QColor(246, 247, 251),
-    QColor(222, 226, 236),
-    QColor(20, 23, 33),
-    QColor(92, 99, 120),
-    QColor(150, 156, 174),
-    QColor(98, 84, 240),
-    QColor(40, 130, 240),
-    QColor(232, 229, 255),
-    QColor(178, 184, 200),
-    QColor(232, 235, 243),
-    QColor(255, 243, 210),
-    QColor(110, 78, 0),
-    QColor(31, 138, 91),
-    QColor(179, 64, 46),
+    QColor(245, 243, 238),  /* bg */
+    QColor(255, 253, 249),  /* card */
+    QColor(249, 247, 242),  /* raised */
+    QColor(224, 220, 210),  /* border */
+    QColor(28, 26, 22),     /* text */
+    QColor(98, 93, 83),     /* muted */
+    QColor(157, 151, 140),  /* faint */
+    QColor(178, 107, 0),    /* accent */
+    QColor(255, 255, 255),  /* onAccent */
+    QColor(251, 238, 216),  /* accentSoft */
+    QColor(189, 183, 171),  /* ref */
+    QColor(236, 232, 223),  /* track */
+    QColor(227, 236, 248),  /* warnBg */
+    QColor(36, 69, 110),    /* warnText */
+    QColor(31, 138, 91),    /* good */
+    QColor(179, 64, 46),    /* bad */
 };
 
 void loadFonts() {
@@ -95,7 +99,7 @@ void applyTheme(bool dark) {
   p.setColor(QPalette::ButtonText, t.text);
   p.setColor(QPalette::Mid, t.ref);
   p.setColor(QPalette::Highlight, t.accent);
-  p.setColor(QPalette::HighlightedText, Qt::white);
+  p.setColor(QPalette::HighlightedText, t.onAccent);
   p.setColor(QPalette::ToolTipBase, t.raised);
   p.setColor(QPalette::ToolTipText, t.text);
   p.setColor(QPalette::PlaceholderText, t.muted);
@@ -118,9 +122,8 @@ void applyTheme(bool dark) {
     QPushButton:hover { border-color: %6; }
     QPushButton:pressed { background: %3; }
     QPushButton:disabled { color: %5; }
-    QPushButton#primary { border: none; color: white; font-weight: 600; padding: 9px 20px;
-      background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 %6, stop:1 %7); }
-    QPushButton#primary:hover { background: qlineargradient(x1:0, y1:0, x2:1, y2:0, stop:0 %7, stop:1 %6); }
+    QPushButton#primary { border: none; color: %7; font-weight: 600; padding: 9px 20px; background: %6; }
+    QPushButton#primary:hover { background: %11; }
     QPushButton#ghost { background: transparent; border: 1px solid transparent; padding: 6px 10px; color: %8; }
     QPushButton#ghost:hover { background: %1; border-color: %3; color: %2; }
     QToolButton#iconButton { background: transparent; border: 1px solid transparent; border-radius: 10px; padding: 6px; }
@@ -135,7 +138,7 @@ void applyTheme(bool dark) {
     QComboBox QAbstractItemView { background: %1; color: %2; border: 1px solid %3; selection-background-color: %9; }
     QCheckBox { spacing: 8px; }
   )")
-                          .arg(c(t.raised), c(t.text), c(t.border), c(t.card), c(t.faint), c(t.accent), c(t.accent2),
+                          .arg(c(t.raised), c(t.text), c(t.border), c(t.card), c(t.faint), c(t.accent), c(t.onAccent),
                                c(t.muted), c(t.accentSoft))
-                          .arg(c(t.bg)));
+                          .arg(c(t.bg), c(t.dark ? t.accent.lighter(112) : t.accent.darker(112))));
 }

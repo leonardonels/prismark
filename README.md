@@ -14,7 +14,7 @@ The full design is in [docs/spec.md](docs/spec.md).
 | Single-thread burst | Execution time of short interactive workloads on one core | K3, K4, K5, K6 |
 | Single-thread sustained | Single-core throughput at thermal and power steady state | K1, K2 |
 | Multi-thread | Scaling of multithreaded workloads, including serial fractions | K1, K1x, K2 |
-| Multi-instance | Aggregate throughput of independent instances; memory latency under contention | K2, K7 |
+| Multi-instance | Memory latency while every core uses memory | K7 |
 | Cold start | Latency penalty of work issued from idle, on the machine as configured | K9; K4, K6 |
 | Periodic | Wake-up latency distribution of periodic tasks | K10 |
 
@@ -48,7 +48,7 @@ ARM64).
 - Results are reported per kernel and per mode. Measurements from different
   modes are not combined.
 - Derived metrics (scaling S/E/p, throttling ratio, build overhead R_build,
-  serialisation cost R_serial, instruction-set uplift U_ISA) compare the same
+  instruction-set uplift U_ISA) compare the same
   kernel and the same binary, with bootstrap 95 % intervals.
 - Sustained runs sample perf(t) in windows and stop at steady state: t > 5τ
   (τ fitted to the temperature trace) and no significant slope over the last
@@ -106,7 +106,15 @@ list it as unavailable.
 ```
 
 Each run writes `prismark-<run_id>.json` with every raw sample, the machine
-state at start and end, and the statistics computed from them.
+state at start and end, and the statistics computed from them. It goes in the
+results folder shared with the desktop app, so command-line runs appear there
+too (`-o FILE` writes elsewhere; runs as root write to the current folder):
+
+```
+~/.local/share/prismark/results/        Linux; macOS: ~/Library/Application Support/prismark/results,
+├── runs/                               Windows: %LOCALAPPDATA%\prismark\results
+└── references/                         your own reference systems (see references/README.md)
+```
 
 ```sh
 prismark compare a.json b.json                # per-kernel ratios with CIs, and the profiles
@@ -124,6 +132,10 @@ rights. What it finds (governor, power mode, idle states, temperatures) is
 recorded with the result.
 
 ### K1 and K1x
+
+K1 runs on Linux, Windows, macOS and iPadOS; K1x on Linux, Windows and macOS
+(it starts other programs, which iPadOS does not allow). Phones do not offer
+either, and they are not shown there at all.
 
 Both use a prepared snapshot of a pinned LLVM subset (generated sources
 included, so no host tool runs during the build) cross-compiled to aarch64:
@@ -150,8 +162,8 @@ scaling.
 ./build/linux-clang/prismark-gui              # or: prismark-gui --run [TEST] [--full], e.g. --run mc_k2
 ```
 
-- Built automatically when Qt Widgets is found (Qt 6, or Qt 5.15:
-  `sudo apt install qt6-base-dev` or `qtbase5-dev`); `-DPRISMARK_GUI=OFF`
+- Built automatically when Qt Widgets and Svg are found (Qt 6, or Qt 5.15:
+  `sudo apt install qt6-base-dev qt6-svg-dev` or `qtbase5-dev libqt5svg5-dev`); `-DPRISMARK_GUI=OFF`
   skips it. The Inter typeface is fetched at a pinned version and compiled in.
 - **Isolation.** Runs execute in the `prismark` runner next to the app, as a
   separate process. During a run the main window closes and only a small
@@ -180,13 +192,17 @@ scaling.
   cmake --preset linux-clang && cmake --build --preset linux-clang
   ```
 
-- Every run is saved in `~/.local/share/prismark/results` (Windows:
-  `%LOCALAPPDATA%\prismark`, macOS: `~/Library/Application Support/prismark`)
-  and reloaded at start; the compile-test snapshot lives next to it in `k1x/`.
+- Every run is saved in `results/runs` of the shared results folder (see
+  Running) and reloaded at start, along with runs from the command line; the
+  compile-test snapshot lives in `k1x/` beside `results/`. Files from older
+  versions are moved into this layout on first start.
   Menu › Open result imports files; Menu › Compare runs `prismark compare`.
-- The built-in reference systems are **placeholders**, not measurements, and
-  are labelled as such. Put result files from real reference machines into the
-  `references` folder next to `results` to add them.
+- The reference systems in the rankings come from the repository's
+  [`references/`](references/README.md) folder, one file per system, built into
+  the app: add a file to add a system, delete it to remove one. Today they are
+  **placeholders**, not measurements, and are labelled as such; result files from
+  real reference machines go in the same folder. Users can add their own in
+  `results/references` of the shared results folder, without rebuilding.
 
 `apps/viewer` is the static web page for cross-device comparison (spec 7.3):
 open `index.html` and load or drop result files.

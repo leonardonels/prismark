@@ -60,6 +60,7 @@ class MainWindow : public QMainWindow {
   QWidget *buildMeasuringWindow();
   QWidget *buildMenuButton();
   void loadInfo();
+  void moveOldDataFolders();
   void loadAll();
   bool loadFile(const QString &path, bool reference);
   void refresh();
@@ -68,6 +69,10 @@ class MainWindow : public QMainWindow {
   void refreshDetails();
   void refreshContext(); /* the chart or comparison under the ranking, for the highlighted result */
   void selectMetric(const QString &id);
+  /* Simple shows only the tests isSimple() picks; Advanced shows every test. */
+  bool visible(const Metric &m) const { return advanced_ || isSimple(m.id); }
+  QString firstVisible(const QString &group) const;
+  QVector<QString> visibleGroups() const; /* tabs with at least one visible test */
   void refreshRunLabels(); /* Run buttons say whether they start a quick or a full run */
   QString cliPath() const;
   QString resultsDir() const;
@@ -88,6 +93,9 @@ class MainWindow : public QMainWindow {
   QWidget *context_ = nullptr;
   QVBoxLayout *contextLayout_ = nullptr;
   bool techOpen_ = false; /* the report's technical details are expanded */
+  bool advanced_ = false;
+  Segmented *level_ = nullptr;
+  QLabel *moreTests_ = nullptr;
   QVBoxLayout *cardsLayout_ = nullptr;
   QButtonGroup cards_;
   RankingView *ranking_ = nullptr;

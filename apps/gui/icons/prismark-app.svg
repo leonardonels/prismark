@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Prismark app icon: the logo (prismark.svg) on a dark tile. Copyright 2026 The Prismark Authors. Apache-2.0. -->
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="512" height="512" viewBox="0 0 512 512">
+  <rect x="16" y="16" width="480" height="480" rx="112" ry="112" fill="#1e1c19" stroke="#34312b" stroke-width="4"/>
+  <g transform="translate(64,64) scale(0.75)">
+    <!-- the prism -->
+    <path d="M206,92 L320,388 L92,388 Z" fill="none" stroke="#e8a33c" stroke-width="20" stroke-linejoin="round"/>
+    <!-- the white beam, with a faint dark outline so it also shows on light backgrounds -->
+    <path d="M16,300 L148,262" stroke="#1c1a16" stroke-opacity="0.3" stroke-width="20" stroke-linecap="round" fill="none"/>
+    <path d="M16,300 L148,262" stroke="#ffffff" stroke-width="14" stroke-linecap="round" fill="none"/>
+    <!-- the spectrum: one thin curved ray per colour, rising and spreading as it leaves the prism -->
+    <path d="M266,250 C380,226 420,150 496,90" stroke="#ff5468" stroke-width="14" stroke-linecap="round" fill="none"/> <!-- red -->
+    <path d="M266,250 C380,234 420,186 496,134" stroke="#ff9a3c" stroke-width="14" stroke-linecap="round" fill="none"/> <!-- orange -->
+    <path d="M266,250 C380,242 420,222 496,178" stroke="#ffd84a" stroke-width="14" stroke-linecap="round" fill="none"/> <!-- yellow -->
+    <path d="M266,250 C380,250 420,258 496,222" stroke="#3fdc8c" stroke-width="14" stroke-linecap="round" fill="none"/> <!-- green -->
+    <path d="M266,250 C380,258 420,294 496,266" stroke="#3fc6e0" stroke-width="14" stroke-linecap="round" fill="none"/> <!-- cyan -->
+    <path d="M266,250 C380,266 420,330 496,310" stroke="#3fa2ff" stroke-width="14" stroke-linecap="round" fill="none"/> <!-- blue -->
+    <path d="M266,250 C380,274 420,366 496,354" stroke="#8b6cff" stroke-width="14" stroke-linecap="round" fill="none"/> <!-- violet -->
+  </g>
+</svg>

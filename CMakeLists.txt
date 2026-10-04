@@ -24,7 +24,7 @@ elseif(WIN32)
 else()
   message(FATAL_ERROR "No platform layer for ${CMAKE_SYSTEM_NAME}")
 endif()
-# Desktop platforms build K1/K1x; mobile platforms report them as unavailable (spec 5.3).
+# Desktop platforms build K1/K1x; phones do not offer them, iPads offer K1 only (spec 5.3, cmake/k1.cmake).
 if(ANDROID OR IOS)
   set(PRISMARK_DESKTOP OFF)
 else()

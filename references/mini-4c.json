@@ -1,0 +1,36 @@
+{
+  "schema": "prismark-reference/1",
+  "placeholder": true,
+  "name": "Mini PC x86-64, 4 cores",
+  "machine": {
+    "os": "linux",
+    "isa": "x86_64",
+    "cpus": 4,
+    "types": "4×E"
+  },
+  "newest_instructions": "x86-64-v3",
+  "results": {
+    "mc_k2": {"value": 6.9, "uncertainty": 0.02},
+    "mc_k1": {"value": 14, "uncertainty": 0.02},
+    "mc_k1x": {"value": 1720, "uncertainty": 0.02},
+    "st_k2": {"value": 1.9, "uncertainty": 0.01},
+    "st_k1": {"value": 3.8, "uncertainty": 0.01},
+    "b_k3": {"value": 24.6, "uncertainty": 0.01},
+    "b_k4": {"value": 66.3, "uncertainty": 0.01},
+    "b_k5": {"value": 30.4, "uncertainty": 0.01},
+    "b_k6": {"value": 23, "uncertainty": 0.01},
+    "r_1ms": {"value": 66, "uncertainty": 0.04},
+    "r_10ms": {"value": 96, "uncertainty": 0.01},
+    "c_k4": {"value": 70.1, "uncertainty": 0.02},
+    "c_k6": {"value": 24.6, "uncertainty": 0.02},
+    "m_lat1": {"value": 112, "uncertainty": 0.01},
+    "m_latn": {"value": 126, "uncertainty": 0.01},
+    "j_idle": {"value": 38},
+    "j_load": {"value": 98},
+    "u_k2": {"value": 1.03, "uncertainty": 0.01},
+    "u_k3": {"value": 0.99, "uncertainty": 0.01},
+    "u_k4": {"value": 1.08, "uncertainty": 0.01},
+    "u_k8f": {"value": 1.48, "uncertainty": 0.01},
+    "u_k8i": {"value": 1.33, "uncertainty": 0.01}
+  }
+}

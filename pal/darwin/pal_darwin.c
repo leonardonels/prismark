@@ -54,13 +54,11 @@ static uint64_t sysctl_u64(const char *name, uint64_t def) {
 int pal_init(pmk_machine *m) {
   memset(m, 0, sizeof *m);
   mach_timebase_info(&g_tb);
-#if TARGET_OS_IPHONE
-  snprintf(m->os, sizeof m->os, "ios");
-#else
-  snprintf(m->os, sizeof m->os, "macos");
-#endif
+  snprintf(m->os, sizeof m->os, TARGET_OS_IPHONE ? "ios" : "macos");
   struct utsname u;
   if (!uname(&u)) {
+    /* iPads report as iPadOS: they offer tests that iPhones do not (the machine id is e.g. "iPad13,4"). */
+    if (TARGET_OS_IPHONE && !strncmp(u.machine, "iPad", 4)) snprintf(m->os, sizeof m->os, "ipados");
     snprintf(m->kernel, sizeof m->kernel, "%s", u.release);
     snprintf(m->isa, sizeof m->isa, "%s", strcmp(u.machine, "arm64") && strncmp(u.machine, "iP", 2) ? u.machine : "aarch64");
   }

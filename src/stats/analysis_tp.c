@@ -1,7 +1,7 @@
 /*
  * Statistics for the throughput modes: per-series medians with bootstrap
  * CIs, steady-state throughput and R_throttle, scaling S(n), E(n), p(n), and
- * the same-kernel ratios R_serial, R_build, U_ISA and R_resp of the realistic
+ * the same-kernel ratios R_build, U_ISA and R_resp of the realistic
  * cold bursts. Each ratio pairs series of one kernel only.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
@@ -33,7 +33,7 @@ typedef struct scale_row {
 } scale_row;
 
 typedef struct ratio_row {
-  const char *name; /* "R_serial", "R_build", "U_ISA", "R_resp" */
+  const char *name; /* "R_build", "U_ISA", "R_resp" */
   const char *kernel, *variant;
   int n;            /* threads, or 0 */
   const char *core_type;
@@ -231,15 +231,6 @@ void analysis_tp_compute(pmk_ctx *c) {
     const pmk_result *r = &c->res[i];
     if (r->n == 0) continue;
     const char *core = c->m.type_names[r->type];
-    /* R_serial(n) = perf_threaded(n) / perf_instances(n), K2 only. */
-    if (!strcmp(r->mode, "mc_threaded") && !strcmp(r->kernel, "K2")) {
-      const pmk_result *ins = find(c, "K2", "mc_instances", NULL, r->nthreads, NULL, NULL);
-      if (ins && ins->windowed) {
-        size_t nt, ni;
-        const double *t = steady_set(r, &nt), *x = steady_set(ins, &ni);
-        add_ratio(a, "R_serial", r, r->nthreads, core, pmk_boot_median_ratio(t, nt, x, ni, PMK_BOOT_B, rng));
-      }
-    }
     /* R_build(n) = T_K1x(n) / T_K1(n), identical translation units. */
     if (!strcmp(r->mode, "mc_threaded") && !strcmp(r->kernel, "K1x")) {
       const pmk_result *k1 = find(c, "K1", "mc_threaded", NULL, r->nthreads, NULL, NULL);

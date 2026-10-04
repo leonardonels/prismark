@@ -1,0 +1,36 @@
+{
+  "schema": "prismark-reference/1",
+  "placeholder": true,
+  "name": "Desktop x86-64, 16 cores / 32 threads",
+  "machine": {
+    "os": "linux",
+    "isa": "x86_64",
+    "cpus": 32,
+    "types": "32×P"
+  },
+  "newest_instructions": "x86-64-v4",
+  "results": {
+    "mc_k2": {"value": 74, "uncertainty": 0.02},
+    "mc_k1": {"value": 152, "uncertainty": 0.02},
+    "mc_k1x": {"value": 171, "uncertainty": 0.02},
+    "st_k2": {"value": 4.3, "uncertainty": 0.01},
+    "st_k1": {"value": 9.8, "uncertainty": 0.01},
+    "b_k3": {"value": 10.6, "uncertainty": 0.01},
+    "b_k4": {"value": 27.9, "uncertainty": 0.01},
+    "b_k5": {"value": 13.1, "uncertainty": 0.01},
+    "b_k6": {"value": 9.7, "uncertainty": 0.01},
+    "r_1ms": {"value": 64, "uncertainty": 0.04},
+    "r_10ms": {"value": 95, "uncertainty": 0.01},
+    "c_k4": {"value": 30.8, "uncertainty": 0.02},
+    "c_k6": {"value": 11.1, "uncertainty": 0.03},
+    "m_lat1": {"value": 76, "uncertainty": 0.01},
+    "m_latn": {"value": 94, "uncertainty": 0.01},
+    "j_idle": {"value": 41},
+    "j_load": {"value": 155},
+    "u_k2": {"value": 1.07, "uncertainty": 0.01},
+    "u_k3": {"value": 0.98, "uncertainty": 0.01},
+    "u_k4": {"value": 1.14, "uncertainty": 0.01},
+    "u_k8f": {"value": 2.71, "uncertainty": 0.01},
+    "u_k8i": {"value": 2.05, "uncertainty": 0.01}
+  }
+}

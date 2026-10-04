@@ -250,7 +250,11 @@ static void read_topology(pmk_cpu *cpu) {
 int pal_init(pmk_machine *m) {
   memset(m, 0, sizeof *m);
   struct utsname u;
+#ifdef __ANDROID__
+  snprintf(m->os, sizeof m->os, "android");
+#else
   snprintf(m->os, sizeof m->os, "linux");
+#endif
   if (!uname(&u)) {
     snprintf(m->kernel, sizeof m->kernel, "%s", u.release);
     snprintf(m->isa, sizeof m->isa, "%.15s", u.machine);

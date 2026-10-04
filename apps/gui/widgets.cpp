@@ -2,10 +2,10 @@
 #include "widgets.h"
 
 #include <QKeyEvent>
-#include <QLinearGradient>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
+#include <QSvgRenderer>
 #include <algorithm>
 #include <cmath>
 
@@ -24,36 +24,14 @@ QPointF mousePos(QMouseEvent *e) {
 }  // namespace
 
 QColor seriesColor(int i) {
-  static const QColor fixed[] = {QColor(240, 118, 108), QColor(74, 196, 140), QColor(232, 172, 64), QColor(78, 163, 255)};
+  static const QColor fixed[] = {QColor(240, 118, 108), QColor(74, 196, 140), QColor(139, 108, 255), QColor(78, 163, 255)};
   return i == 0 ? theme().accent : fixed[(i - 1) % 4];
 }
 
 void paintLogo(QPainter &p, const QRectF &r) {
-  p.save();
-  p.setRenderHint(QPainter::Antialiasing);
-  const Theme &t = theme();
+  static QSvgRenderer logo(QStringLiteral(":/prismark.svg"));
   double s = std::min(r.width(), r.height());
-  QPointF o = r.center() - QPointF(s / 2, s / 2);
-  auto at = [&](double x, double y) { return o + QPointF(x * s, y * s); };
-  QPainterPath tri;
-  tri.moveTo(at(0.5, 0.1));
-  tri.lineTo(at(0.9, 0.85));
-  tri.lineTo(at(0.1, 0.85));
-  tri.closeSubpath();
-  QLinearGradient g(at(0.1, 0.1), at(0.9, 0.85));
-  g.setColorAt(0, t.accent);
-  g.setColorAt(1, t.accent2);
-  p.setPen(QPen(QBrush(g), s * 0.07, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-  p.setBrush(Qt::NoBrush);
-  p.drawPath(tri);
-  p.setPen(QPen(t.muted, s * 0.05, Qt::SolidLine, Qt::RoundCap));
-  p.drawLine(at(0.0, 0.58), at(0.36, 0.52));
-  const QColor rays[] = {QColor(240, 118, 108), QColor(74, 196, 140), QColor(78, 163, 255)};
-  for (int i = 0; i < 3; i++) {
-    p.setPen(QPen(rays[i], s * 0.05, Qt::SolidLine, Qt::RoundCap));
-    p.drawLine(at(0.64, 0.52 + 0.04 * i), at(1.0, 0.44 + 0.13 * i));
-  }
-  p.restore();
+  logo.render(&p, QRectF(r.center() - QPointF(s / 2, s / 2), QSizeF(s, s)));
 }
 
 /* ---------- RankingView ---------- */
@@ -158,7 +136,7 @@ void RankingView::paintEvent(QPaintEvent *) {
     p.setPen(Qt::NoPen);
     p.setBrush(r.yours ? t.accent : t.track);
     p.drawEllipse(badge);
-    p.setPen(r.yours ? QColor(Qt::white) : t.muted);
+    p.setPen(r.yours ? t.onAccent : t.muted);
     p.setFont(fRank);
     p.drawText(badge, Qt::AlignCenter, QString::number(i + 1));
 
@@ -199,10 +177,11 @@ void RankingView::paintEvent(QPaintEvent *) {
     if (tagsW && nx + tagsW <= x0 + nameMax + 4) {
       QRectF tr(nx, ty - mSmall.ascent() - 3, tagsW - 6, mSmall.height() + 4);
       p.setPen(Qt::NoPen);
-      p.setBrush(r.tags.contains("placeholder") ? t.warnBg : t.track);
+      bool warn = r.tags.contains("placeholder") || r.tags.contains("did not settle");
+      p.setBrush(warn ? t.warnBg : t.track);
       p.drawRoundedRect(tr, 6, 6);
       p.setFont(fSmall);
-      p.setPen(r.tags.contains("placeholder") ? t.warnText : t.muted);
+      p.setPen(warn ? t.warnText : t.muted);
       p.drawText(tr, Qt::AlignCenter, tagsText);
     }
 
@@ -213,14 +192,7 @@ void RankingView::paintEvent(QPaintEvent *) {
     p.drawRoundedRect(bar, 4.5, 4.5);
     QRectF fill = bar;
     fill.setWidth(std::max(9.0, bar.width() * speed(r.value.v) / top));
-    if (r.yours) {
-      QLinearGradient g(fill.topLeft(), fill.topRight());
-      g.setColorAt(0, t.accent);
-      g.setColorAt(1, t.accent2);
-      p.setBrush(g);
-    } else {
-      p.setBrush(t.ref);
-    }
+    p.setBrush(r.yours ? t.accent : t.ref);
     p.drawRoundedRect(fill, 4.5, 4.5);
     if (r.value.hasCi()) {
       double a = bar.left() + bar.width() * speed(r.value.lo) / top, b = bar.left() + bar.width() * speed(r.value.hi) / top;
@@ -347,14 +319,10 @@ void ChartView::paintEvent(QPaintEvent *) {
       area.lineTo(fx(l.pts.last()[0]), plot.bottom());
       area.lineTo(fx(l.pts.first()[0]), plot.bottom());
       area.closeSubpath();
-      QLinearGradient g(0, plot.top(), 0, plot.bottom());
       QColor a = c;
-      a.setAlpha(70);
-      g.setColorAt(0, a);
-      a.setAlpha(0);
-      g.setColorAt(1, a);
+      a.setAlpha(28);
       p.setPen(Qt::NoPen);
-      p.setBrush(g);
+      p.setBrush(a);
       p.drawPath(area);
     }
     p.setPen(QPen(c, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
@@ -451,11 +419,8 @@ void TestCard::paintEvent(QPaintEvent *) {
   p.setBrush(on ? t.accentSoft : hover_ ? t.raised : t.card);
   p.drawRoundedRect(r, 14, 14);
   if (on) { /* accent edge */
-    QLinearGradient g(r.topLeft(), r.bottomLeft());
-    g.setColorAt(0, t.accent);
-    g.setColorAt(1, t.accent2);
     p.setPen(Qt::NoPen);
-    p.setBrush(g);
+    p.setBrush(t.accent);
     p.drawRoundedRect(QRectF(r.left() + 6, r.top() + 14, 4, r.height() - 28), 2, 2);
   }
   double x = r.left() + 20, right = runRect().left() - 10;
@@ -470,10 +435,7 @@ void TestCard::paintEvent(QPaintEvent *) {
   if (!score_.isEmpty()) {
     p.setFont(uiFont(15, QFont::Bold));
     QFontMetrics fv(p.font());
-    QLinearGradient g(QPointF(x, 0), QPointF(x + fv.horizontalAdvance(score_), 0));
-    g.setColorAt(0, t.accent);
-    g.setColorAt(1, t.accent2);
-    p.setPen(QPen(QBrush(g), 1));
+    p.setPen(t.text);
     double by = r.bottom() - 12;
     p.drawText(QPointF(x, by), score_);
     p.setFont(uiFont(8.5, QFont::Medium));
@@ -489,7 +451,7 @@ void TestCard::paintEvent(QPaintEvent *) {
   p.setPen(QPen(hoverRun_ ? t.accent : t.border, 1));
   p.setBrush(hoverRun_ ? t.accent : t.raised);
   p.drawRoundedRect(b, 10, 10);
-  QColor fg = hoverRun_ ? QColor(Qt::white) : t.text;
+  QColor fg = hoverRun_ ? t.onAccent : t.text;
   QPainterPath tri;
   double cx = b.left() + 18, cy = b.center().y();
   tri.moveTo(cx - 4, cy - 6);
@@ -560,15 +522,12 @@ void Segmented::paintEvent(QPaintEvent *) {
   auto r = rects();
   for (int i = 0; i < r.size(); i++) {
     if (i == cur_) {
-      QLinearGradient g(r[i].topLeft(), r[i].topRight());
-      g.setColorAt(0, t.accent);
-      g.setColorAt(1, t.accent2);
       p.setPen(Qt::NoPen);
-      p.setBrush(g);
+      p.setBrush(t.accent);
       p.drawRoundedRect(r[i], r[i].height() / 2, r[i].height() / 2);
     }
     p.setFont(uiFont(10, QFont::DemiBold));
-    p.setPen(i == cur_ ? QColor(Qt::white) : t.muted);
+    p.setPen(i == cur_ ? t.onAccent : t.muted);
     p.drawText(r[i], Qt::AlignCenter, items_[i]);
   }
 }
@@ -591,10 +550,7 @@ void Toggle::paintEvent(QPaintEvent *) {
   const Theme &t = theme();
   QRectF track(0, height() / 2.0 - 10, 38, 20);
   if (isChecked()) {
-    QLinearGradient g(track.topLeft(), track.topRight());
-    g.setColorAt(0, t.accent);
-    g.setColorAt(1, t.accent2);
-    p.setBrush(g);
+    p.setBrush(t.accent);
     p.setPen(Qt::NoPen);
   } else {
     p.setBrush(t.track);
@@ -602,7 +558,7 @@ void Toggle::paintEvent(QPaintEvent *) {
   }
   p.drawRoundedRect(track, 10, 10);
   p.setPen(Qt::NoPen);
-  p.setBrush(Qt::white);
+  p.setBrush(isChecked() ? t.onAccent : t.muted);
   p.drawEllipse(QPointF(isChecked() ? track.right() - 10 : track.left() + 10, track.center().y()), 7.5, 7.5);
   p.setPen(t.text);
   p.setFont(uiFont(10));
@@ -628,10 +584,7 @@ void StepRing::paintEvent(QPaintEvent *) {
   p.setPen(QPen(t.track, 10, Qt::SolidLine, Qt::RoundCap));
   p.drawArc(r, 0, 360 * 16);
   if (steps_ > 0 && step_ > 0) {
-    QConicalGradient g(r.center(), 90);
-    g.setColorAt(0, t.accent);
-    g.setColorAt(1, t.accent2);
-    p.setPen(QPen(QBrush(g), 10, Qt::SolidLine, Qt::RoundCap));
+    p.setPen(QPen(t.accent, 10, Qt::SolidLine, Qt::RoundCap));
     p.drawArc(r, 90 * 16, -int(360.0 * 16 * std::min(step_, steps_) / steps_));
   }
   p.setPen(t.text);

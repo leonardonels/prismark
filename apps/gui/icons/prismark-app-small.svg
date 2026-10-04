@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Prismark app icon for 32 px and below: four bold rays instead of seven. Copyright 2026 The Prismark Authors. Apache-2.0. -->
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="512" height="512" viewBox="0 0 512 512">
+  <rect x="16" y="16" width="480" height="480" rx="112" ry="112" fill="#1e1c19" stroke="#34312b" stroke-width="4"/>
+  <g transform="translate(56,56) scale(0.78)">
+    <!-- the spectrum: one curved ray per colour, rising and spreading as it leaves the prism -->
+    <path d="M258,261 C360,252 412,118 494,118" stroke="#ff5468" stroke-width="40" stroke-linecap="round" fill="none"/> <!-- red -->
+    <path d="M258,261 C360,258 412,207 494,207" stroke="#ffd84a" stroke-width="40" stroke-linecap="round" fill="none"/> <!-- yellow -->
+    <path d="M258,261 C360,264 412,295 494,295" stroke="#3fc6e0" stroke-width="40" stroke-linecap="round" fill="none"/> <!-- cyan -->
+    <path d="M258,261 C360,270 412,384 494,384" stroke="#8b6cff" stroke-width="40" stroke-linecap="round" fill="none"/> <!-- violet -->
+    <!-- the white beam, with a faint dark outline so it also shows on light backgrounds, and its path through the glass -->
+    <path d="M18,316 L129,276" stroke="#1c1a16" stroke-opacity="0.35" stroke-width="42" stroke-linecap="round" fill="none"/>
+    <path d="M18,316 L129,276" stroke="#ffffff" stroke-width="32" stroke-linecap="round" fill="none"/>
+    <path d="M129,276 L258,261" stroke="#ffffff" stroke-opacity="0.45" stroke-width="19" stroke-linecap="round" fill="none"/>
+    <!-- the prism -->
+    <path d="M196,96 L308,396 L84,396 Z" fill="none" stroke="#e8a33c" stroke-width="40" stroke-linejoin="round"/>
+  </g>
+</svg>

@@ -6,8 +6,6 @@
  * Threaded runs share each job: workers take tasks from a common counter and
  * the leader (worker 0) starts the next job only when every task of the
  * current one is done, as a renderer finishes a frame before the next.
- * Instance runs give every worker its own copy of the inputs and let it run
- * jobs back to back, with no coordination at all.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
@@ -79,7 +77,6 @@ typedef struct worker {
   shared *sh;
   int index;
   int cpu;
-  const void *inst; /* instances mode: this copy's inputs */
   pal_thread *th;
 } worker;
 
@@ -167,32 +164,6 @@ static void *threaded_main(void *arg) {
   return NULL;
 }
 
-static void *instance_main(void *arg) {
-  worker *wk = arg;
-  shared *sh = wk->sh;
-  if (wk->cpu >= 0) pal_pin_self(wk->cpu);
-  const void *inst = wk->inst;
-  void *scratch = inst && sh->tk->scratch_new ? sh->tk->scratch_new(inst) : NULL;
-  if (!inst || (sh->tk->scratch_new && !scratch)) {
-    atomic_store(&sh->failed, 1);
-    atomic_store(&sh->stop, 1);
-  } else {
-    size_t n = sh->tk->ntasks(inst);
-    while (!atomic_load(&sh->stop) && !ctx_cancelled()) {
-      uint64_t t0 = pal_now_raw_ns(), acc = 0;
-      size_t i;
-      for (i = 0; i < n && !atomic_load_explicit(&sh->stop, memory_order_relaxed); i++) {
-        if (wk->index == 0) atomic_store_explicit(&sh->cpu0, pal_current_cpu(), memory_order_relaxed);
-        acc = pmk_job_combine(acc, i, sh->tk->task(inst, scratch, i));
-        account(sh, wk->index, sh->tk->task_work(inst, i));
-      }
-      if (i == n && wk->index == 0) record_job(sh, pal_now_raw_ns() - t0, acc);
-    }
-  }
-  if (scratch && sh->tk->scratch_free) sh->tk->scratch_free(scratch);
-  return NULL;
-}
-
 /* Decides, after each window, whether the run has reached steady state (spec 9.3). */
 static int steady_now(pmk_ctx *c, pmk_result *r, double elapsed_s, double win_s) {
   size_t nw = r->n;
@@ -245,12 +216,6 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   int rc = PMK_OK;
   if (!sh->work || !sh->lock) rc = PMK_ERR_NOMEM;
 
-  /* Instances: copy 0 uses the given inputs, every other copy gets its own, created before timing starts. */
-  for (int i = 0; i < s->nthreads && rc == PMK_OK; i++) {
-    wk[i].inst = s->inst;
-    if (s->instances && i > 0 && !(wk[i].inst = wl_create(c, tk, wl_size_for(c, tk), r->mode))) rc = PMK_ERR_SYSTEM;
-  }
-
   int started = 0;
   if (rc == PMK_OK) {
     pal_unpin_self(); /* the monitor (this thread) runs wherever the OS has room */
@@ -260,7 +225,7 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
       wk[i].sh = sh;
       wk[i].index = i;
       wk[i].cpu = s->cpus && ctx_can_place(c) ? s->cpus[i] : -1;
-      wk[i].th = pal_thread_start(s->instances ? instance_main : threaded_main, &wk[i]);
+      wk[i].th = pal_thread_start(threaded_main, &wk[i]);
       if (!wk[i].th) {
         atomic_store(&sh->stop, 1);
         rc = PMK_ERR_SYSTEM;
@@ -317,8 +282,6 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   r->checksum_ok = sh->checksum_set && !sh->checksum_bad;
   if (rc == PMK_OK && sh->checksum_bad)
     ctx_emit(c, PMK_EV_WARNING, r->mode, tk->id, 0, 0, "%s: jobs produced different checksums", tk->id);
-  for (int i = 1; i < s->nthreads; i++)
-    if (s->instances && wk[i].inst) tk->destroy((void *)wk[i].inst);
   pal_lock_free(sh->lock);
   free(sh->work);
   free(sh);

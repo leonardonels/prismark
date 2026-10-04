@@ -7,8 +7,8 @@
  *                 ISA-uplift series (K2, K3, K4, K8 at both tiers)
  *   MC threaded   scaling of multithreaded software: K1, K2 (and K1x) at
  *                 n = 1, 2, 4, ..., all CPUs, each run sustained
- *   MC instances  hardware ceiling without coordination: n copies of K2;
- *                 K7 latency under contention
+ *   MC instances  memory latency under contention: K7 while n - 1 other
+ *                 copies chase memory on the other CPUs
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
@@ -111,8 +111,7 @@ int mode_st_burst(pmk_ctx *c) {
 
 /* One sustained run of tk at the given tier on nthreads CPUs. */
 static int sustained_series(pmk_ctx *c, const char *mode, const pmk_tk *tk, const pmk_kernels *k,
-                            const char *purpose, int type, const int *cpus, int nthreads, int instances,
-                            const void *inst) {
+                            const char *purpose, int type, const int *cpus, int nthreads, const void *inst) {
   ctx_cooldown(c, mode);
   pmk_result *r = ctx_new_result(c, tk->id, mode, tk->unit);
   if (!r) return PMK_ERR_NOMEM;
@@ -120,7 +119,7 @@ static int sustained_series(pmk_ctx *c, const char *mode, const pmk_tk *tk, cons
   r->purpose = purpose;
   r->type = type;
   r->cpu = nthreads == 1 ? cpus[0] : -1;
-  sus_spec s = {tk, inst, nthreads, instances, cpus, nthreads > 1 && !instances ? 3 : 1};
+  sus_spec s = {tk, inst, nthreads, cpus, nthreads > 1 ? 3 : 1};
   return wl_sustained(c, &s, r);
 }
 
@@ -131,7 +130,7 @@ static int st_sustained_kernel(pmk_ctx *c, const pmk_tk *tk, const pmk_kernels *
   if (!inst) return PMK_OK;
   ctx_emit(c, PMK_EV_PHASE, "st_sustained", tk->id, step, steps, "%s%s, tier %s (%s), core %s (CPU %d)", tk->name,
            purpose ? " for ISA uplift" : "", k->tier, k->level, c->m.type_names[type], cpu);
-  int rc = sustained_series(c, "st_sustained", tk, k, purpose, type, &cpu, 1, 0, inst);
+  int rc = sustained_series(c, "st_sustained", tk, k, purpose, type, &cpu, 1, inst);
   tk->destroy(inst);
   return rc;
 }
@@ -218,7 +217,7 @@ int mode_mc_threaded(pmk_ctx *c) {
       int n = steps[sorder[si]];
       ctx_emit(c, PMK_EV_PHASE, "mc_threaded", tk->id, (uint32_t)si + 1, (uint32_t)nsteps, "%s, %d thread%s",
                tk->name, n, n == 1 ? "" : "s");
-      rc = sustained_series(c, "mc_threaded", tk, c->k, NULL, ctx_type_of_cpu(c, cpus[0]), cpus, n, 0, inst);
+      rc = sustained_series(c, "mc_threaded", tk, c->k, NULL, ctx_type_of_cpu(c, cpus[0]), cpus, n, inst);
     }
     tk->destroy(inst);
   }
@@ -339,29 +338,7 @@ int mode_mc_instances(pmk_ctx *c) {
   ctx_cpu_order(c, cpus);
   int steps[MAX_STEPS];
   int nsteps = ctx_thread_steps(c, steps, MAX_STEPS);
-  int rc = PMK_OK;
-
-  int do_k2_first = (int)pmk_rng_below(&c->rng, 2);
-  for (int part = 0; part < 2 && rc == PMK_OK; part++) {
-    if ((part == 0) != do_k2_first) {
-      rc = k7_series(c, cpus, steps, nsteps);
-      continue;
-    }
-    if (!ctx_kernel_selected(c, "K2")) continue;
-    const pmk_tk *tk = pmk_find_tk(c->k, "K2", NULL);
-    void *inst = tk ? wl_create(c, tk, PMK_SIZE_FULL, "mc_instances") : NULL;
-    if (!inst) continue;
-    int sorder[MAX_STEPS];
-    for (int i = 0; i < nsteps; i++) sorder[i] = i;
-    ctx_shuffle(&c->rng, sorder, nsteps);
-    for (int si = 0; si < nsteps && rc == PMK_OK; si++) {
-      int n = steps[sorder[si]];
-      ctx_emit(c, PMK_EV_PHASE, "mc_instances", "K2", (uint32_t)si + 1, (uint32_t)nsteps, "%s, %d cop%s", tk->name,
-               n, n == 1 ? "y" : "ies");
-      rc = sustained_series(c, "mc_instances", tk, c->k, NULL, ctx_type_of_cpu(c, cpus[0]), cpus, n, 1, inst);
-    }
-    tk->destroy(inst);
-  }
+  int rc = k7_series(c, cpus, steps, nsteps);
   free(cpus);
   return rc;
 }

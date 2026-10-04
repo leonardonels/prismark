@@ -1,4 +1,6 @@
-# K1 — in-process compile with Clang/LLVM linked as a library (desktop only).
+# K1 — in-process compile with Clang/LLVM linked as a library. Offered on desktops and iPads, not on
+# phones (the engine leaves it out of their test set). iOS/iPadOS builds need an LLVM built for iOS,
+# given with PRISMARK_K1_LLVM_DIR; the host's LLVM is never used there.
 #
 # Needs the Clang and LLVM CMake packages (e.g. libclang-19-dev and
 # llvm-19-dev from apt.llvm.org). For official results LLVM itself is built
@@ -13,11 +15,15 @@ set(PRISMARK_K1_LLVM_DIR "" CACHE PATH "Prefix of the LLVM/Clang installation us
 set(PRISMARK_K1_LLVM_MAJOR 19)
 set(PRISMARK_HAVE_K1 OFF)
 
-if(PRISMARK_DESKTOP AND NOT PRISMARK_K1 STREQUAL "OFF")
+if((PRISMARK_DESKTOP OR (IOS AND PRISMARK_K1_LLVM_DIR)) AND NOT PRISMARK_K1 STREQUAL "OFF")
   # Probe for the headers first: distributions often ship the Clang CMake package without them,
   # and a partial package fails inside find_package.
-  set(_k1_prefixes ${PRISMARK_K1_LLVM_DIR} /usr/lib/llvm-${PRISMARK_K1_LLVM_MAJOR}
-    /opt/homebrew/opt/llvm@${PRISMARK_K1_LLVM_MAJOR} /usr/local/opt/llvm@${PRISMARK_K1_LLVM_MAJOR})
+  if(IOS)
+    set(_k1_prefixes ${PRISMARK_K1_LLVM_DIR})
+  else()
+    set(_k1_prefixes ${PRISMARK_K1_LLVM_DIR} /usr/lib/llvm-${PRISMARK_K1_LLVM_MAJOR}
+      /opt/homebrew/opt/llvm@${PRISMARK_K1_LLVM_MAJOR} /usr/local/opt/llvm@${PRISMARK_K1_LLVM_MAJOR})
+  endif()
   find_path(PRISMARK_K1_INCLUDE clang/Frontend/CompilerInstance.h PATHS ${_k1_prefixes} PATH_SUFFIXES include
     NO_DEFAULT_PATH)
   if(PRISMARK_K1_INCLUDE)

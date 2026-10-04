@@ -1,0 +1,36 @@
+{
+  "schema": "prismark-reference/1",
+  "placeholder": true,
+  "name": "Laptop x86-64, 8 cores / 16 threads",
+  "machine": {
+    "os": "linux",
+    "isa": "x86_64",
+    "cpus": 16,
+    "types": "16×P"
+  },
+  "newest_instructions": "x86-64-v4",
+  "results": {
+    "mc_k2": {"value": 38.5, "uncertainty": 0.03},
+    "mc_k1": {"value": 78, "uncertainty": 0.03},
+    "mc_k1x": {"value": 342, "uncertainty": 0.03},
+    "st_k2": {"value": 3.6, "uncertainty": 0.01},
+    "st_k1": {"value": 8.1, "uncertainty": 0.01},
+    "b_k3": {"value": 12.9, "uncertainty": 0.01},
+    "b_k4": {"value": 34.5, "uncertainty": 0.01},
+    "b_k5": {"value": 16.4, "uncertainty": 0.01},
+    "b_k6": {"value": 12.3, "uncertainty": 0.01},
+    "r_1ms": {"value": 57, "uncertainty": 0.05},
+    "r_10ms": {"value": 93, "uncertainty": 0.01},
+    "c_k4": {"value": 36.9, "uncertainty": 0.03},
+    "c_k6": {"value": 13.6, "uncertainty": 0.03},
+    "m_lat1": {"value": 97, "uncertainty": 0.01},
+    "m_latn": {"value": 108, "uncertainty": 0.01},
+    "j_idle": {"value": 260},
+    "j_load": {"value": 1880},
+    "u_k2": {"value": 1.05, "uncertainty": 0.01},
+    "u_k3": {"value": 0.96, "uncertainty": 0.01},
+    "u_k4": {"value": 1.12, "uncertainty": 0.01},
+    "u_k8f": {"value": 2.9, "uncertainty": 0.01},
+    "u_k8i": {"value": 1.97, "uncertainty": 0.01}
+  }
+}

@@ -14,7 +14,7 @@
 struct Theme {
   bool dark;
   QColor bg, card, raised, border, text, muted, faint;
-  QColor accent, accent2, accentSoft, ref, track;
+  QColor accent, onAccent, accentSoft, ref, track; /* onAccent: text and marks drawn on an accent fill */
   QColor warnBg, warnText, good, bad;
 };
 

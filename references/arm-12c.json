@@ -1,0 +1,36 @@
+{
+  "schema": "prismark-reference/1",
+  "placeholder": true,
+  "name": "Embedded ARM64, 12 cores",
+  "machine": {
+    "os": "linux",
+    "isa": "aarch64",
+    "cpus": 12,
+    "types": "12×P"
+  },
+  "newest_instructions": "armv8.2-a+dotprod+fp16",
+  "results": {
+    "mc_k2": {"value": 15.8, "uncertainty": 0.02},
+    "mc_k1": {"value": 29, "uncertainty": 0.02},
+    "mc_k1x": {"value": 915, "uncertainty": 0.02},
+    "st_k2": {"value": 1.45, "uncertainty": 0.01},
+    "st_k1": {"value": 2.9, "uncertainty": 0.01},
+    "b_k3": {"value": 31.2, "uncertainty": 0.01},
+    "b_k4": {"value": 88, "uncertainty": 0.01},
+    "b_k5": {"value": 36.5, "uncertainty": 0.01},
+    "b_k6": {"value": 29.4, "uncertainty": 0.01},
+    "r_1ms": {"value": 71, "uncertainty": 0.03},
+    "r_10ms": {"value": 97, "uncertainty": 0.01},
+    "c_k4": {"value": 91.5, "uncertainty": 0.02},
+    "c_k6": {"value": 31.8, "uncertainty": 0.02},
+    "m_lat1": {"value": 128, "uncertainty": 0.01},
+    "m_latn": {"value": 141, "uncertainty": 0.01},
+    "j_idle": {"value": 62},
+    "j_load": {"value": 240},
+    "u_k2": {"value": 1.01, "uncertainty": 0.01},
+    "u_k3": {"value": 1, "uncertainty": 0.01},
+    "u_k4": {"value": 1.02, "uncertainty": 0.01},
+    "u_k8f": {"value": 1.03, "uncertainty": 0.01},
+    "u_k8i": {"value": 3.4, "uncertainty": 0.01}
+  }
+}

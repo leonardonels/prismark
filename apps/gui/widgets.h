@@ -19,12 +19,12 @@
 
 class QPainter;
 
-/* The Prismark mark: a prism splitting a beam into three. */
+/* The Prismark logo (apps/gui/icons/prismark.svg), drawn from vectors into the largest square that fits r. */
 void paintLogo(QPainter &p, const QRectF &r);
 
 struct RankRow {
   QString runId, name, detail;
-  QStringList tags; /* "placeholder", "quick", "partial", "latest", "reference" */
+  QStringList tags; /* "placeholder", "quick", "partial", "latest", "reference", "did not settle" */
   bool yours = false;
   Value value;
 };

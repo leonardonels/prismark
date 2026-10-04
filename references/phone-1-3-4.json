@@ -1,0 +1,33 @@
+{
+  "schema": "prismark-reference/1",
+  "placeholder": true,
+  "name": "Phone ARM64, 1 + 3 + 4 cores",
+  "machine": {
+    "os": "android",
+    "isa": "aarch64",
+    "cpus": 8,
+    "types": "1×P + 3×M + 4×E"
+  },
+  "newest_instructions": "armv9-a+sve2",
+  "results": {
+    "mc_k2": {"value": 14.2, "uncertainty": 0.05},
+    "st_k2": {"value": 3.1, "uncertainty": 0.03},
+    "b_k3": {"value": 14.4, "uncertainty": 0.02},
+    "b_k4": {"value": 36.1, "uncertainty": 0.02},
+    "b_k5": {"value": 17.9, "uncertainty": 0.02},
+    "b_k6": {"value": 12.8, "uncertainty": 0.02},
+    "r_1ms": {"value": 38, "uncertainty": 0.08},
+    "r_10ms": {"value": 82, "uncertainty": 0.03},
+    "c_k4": {"value": 52.4, "uncertainty": 0.06},
+    "c_k6": {"value": 21.5, "uncertainty": 0.06},
+    "m_lat1": {"value": 165, "uncertainty": 0.01},
+    "m_latn": {"value": 190, "uncertainty": 0.01},
+    "j_idle": {"value": 1450},
+    "j_load": {"value": 4100},
+    "u_k2": {"value": 1.02, "uncertainty": 0.01},
+    "u_k3": {"value": 1, "uncertainty": 0.01},
+    "u_k4": {"value": 1.06, "uncertainty": 0.01},
+    "u_k8f": {"value": 1.12, "uncertainty": 0.01},
+    "u_k8i": {"value": 2.8, "uncertainty": 0.01}
+  }
+}

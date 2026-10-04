@@ -102,8 +102,6 @@ function rresp(wms) {
 const METRICS = [
   { id: 'mc_k2', group: 'mc', name: 'Render', sub: 'K2 path tracer · MC threaded · all threads', unit: 'Msamples/s', better: 'higher',
     desc: 'Steady-state throughput of the path tracer with every hardware thread sharing each frame.', get: throughput('K2', 'mc_threaded') },
-  { id: 'mci_k2', group: 'mc', name: 'Render, instances', sub: 'K2 · MC instances · all copies', unit: 'Msamples/s', better: 'higher',
-    desc: 'Independent copies, one per thread: the hardware ceiling without software coordination.', get: throughput('K2', 'mc_instances') },
   { id: 'mc_k1', group: 'mc', name: 'Compile', sub: 'K1 in-process Clang · MC threaded', unit: 'builds/h', better: 'higher',
     desc: 'Compiling the K1x translation units in memory on every thread. Desktop only.', get: throughput('K1', 'mc_threaded') },
   { id: 'mc_k1x', group: 'mc', name: 'Full build', sub: 'K1x CMake + Ninja · all threads', unit: 's', better: 'lower',
