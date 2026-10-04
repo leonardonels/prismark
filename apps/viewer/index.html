@@ -1,0 +1,63 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Prismark Viewer</title>
+  <meta name="description" content="Per-kernel CPU benchmark results from Prismark, ranked per test. No composite score.">
+  <link rel="stylesheet" href="style.css">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Cpath d='M16 3 29 27H3z' fill='none' stroke='%237c8cff' stroke-width='3'/%3E%3C/svg%3E">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">
+      <svg viewBox="0 0 32 32" aria-hidden="true"><path d="M16 3 29 27H3z"/><path class="beam" d="M0 18h11"/><path class="r1" d="M21 15l11-4"/><path class="r2" d="M22 18h10"/><path class="r3" d="M21 21l11 4"/></svg>
+      <div>
+        <h1>Prismark</h1>
+        <p>Per-kernel results. Each test is ranked on its own; there is no composite score.</p>
+      </div>
+    </div>
+    <div class="actions">
+      <label class="btn" title="Load one or more prismark-*.json result files">
+        <input type="file" id="file" accept=".json,application/json" multiple hidden>
+        Load results
+      </label>
+    </div>
+  </header>
+
+  <div class="banner" id="placeholderBanner">
+    Reference systems shown here use <strong>placeholder values</strong>, not measurements. Real reference results will replace them.
+  </div>
+
+  <main class="layout">
+    <section class="panel tests" aria-label="Tests">
+      <nav class="tabs" id="tabs" role="tablist"></nav>
+      <ul class="test-list" id="testList"></ul>
+    </section>
+
+    <section class="panel ranking" aria-label="Ranking">
+      <div class="ranking-head">
+        <div>
+          <h2 id="testTitle">Select a test</h2>
+          <p id="testDesc" class="muted"></p>
+        </div>
+        <div class="legend">
+          <span><i class="sw you"></i>Your results</span>
+          <span><i class="sw ref"></i>Reference (placeholder)</span>
+        </div>
+      </div>
+      <ol class="bars" id="bars"></ol>
+      <p class="muted small" id="rankNote"></p>
+    </section>
+
+    <section class="panel details" aria-label="Run details" id="details">
+      <p class="muted">Select a result to see its machine state, capabilities and curves.</p>
+    </section>
+  </main>
+
+  <div class="drop" id="drop" hidden><div>Drop result files to add them</div></div>
+
+  <script src="references.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,139 @@
+{
+  "version": 6,
+  "cmakeMinimumRequired": {
+    "major": 3,
+    "minor": 25,
+    "patch": 0
+  },
+  "configurePresets": [
+    {
+      "name": "linux-clang",
+      "displayName": "Linux, pinned upstream Clang",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/linux-clang.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "dev",
+      "displayName": "Development, any compiler (unverified results)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      }
+    },
+    {
+      "name": "windows-clang",
+      "displayName": "Windows, pinned upstream Clang",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/windows-clang.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Windows"
+      }
+    },
+    {
+      "name": "macos-clang",
+      "displayName": "macOS, pinned upstream Clang (Homebrew llvm@19)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/macos-clang.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release"
+      },
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    },
+    {
+      "name": "android-arm64",
+      "displayName": "Android ARM64 (NDK Clang, fallback toolchain)",
+      "generator": "Ninja",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/android-arm64.cmake",
+      "cacheVariables": {
+        "CMAKE_BUILD_TYPE": "Release",
+        "BUILD_TESTING": "OFF"
+      }
+    },
+    {
+      "name": "ios-arm64",
+      "displayName": "iOS/iPadOS ARM64 (static libraries)",
+      "generator": "Xcode",
+      "binaryDir": "${sourceDir}/build/${presetName}",
+      "toolchainFile": "${sourceDir}/cmake/toolchains/ios-arm64.cmake",
+      "condition": {
+        "type": "equals",
+        "lhs": "${hostSystemName}",
+        "rhs": "Darwin"
+      }
+    }
+  ],
+  "buildPresets": [
+    {
+      "name": "linux-clang",
+      "configurePreset": "linux-clang"
+    },
+    {
+      "name": "dev",
+      "configurePreset": "dev"
+    },
+    {
+      "name": "windows-clang",
+      "configurePreset": "windows-clang"
+    },
+    {
+      "name": "macos-clang",
+      "configurePreset": "macos-clang"
+    },
+    {
+      "name": "android-arm64",
+      "configurePreset": "android-arm64"
+    },
+    {
+      "name": "ios-arm64",
+      "configurePreset": "ios-arm64",
+      "configuration": "Release"
+    }
+  ],
+  "testPresets": [
+    {
+      "name": "linux-clang",
+      "configurePreset": "linux-clang",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "dev",
+      "configurePreset": "dev",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "windows-clang",
+      "configurePreset": "windows-clang",
+      "output": {
+        "outputOnFailure": true
+      }
+    },
+    {
+      "name": "macos-clang",
+      "configurePreset": "macos-clang",
+      "output": {
+        "outputOnFailure": true
+      }
+    }
+  ]
+}

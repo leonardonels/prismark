@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Prismark
+Comment=Vendor-neutral CPU benchmark: per-kernel results, no composite score
+Exec=prismark-gui
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Utility;

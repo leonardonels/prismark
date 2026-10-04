@@ -1,0 +1,28 @@
+# build trees
+docs/
+build/
+compile_commands.json
+.cache/
+
+# results of local runs
+prismark-*.json
+results/
+
+# Python
+__pycache__/
+*.egg-info/
+.venv/
+
+# Swift / Apple
+bindings/swift/Prismark.xcframework/
+bindings/swift/.build/
+bindings/swift/.swiftpm/
+.DS_Store
+
+# editors
+.vscode/
+.idea/
+*.swp
+
+# LLVM's apt installer, downloaded by the README's setup step (not part of Prismark)
+/llvm.sh

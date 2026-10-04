@@ -1,0 +1,72 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+# Build, unit tests and the cross-ISA checksum gate. Shared runners are too
+# noisy for timing; performance is measured on controlled hardware.
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+    runs-on: ${{ matrix.runner }}
+    env:
+      CLANG_VERSION: "19"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pinned Clang and Ninja
+        run: |
+          wget -q https://apt.llvm.org/llvm.sh
+          sudo bash llvm.sh "$CLANG_VERSION"
+          sudo apt-get install -y ninja-build
+          cmake --version
+
+      - name: Configure
+        run: cmake --preset linux-clang -DPRISMARK_CLANG_VERSION="$CLANG_VERSION"
+
+      - name: Build
+        run: cmake --build --preset linux-clang
+
+      - name: Unit tests
+        run: ctest --preset linux-clang
+
+      - name: Kernel checksums
+        run: ./build/linux-clang/prismark checksums -o checksums-$(uname -m).json
+
+      - name: Smoke run (results not meaningful on shared runners)
+        run: >
+          ./build/linux-clang/prismark --quick --skip-preflight --max-threads 2
+          --mode st_burst,st_sustained,mc_threaded --kernels K2,K3,K5 -o smoke.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: checksums-${{ matrix.runner }}
+          path: checksums-*.json
+
+  # Gate 2: kernel outputs identical on x86-64 and ARM64.
+  checksum-gate:
+    needs: build
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: checksums-*
+          merge-multiple: true
+      - name: Compare checksums across ISAs
+        run: python3 tools/ci/compare_checksums.py checksums-x86_64.json checksums-aarch64.json
+
+  python:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v6
+      - name: Analyzer and tools compile
+        run: |
+          python3 -m py_compile tools/k1x/prepare.py tools/ci/compare_checksums.py
+          cd analyzer && uv run --with . python -c "import prismark_analyzer"
