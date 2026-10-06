@@ -109,7 +109,35 @@ int mode_st_burst(pmk_ctx *c) {
 
 /* ---------- sustained series ---------- */
 
-/* One sustained run of tk at the given tier on nthreads CPUs. */
+/*
+ * A mode's warm-up: cfg.warmup_s of 3D rendering (K2) at the mode's full load, so its series start with the
+ * machine as hot (and as slow) as sustained use makes it. The same load whatever tests are selected, so every
+ * run warms up identically. It is recorded as a series with purpose "warmup", never scored: its R_throttle
+ * (last windows against the first) is how much slower the machine gets once hot.
+ */
+static int mode_warm_up(pmk_ctx *c, const char *mode, const int *cpus, int nthreads) {
+  if (!(c->cfg.warmup_s > 0)) return PMK_OK;
+  const pmk_tk *tk = pmk_find_tk(c->k, "K2", NULL);
+  if (!tk) return PMK_OK;
+  void *inst = wl_create(c, tk, PMK_SIZE_FULL, mode);
+  if (!inst) return PMK_OK;
+  ctx_emit(c, PMK_EV_PHASE, mode, NULL, 0, 0, "warming up: %.0f s of full load on %d thread%s (not scored)",
+           c->cfg.warmup_s, nthreads, nthreads == 1 ? "" : "s");
+  int rc = PMK_ERR_NOMEM;
+  pmk_result *r = ctx_new_result(c, tk->id, mode, tk->unit);
+  if (r) {
+    set_tk_fields(r, tk, c->k, "full");
+    r->purpose = "warmup";
+    r->type = ctx_type_of_cpu(c, cpus[0]);
+    r->cpu = nthreads == 1 ? cpus[0] : -1;
+    sus_spec s = {tk, inst, nthreads, cpus, c->cfg.warmup_s, 1};
+    rc = wl_sustained(c, &s, r);
+  }
+  tk->destroy(inst);
+  return rc;
+}
+
+/* One sustained run of tk at the given tier on nthreads CPUs: a short settle, then the measurement. */
 static int sustained_series(pmk_ctx *c, const char *mode, const pmk_tk *tk, const pmk_kernels *k,
                             const char *purpose, int type, const int *cpus, int nthreads, const void *inst) {
   ctx_cooldown(c, mode);
@@ -119,7 +147,7 @@ static int sustained_series(pmk_ctx *c, const char *mode, const pmk_tk *tk, cons
   r->purpose = purpose;
   r->type = type;
   r->cpu = nthreads == 1 ? cpus[0] : -1;
-  sus_spec s = {tk, inst, nthreads, cpus, nthreads > 1 ? 3 : 1};
+  sus_spec s = {tk, inst, nthreads, cpus, c->cfg.settle_s, 0};
   return wl_sustained(c, &s, r);
 }
 
@@ -175,6 +203,10 @@ int mode_st_sustained(pmk_ctx *c) {
   for (int i = 0; i < nj; i++) order[i] = i;
   ctx_shuffle(&c->rng, order, nj);
   int rc = PMK_OK;
+  if (nj > 0) {
+    int cpu = ctx_cpu_for_type(c, jobs[order[0]].type);
+    rc = mode_warm_up(c, "st_sustained", &cpu, 1);
+  }
   for (int i = 0; i < nj && rc == PMK_OK; i++) {
     const job *j = &jobs[order[i]];
     rc = st_sustained_kernel(c, j->tk, j->k, j->purpose, j->type, (uint32_t)i + 1, (uint32_t)nj);
@@ -191,7 +223,7 @@ int mode_mc_threaded(pmk_ctx *c) {
   int steps[MAX_STEPS];
   int nsteps = ctx_thread_steps(c, steps, MAX_STEPS);
 
-  int rc = PMK_OK;
+  int rc = mode_warm_up(c, "mc_threaded", cpus, steps[nsteps - 1]); /* at the largest n: every thread */
   int korder[COUNT(THREADED_KERNELS) + 1];
   int nk = COUNT(THREADED_KERNELS) + 1; /* the last entry is K1x */
   for (int i = 0; i < nk; i++) korder[i] = i;
@@ -201,7 +233,11 @@ int mode_mc_threaded(pmk_ctx *c) {
     for (int i = 0; i < nsteps; i++) sorder[i] = i;
     ctx_shuffle(&c->rng, sorder, nsteps);
     if (korder[ki] == COUNT(THREADED_KERNELS)) {
-      if (ctx_kernel_selected(c, "K1x")) rc = k1x_run(c, steps, nsteps, sorder);
+      /* Full builds are minutes each: only at the largest n (all threads), where R_build is reported. */
+      if (ctx_kernel_selected(c, "K1x")) {
+        int largest = 0;
+        rc = k1x_run(c, &steps[nsteps - 1], 1, &largest);
+      }
       continue;
     }
     const char *id = THREADED_KERNELS[korder[ki]];
@@ -215,6 +251,7 @@ int mode_mc_threaded(pmk_ctx *c) {
     if (!inst) continue;
     for (int si = 0; si < nsteps && rc == PMK_OK; si++) {
       int n = steps[sorder[si]];
+      if (!strcmp(tk->id, "K1") && !ctx_memory_allows(c, tk->id, n, PMK_COMPILE_MEM_PER_THREAD)) continue;
       ctx_emit(c, PMK_EV_PHASE, "mc_threaded", tk->id, (uint32_t)si + 1, (uint32_t)nsteps, "%s, %d thread%s",
                tk->name, n, n == 1 ? "" : "s");
       rc = sustained_series(c, "mc_threaded", tk, c->k, NULL, ctx_type_of_cpu(c, cpus[0]), cpus, n, inst);

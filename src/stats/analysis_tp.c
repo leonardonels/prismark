@@ -123,7 +123,9 @@ static void add_ratio(pmk_analysis_tp *a, const char *name, const pmk_result *r,
 }
 
 static void add_checksum(pmk_analysis_tp *a, const pmk_result *r) {
-  if (!r->input_hash) return;
+  /* A fixed-length series of a slow kernel (K1: one job is a whole build) may finish no job, so it has no job
+     checksum; `prismark checksums` verifies those kernels' output instead. */
+  if (!r->input_hash || (r->windowed && !r->job_ns.n)) return;
   for (size_t i = 0; i < a->nsums; i++) {
     sum_row *s = &a->sums[i];
     if (strcmp(s->kernel, r->kernel) || !same_str(s->variant, r->variant) || !same_str(s->size, r->size) ||
@@ -204,7 +206,7 @@ void analysis_tp_compute(pmk_ctx *c) {
   /* Scaling against n = 1 of the same kernel (MC threaded). */
   for (size_t i = 0; i < c->nres; i++) {
     const pmk_result *r = &c->res[i];
-    if (strcmp(r->mode, "mc_threaded") || r->n == 0) continue;
+    if (strcmp(r->mode, "mc_threaded") || r->n == 0 || r->purpose) continue; /* not the warm-up */
     const pmk_result *one = find(c, r->kernel, "mc_threaded", NULL, 1, NULL, NULL);
     if (!one) continue;
     scale_row *s = &a->sc[a->nsc++];
@@ -231,12 +233,20 @@ void analysis_tp_compute(pmk_ctx *c) {
     const pmk_result *r = &c->res[i];
     if (r->n == 0) continue;
     const char *core = c->m.type_names[r->type];
-    /* R_build(n) = T_K1x(n) / T_K1(n), identical translation units. */
-    if (!strcmp(r->mode, "mc_threaded") && !strcmp(r->kernel, "K1x")) {
+    /* R_build(n) = T_K1x(n) / T_K1(n) for the same share of the compile work: K1's measured windows are in
+       whole builds per hour, so each gives T_K1 = work_fraction * 1 h / perf for the units K1x builds. */
+    if (!strcmp(r->mode, "mc_threaded") && !strcmp(r->kernel, "K1x") && r->work_fraction > 0) {
       const pmk_result *k1 = find(c, "K1", "mc_threaded", NULL, r->nthreads, NULL, NULL);
-      if (k1 && k1->job_ns.n && r->size && k1->size && !strcmp(r->size, k1->size)) /* same units */
-        add_ratio(a, "R_build", r, r->nthreads, core,
-                  pmk_boot_median_ratio(r->samples, r->n, k1->job_ns.v, k1->job_ns.n, PMK_BOOT_B, rng));
+      if (k1 && r->size && k1->size && !strcmp(r->size, k1->size)) { /* same run kind (quick or full) */
+        size_t nk;
+        const double *w = steady_set(k1, &nk);
+        double *t = malloc((nk ? nk : 1) * sizeof *t);
+        size_t m = 0;
+        for (size_t j = 0; t && j < nk; j++)
+          if (w[j] > 0) t[m++] = r->work_fraction * 3600e9 / w[j];
+        if (m) add_ratio(a, "R_build", r, r->nthreads, core, pmk_boot_median_ratio(r->samples, r->n, t, m, PMK_BOOT_B, rng));
+        free(t);
+      }
     }
     /* U_ISA = perf_max / perf_baseline under ST sustained conditions. */
     if (r->purpose && !strcmp(r->purpose, "isa_uplift") && !strcmp(r->k->tier, "max")) {
@@ -315,6 +325,8 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
       jw_num(w, "tau_s", r->tau_s);
       jw_num(w, "elapsed_s", r->elapsed_s);
       jw_num(w, "perf_ci_rel", (row->perf.hi - row->perf.lo) / 2 / row->perf.est);
+      jw_int(w, "clamped_windows", r->clamped);
+      jw_num(w, "clamped_lowest_mhz", r->lowest_mhz);
     } else {
       jw_str(w, "unit", r->unit);
       ci_json(w, "median", row->med);

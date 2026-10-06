@@ -118,6 +118,13 @@ const pmk_kernels *pal_load_tier(const char *tier, char *err, size_t errlen);
  * returns true. Returns the exit status, or -1 if the process could not run.
  */
 int pal_run(const char *const *argv, const char *cwd, const char *log_path, int (*cancelled)(void));
+/*
+ * Memory a new allocation can get without swapping, in bytes (Linux: MemAvailable, after returning the
+ * process's own unused heap to the OS); 0 when the OS does not say.
+ */
+uint64_t pal_mem_available(void);
+/* Current clock of a CPU in kHz as the OS reports it (averaged over a short interval); 0 if unknown. */
+int pal_cpu_cur_khz(int cpu);
 /* A scratch directory for build trees, RAM-backed where the OS has one; 0 on success. */
 int pal_scratch_dir(char *out, size_t n, int *ram_backed);
 int pal_copy_tree(const char *src, const char *dst);

@@ -21,7 +21,9 @@ if((PRISMARK_DESKTOP OR (IOS AND PRISMARK_K1_LLVM_DIR)) AND NOT PRISMARK_K1 STRE
   if(IOS)
     set(_k1_prefixes ${PRISMARK_K1_LLVM_DIR})
   else()
+    # Debian/Ubuntu (apt.llvm.org), Fedora (clang19-devel, llvm19-devel), Homebrew.
     set(_k1_prefixes ${PRISMARK_K1_LLVM_DIR} /usr/lib/llvm-${PRISMARK_K1_LLVM_MAJOR}
+      /usr/lib64/llvm${PRISMARK_K1_LLVM_MAJOR} /usr/lib/llvm${PRISMARK_K1_LLVM_MAJOR}
       /opt/homebrew/opt/llvm@${PRISMARK_K1_LLVM_MAJOR} /usr/local/opt/llvm@${PRISMARK_K1_LLVM_MAJOR})
   endif()
   find_path(PRISMARK_K1_INCLUDE clang/Frontend/CompilerInstance.h PATHS ${_k1_prefixes} PATH_SUFFIXES include

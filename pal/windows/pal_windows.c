@@ -235,6 +235,31 @@ int pal_current_cpu(void) {
   return pn.Group * 64 + pn.Number;
 }
 
+/* PROCESSOR_POWER_INFORMATION is documented for CallNtPowerInformation but not declared in the SDK headers. */
+typedef struct pmk_proc_power {
+  ULONG Number, MaxMhz, CurrentMhz, MhzLimit, MaxIdleState, CurrentIdleState;
+} pmk_proc_power;
+
+int pal_cpu_cur_khz(int cpu) {
+  SYSTEM_INFO si;
+  GetSystemInfo(&si);
+  DWORD n = si.dwNumberOfProcessors;
+  if (cpu < 0 || (DWORD)cpu >= n) return 0;
+  pmk_proc_power *p = calloc(n, sizeof *p);
+  if (!p) return 0;
+  int khz = 0;
+  if (CallNtPowerInformation(ProcessorInformation, NULL, 0, p, (ULONG)(n * sizeof *p)) == 0)
+    khz = (int)p[cpu].CurrentMhz * 1000;
+  free(p);
+  return khz;
+}
+
+uint64_t pal_mem_available(void) {
+  MEMORYSTATUSEX ms;
+  ms.dwLength = sizeof ms;
+  return GlobalMemoryStatusEx(&ms) ? (uint64_t)ms.ullAvailPhys : 0;
+}
+
 int64_t pal_input_idle_ms(void) {
   LASTINPUTINFO li = {sizeof li, 0};
   if (!GetLastInputInfo(&li)) return -1;

@@ -34,6 +34,9 @@ typedef struct pmk_k7_node {
 /* Input sets. Burst inputs keep one job within 10-500 ms; full inputs are for sustained modes. */
 /* K1/K1x quick input: every PMK_K1_QUICK_STRIDE-th unit in largest-first order. */
 #define PMK_K1_QUICK_STRIDE 8
+/* K1x full build: every PMK_K1X_FULL_STRIDE-th unit (the quick units; full runs repeat the build three times):
+   about 2 minutes per build on a 4-core laptop, instead of half an hour for every unit. */
+#define PMK_K1X_FULL_STRIDE 8
 enum { PMK_SIZE_BURST = 0, PMK_SIZE_FULL = 1 };
 
 typedef struct pmk_tk_args {

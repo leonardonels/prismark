@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-#define PMK_ABI_VERSION 4
+#define PMK_ABI_VERSION 5
 
 /* Return codes. */
 enum {
@@ -59,18 +59,24 @@ typedef struct pmk_config {
   int32_t cold_max_reps;     /* maximum repetitions per cold-burst series (default 1000) */
   /* ABI 2 */
   double window_ms;          /* perf(t) window for sustained runs (default 1000) */
-  double sustained_min_s;    /* sustained runs last at least this long (default 30) */
-  double sustained_max_s;    /* and stop here even without steady state (default 600) */
+  double sustained_min_s;    /* unused since ABI 5 (was: the steady-state search's minimum); see measure_s */
+  double sustained_max_s;    /* unused since ABI 5 (was: the steady-state search's limit); see warmup_s */
   int32_t isa_uplift;        /* also run K2, K3, K4, K8 at the max-level tier (default 1) */
   int32_t max_threads;       /* cap for n in the multi-core modes; 0 = all CPUs */
   const char *kernels;       /* comma-separated kernel filter, e.g. "K2,K3"; NULL = all */
   const char *k1_data;       /* prepared K1/K1x snapshot directory; NULL: K1 and K1x unavailable */
   int32_t k1x_reps;          /* builds per n for K1x (default 3) */
-  int32_t cooldown;          /* wait for the idle temperature before each sustained run (default 1) */
+  int32_t cooldown;          /* wait for the idle temperature before each mode (default 0 since ABI 5: the
+                                warm-up replaces it) */
   /* ABI 3 */
   const char *input_watch;   /* how the front-end watches for keyboard/mouse input, recorded; NULL if it does not */
   int32_t quick_inputs;      /* reduced inputs for the slow compile kernels (K1, K1x): every 8th unit, for quick
                                 runs; recorded as size "burst", so never compared with full runs */
+  /* ABI 5: sustained runs are a fixed warm-up and a fixed measurement (no steady-state search), so a run takes
+     the same time on every machine of a kind and a full run includes the slowdown sustained use causes */
+  double warmup_s;           /* full load before a sustained mode's first series, not scored (default 60; quick 0) */
+  double settle_s;           /* before each series, not scored (default 5; quick 0) */
+  double measure_s;          /* measured per series (default 20, K1 three times that; quick 3) */
 } pmk_config;
 
 /* Fills cfg with defaults. */

@@ -20,6 +20,13 @@
 struct Value {
   double v = NAN, lo = NAN, hi = NAN;
   bool unsettled = false; /* a long test that hit its time limit before its speed settled */
+  /* An all-cores test measured on fewer threads than the machine has (memory, or --max-threads): threads used
+     and threads the machine has; 0 when it used them all. */
+  int threads = 0, ofThreads = 0;
+  /* Windows of the measurement in which the platform clamped the CPU far below its own minimum clock (firmware,
+     e.g. BD PROCHOT), and the lowest clock seen: the score includes the clamp. */
+  int clamped = 0;
+  double clampedMhz = NAN;
   bool hasCi() const { return std::isfinite(lo) && std::isfinite(hi); }
 };
 
@@ -64,6 +71,11 @@ struct RunSummary {
   QVector<ScalePt> scaling;
   QVector<Ratio> ratios;
   bool checksumsOk = true;
+  /* How much slower each warm-up ended than it started (speed hot / speed cold, below 1 when it throttles), by
+     mode: "st_sustained" (one core) and "mc_threaded" (all cores). */
+  QMap<QString, Value> hot;
+  int clampedSeries = 0;        /* series of the run with platform-clamped windows */
+  double clampedMhz = NAN;      /* the lowest clamped clock among them */
 };
 
 const QVector<Group> &groups();

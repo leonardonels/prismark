@@ -5,11 +5,16 @@ set(PRISMARK_GUI AUTO CACHE STRING "Build the desktop app: AUTO, ON or OFF")
 set_property(CACHE PRISMARK_GUI PROPERTY STRINGS AUTO ON OFF)
 
 if(PRISMARK_DESKTOP AND NOT PRISMARK_GUI STREQUAL "OFF")
-  find_package(QT NAMES Qt6 Qt5 COMPONENTS Widgets Svg QUIET)
+  # C++ must be enabled before Qt is looked up: Qt's package config runs C++ compile checks (FindWrapAtomic).
+  include(CheckLanguage)
+  check_language(CXX)
+  if(CMAKE_CXX_COMPILER)
+    enable_language(CXX)
+    find_package(QT NAMES Qt6 Qt5 COMPONENTS Widgets Svg QUIET)
+  endif()
   if(QT_FOUND)
     find_package(Qt${QT_VERSION_MAJOR} 5.15 COMPONENTS Widgets Svg REQUIRED)
     find_package(Qt${QT_VERSION_MAJOR} COMPONENTS DBus QUIET)
-    enable_language(CXX)
     set(CMAKE_CXX_STANDARD 17)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
 

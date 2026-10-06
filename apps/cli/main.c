@@ -12,6 +12,7 @@
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
+#include <errno.h>
 #include <math.h>
 #include <signal.h>
 #include <stdio.h>
@@ -47,14 +48,15 @@ static void usage(FILE *f) {
           "  --max-reps N           maximum repetitions per warm series (default 100)\n"
           "  --cold-max-reps N      maximum repetitions per cold-burst series (default 1000)\n"
           "  --window-ms X          perf(t) window of sustained runs (default 1000)\n"
-          "  --sustained-min S      shortest sustained run, seconds (default 30)\n"
-          "  --sustained-max S      longest sustained run without steady state (default 600)\n"
-          "  --no-cooldown          do not wait for the idle temperature before sustained runs\n"
+          "  --warmup S             full load before each sustained mode, not scored (default 60)\n"
+          "  --settle S             before each sustained series, not scored (default 5)\n"
+          "  --measure S            measured per sustained series; K1 three times (default 20)\n"
+          "  --cooldown             wait for the idle temperature before each mode (default: no)\n"
           "  --period-ms X          periodic mode period (default 1)\n"
           "  --periodic-seconds X   duration of each periodic condition (default 60)\n"
           "  --k1-data DIR          prepared K1/K1x snapshot (tools/k1x/prepare.py)\n"
           "  --k1x-reps N           K1x builds per thread count (default 3)\n"
-          "  --quick                smoke run: short series and sustained runs (not for comparison)\n"
+          "  --quick                smoke run: no warm-up, short series (not for comparison)\n"
           "  --skip-preflight       skip the background-load check and temperature wait\n"
           "  --max-load X           preflight background-load threshold, fraction (default 0.05)\n"
           "  --frontend NAME        recorded front-end kind (default cli; the GUI passes gui)\n"
@@ -126,11 +128,37 @@ static DWORD WINAPI stdin_watch(LPVOID arg) {
 static void *stdin_watch(void *arg) {
 #endif
   (void)arg;
+#ifdef _WIN32
   char line[64];
   while (fgets(line, sizeof line, stdin)) {
     if (!strncmp(line, "input", 5)) pmk_notify_input(); /* keyboard or mouse activity seen by the GUI */
     else if (!strncmp(line, "cancel", 6)) break;
   }
+#else
+  /* Raw read(), not stdio: a thread blocked in fgets holds the stdin lock, and exit() in newer glibc (2.39+)
+     takes every stream's lock to flush it, so the finished runner would hang at exit while the GUI keeps the
+     pipe open. */
+  char line[64];
+  size_t len = 0;
+  for (;;) {
+    ssize_t n = read(0, line + len, sizeof line - 1 - len);
+    if (n < 0 && errno == EINTR) continue;
+    if (n <= 0) break; /* closed (the GUI cancelled or exited) or failed */
+    len += (size_t)n;
+    line[len] = 0;
+    int cancel = 0;
+    char *nl;
+    while ((nl = strchr(line, '\n'))) {
+      *nl = 0;
+      if (!strncmp(line, "input", 5)) pmk_notify_input(); /* keyboard or mouse activity seen by the GUI */
+      else if (!strncmp(line, "cancel", 6)) cancel = 1;
+      len -= (size_t)(nl + 1 - line);
+      memmove(line, nl + 1, len + 1);
+    }
+    if (cancel) break;
+    if (len == sizeof line - 1) len = 0; /* an overlong line is not a command */
+  }
+#endif
   pmk_cancel();
   return 0;
 }
@@ -385,8 +413,10 @@ int main(int argc, char **argv) {
     else if (!strcmp(a, "--max-reps")) { NEED_ARG; cfg.max_reps = atoi(v); }
     else if (!strcmp(a, "--cold-max-reps")) { NEED_ARG; cfg.cold_max_reps = atoi(v); }
     else if (!strcmp(a, "--window-ms")) { NEED_ARG; cfg.window_ms = atof(v); }
-    else if (!strcmp(a, "--sustained-min")) { NEED_ARG; cfg.sustained_min_s = atof(v); }
-    else if (!strcmp(a, "--sustained-max")) { NEED_ARG; cfg.sustained_max_s = atof(v); }
+    else if (!strcmp(a, "--warmup")) { NEED_ARG; cfg.warmup_s = atof(v); }
+    else if (!strcmp(a, "--settle")) { NEED_ARG; cfg.settle_s = atof(v); }
+    else if (!strcmp(a, "--measure")) { NEED_ARG; cfg.measure_s = atof(v); }
+    else if (!strcmp(a, "--cooldown")) cfg.cooldown = 1;
     else if (!strcmp(a, "--no-cooldown")) cfg.cooldown = 0;
     else if (!strcmp(a, "--period-ms")) { NEED_ARG; cfg.periodic_period_ms = atof(v); }
     else if (!strcmp(a, "--periodic-seconds")) { NEED_ARG; cfg.periodic_seconds = atof(v); }
@@ -397,8 +427,9 @@ int main(int argc, char **argv) {
       cfg.cold_max_reps = 20;
       cfg.periodic_seconds = 10;
       cfg.window_ms = 250;
-      cfg.sustained_min_s = 3;
-      cfg.sustained_max_s = 6;
+      cfg.warmup_s = 0;
+      cfg.settle_s = 0;
+      cfg.measure_s = 3;
       cfg.k1x_reps = 1;
       cfg.cooldown = 0;
       cfg.quick_inputs = 1;

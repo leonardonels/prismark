@@ -55,8 +55,9 @@ JNIEXPORT jstring JNICALL Java_org_prismark_Prismark_nativeRun(JNIEnv *env, jcla
     cfg.cold_max_reps = 20;
     cfg.periodic_seconds = 10;
     cfg.window_ms = 250;
-    cfg.sustained_min_s = 3;
-    cfg.sustained_max_s = 6;
+    cfg.warmup_s = 0;
+    cfg.settle_s = 0;
+    cfg.measure_s = 3;
   }
   listener l = {env, listener_obj, NULL};
   if (listener_obj) {

@@ -15,6 +15,7 @@
 #pragma once
 
 #include <QButtonGroup>
+#include <QDateTime>
 #include <QJsonObject>
 #include <QMainWindow>
 #include <QProcess>
@@ -24,6 +25,7 @@
 class QLabel;
 class QPushButton;
 class QStackedWidget;
+class QTimer;
 class QVBoxLayout;
 class InputWatch;
 class RankingView;
@@ -105,11 +107,20 @@ class MainWindow : public QMainWindow {
   /* measuring window: the only window shown while a run is in progress */
   QWidget *measure_ = nullptr;
   StepRing *ring_ = nullptr;
-  QLabel *fzPhase_ = nullptr, *fzMsg_ = nullptr, *fzHands_ = nullptr, *fzStatus_ = nullptr, *fzWarn_ = nullptr;
+  QLabel *fzState_ = nullptr, *fzPhase_ = nullptr, *fzMsg_ = nullptr, *fzTime_ = nullptr, *fzHands_ = nullptr,
+         *fzStatus_ = nullptr, *fzWarn_ = nullptr, *fzStall_ = nullptr;
   QProcess *proc_ = nullptr;
   InputWatch *input_ = nullptr;
   QByteArray procBuf_;
-  QString procOut_, procErrTail_, phase_;
-  bool inputDuringQuiet_ = false;
+  QString procOut_, procErrTail_, phase_, kernel_;
+  bool inputDuringQuiet_ = false, cancelling_ = false;
   int warnings_ = 0;
+  int part_ = 0, parts_ = 0; /* overall position: the runner's "run" events */
+  QDateTime runStart_, phaseStart_;
+  /* Single-shot, restarted by every runner event: fires only when the runner has been silent too long, so the
+     window stays still while a run is healthy. killTimer_ ends a cancelled run that stopped answering. */
+  QTimer *stallTimer_ = nullptr, *killTimer_ = nullptr;
+  void onRunEvent(); /* any event arrived: the runner is alive */
+  void onStall();
+  void showPhase(int step, int steps);
 };

@@ -61,6 +61,9 @@ bool readReference(const QString &file, RunSummary &out) {
   if (o["schema"].toString() == "prismark-reference/1") return fromPlaceholder(o, file, out);
   if (!summarize(o, file, out)) return false;
   out.reference = true;
+  /* Its own id, as placeholders have: a reference is often a copy of a run that is also in the user's runs, and
+     with the run's id both rows would be selected (and open) together. */
+  out.id = QStringLiteral("reference-") + QFileInfo(file).completeBaseName();
   return true;
 }
 

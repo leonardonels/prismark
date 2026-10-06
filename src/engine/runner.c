@@ -76,11 +76,12 @@ void pmk_config_init(pmk_config *cfg) {
   cfg->frontend = "cli";
   cfg->ui_state = "none";
   cfg->window_ms = 1000;
-  cfg->sustained_min_s = 30;
-  cfg->sustained_max_s = 600;
+  cfg->warmup_s = 60;
+  cfg->settle_s = 5;
+  cfg->measure_s = 20;
   cfg->isa_uplift = 1;
   cfg->k1x_reps = 3;
-  cfg->cooldown = 1;
+  cfg->cooldown = 0;
 }
 
 /* ---------- context helpers ---------- */
@@ -112,6 +113,23 @@ void ctx_unavailable(pmk_ctx *c, const char *kernel, const char *variant, const 
   jw_obj_end(&c->avail);
   ctx_emit(c, PMK_EV_WARNING, mode, kernel, 0, 0, "%s%s%s unavailable in %s: %s", kernel, variant ? " " : "",
            variant ? variant : "", mode, reason);
+}
+
+/*
+ * Whether n threads of a kernel that needs per_thread bytes each fit in the memory available now. When they do
+ * not, the thread count is recorded as unavailable (variant "n=<n>") instead of being run: the OS would end the
+ * whole run when memory runs out. Unknown available memory allows it.
+ */
+int ctx_memory_allows(pmk_ctx *c, const char *kernel, int n, uint64_t per_thread) {
+  uint64_t avail = pal_mem_available();
+  uint64_t need = (uint64_t)n * per_thread;
+  if (!avail || need <= avail) return 1;
+  char variant[16], reason[160];
+  snprintf(variant, sizeof variant, "n=%d", n);
+  snprintf(reason, sizeof reason, "not enough memory: %d threads need about %.1f GB, %.1f GB available", n,
+           (double)need / 1e9, (double)avail / 1e9);
+  ctx_unavailable(c, kernel, variant, "mc_threaded", reason);
+  return 0;
 }
 
 /*
@@ -228,6 +246,7 @@ int result_push(pmk_result *r, double sample, double wake, int cpu) {
 
 void result_free(pmk_result *r) {
   dvec_free(&r->temps);
+  dvec_free(&r->mhz);
   dvec_free(&r->job_ns);
   free(r->samples);
   free(r->wake);
@@ -428,6 +447,7 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
   }
   if (r->windowed) {
     samples_json(w, "temp_c", r->temps.v, r->temps.n, 0);
+    samples_json(w, "mhz", r->mhz.v, r->mhz.n, 1);
     samples_json(w, "job_ns", r->job_ns.v, r->job_ns.n, 1);
     jw_obj_begin(w, "steady");
     jw_bool(w, "reached", r->steady);
@@ -435,6 +455,8 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
     jw_num(w, "tau_s", r->tau_s);
     jw_num(w, "elapsed_s", r->elapsed_s);
     jw_obj_end(w);
+    jw_int(w, "clamped_windows", r->clamped);
+    jw_num(w, "clamped_lowest_mhz", r->lowest_mhz);
   }
   if (r->input_hash) {
     hex64(hx, r->input_hash);
@@ -549,6 +571,13 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
     memcpy((char *)&c->cfg + offsetof(pmk_config, window_ms), (char *)&d + offsetof(pmk_config, window_ms),
            sizeof d - offsetof(pmk_config, window_ms));
   }
+  if (cfg_in->struct_size < offsetof(pmk_config, measure_s) + sizeof(double)) { /* before ABI 5 */
+    pmk_config d;
+    pmk_config_init(&d);
+    c->cfg.warmup_s = c->cfg.quick_inputs ? 0 : d.warmup_s;
+    c->cfg.settle_s = c->cfg.quick_inputs ? 0 : d.settle_s;
+    c->cfg.measure_s = c->cfg.quick_inputs ? 3 : d.measure_s;
+  }
   c->cb = cb;
   c->user = user;
   c->k = &pmk_kernels_baseline;
@@ -557,7 +586,7 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   int rc = PMK_OK;
   if (c->cfg.min_reps < 3 || c->cfg.max_reps < c->cfg.min_reps || c->cfg.cold_max_reps < c->cfg.min_reps || !(c->cfg.periodic_period_ms > 0) ||
       !(c->cfg.periodic_seconds > 0) || (c->cfg.modes & ~(uint32_t)PMK_MODE_ALL) || !(c->cfg.window_ms >= 10) ||
-      !(c->cfg.sustained_min_s > 0) || !(c->cfg.sustained_max_s > 0))
+      !(c->cfg.measure_s > 0) || !(c->cfg.warmup_s >= 0) || !(c->cfg.settle_s >= 0))
     rc = PMK_ERR_INVALID;
 
   if (rc == PMK_OK && pal_init(&c->m)) rc = PMK_ERR_SYSTEM;
@@ -613,13 +642,15 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   jw_num(&w, "periodic_period_ms", c->cfg.periodic_period_ms);
   jw_num(&w, "periodic_seconds", c->cfg.periodic_seconds);
   jw_num(&w, "window_ms", c->cfg.window_ms);
-  jw_num(&w, "sustained_min_s", c->cfg.sustained_min_s);
-  jw_num(&w, "sustained_max_s", c->cfg.sustained_max_s);
+  jw_num(&w, "warmup_s", c->cfg.warmup_s);
+  jw_num(&w, "settle_s", c->cfg.settle_s);
+  jw_num(&w, "measure_s", c->cfg.measure_s);
   jw_bool(&w, "isa_uplift", c->cfg.isa_uplift);
   jw_int(&w, "max_threads", c->cfg.max_threads);
   jw_str(&w, "kernels", c->cfg.kernels);
   jw_str(&w, "k1_data", c->cfg.k1_data);
   jw_bool(&w, "quick_inputs", c->cfg.quick_inputs);
+  jw_bool(&w, "quick", c->cfg.quick_inputs); /* the --quick preset sets both; front-ends read this one */
   jw_obj_end(&w);
   machine_json(&w, &c->m);
   load_max_tier(c);
@@ -639,7 +670,7 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
                c->cfg.max_background_load * 100);
       rc = PMK_ERR_BUSY;
     } else {
-      temp_wait tw = wait_temperature(c, "preflight", NAN, 180);
+      temp_wait tw = wait_temperature(c, "preflight", NAN, 60);
       idle_temp = tw.temp_c;
       jw_num(&w, "temp_wait_s", tw.seconds);
       jw_bool(&w, "temp_settled", tw.settled);
@@ -659,6 +690,9 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
       if (c->cfg.modes & MODES[i].bit) modes[nmodes++] = i;
     ctx_shuffle(&c->rng, modes, nmodes);
     for (int i = 0; i < nmodes && rc == PMK_OK; i++) {
+      /* Overall position for front-ends: modes run in shuffled order, so they cannot work it out themselves. */
+      ctx_emit(c, PMK_EV_INFO, "run", NULL, (uint32_t)i + 1, (uint32_t)nmodes, "part %d of %d: %s", i + 1, nmodes,
+               MODES[modes[i]].name);
       if (i > 0) ctx_cooldown(c, "cooldown");
       rc = run_mode(c, modes[i]);
     }

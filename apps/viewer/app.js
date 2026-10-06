@@ -101,7 +101,7 @@ function rresp(wms) {
 
 const METRICS = [
   { id: 'mc_k2', group: 'mc', name: 'Render', sub: 'K2 path tracer · MC threaded · all threads', unit: 'Msamples/s', better: 'higher',
-    desc: 'Steady-state throughput of the path tracer with every hardware thread sharing each frame.', get: throughput('K2', 'mc_threaded') },
+    desc: 'Throughput of the path tracer after the warm-up, with every hardware thread sharing each frame.', get: throughput('K2', 'mc_threaded') },
   { id: 'mc_k1', group: 'mc', name: 'Compile', sub: 'K1 in-process Clang · MC threaded', unit: 'builds/h', better: 'higher',
     desc: 'Compiling the K1x translation units in memory on every thread. Desktop only.', get: throughput('K1', 'mc_threaded') },
   { id: 'mc_k1x', group: 'mc', name: 'Full build', sub: 'K1x CMake + Ninja · all threads', unit: 's', better: 'lower',
@@ -109,9 +109,9 @@ const METRICS = [
     get: (d) => { const r = largestN(series(d).filter((x) => x.kernel === 'K1x')); return r ? ci(r.median, 1e-9) : null; } },
 
   { id: 'st_k2', group: 'st', name: 'Render', sub: 'K2 · ST sustained · fastest core', unit: 'Msamples/s', better: 'higher',
-    desc: 'Single-core throughput at thermal steady state.', get: throughput('K2', 'st_sustained') },
+    desc: 'Single-core throughput after a minute of full load.', get: throughput('K2', 'st_sustained') },
   { id: 'st_k1', group: 'st', name: 'Compile', sub: 'K1 · ST sustained · fastest core', unit: 'builds/h', better: 'higher',
-    desc: 'Single-core in-process compile at steady state.', get: throughput('K1', 'st_sustained') },
+    desc: 'Single-core in-process compile after a minute of full load.', get: throughput('K1', 'st_sustained') },
   { id: 'b_k3', group: 'st', name: 'Compression', sub: 'K3 zstd · ST burst', unit: 'ms', better: 'lower',
     desc: 'Time per job on a pre-warmed fastest core: short interactive work.', get: burstTime('K3') },
   { id: 'b_k4', group: 'st', name: 'Image decode', sub: 'K4 JPEG + resize · ST burst', unit: 'ms', better: 'lower',
@@ -172,7 +172,7 @@ function summarize(doc, source) {
     date: doc.started_utc ? doc.started_utc.slice(0, 10) : null,
     complete: !!doc.complete,
     verified: !!doc.verified,
-    quick: (doc.config?.sustained_max_s ?? 600) < 30,
+    quick: doc.config?.quick ?? ((doc.config?.sustained_max_s ?? 600) < 30), /* older results: no "quick" */
     machine: {
       os: m.os, kernel: m.kernel, isa: m.isa, board: m.board, ncpu: cores.length, types,
       llc_bytes: m.cpu?.llc_bytes, capabilities: m.capabilities,

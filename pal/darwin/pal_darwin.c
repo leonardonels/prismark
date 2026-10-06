@@ -128,6 +128,11 @@ int pal_pin_self_set(const int *cpus, int n) { return n > 0 ? pal_pin_self(cpus[
 int pal_current_cpu(void) { return t_requested_type < 0 ? -1 : (t_requested_type == 0 ? 0 : g_nperf); }
 int pal_set_timer_slack_min(void) { return -1; }
 
+/* Not measured on Apple platforms yet: 0 means unknown, so no test is limited by it. */
+uint64_t pal_mem_available(void) { return 0; }
+/* Apple does not report per-CPU clocks to user programs: unknown, so clamps are not detected there. */
+int pal_cpu_cur_khz(int cpu) { (void)cpu; return 0; }
+
 int64_t pal_input_idle_ms(void) {
 #if TARGET_OS_OSX
   double s = CGEventSourceSecondsSinceLastEventType(kCGEventSourceStateHIDSystemState, kCGAnyInputEventType);

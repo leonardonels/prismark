@@ -72,7 +72,7 @@ QFont uiFont(double pt, int weight) {
   loadFonts();
   QFont f(g_family);
   f.setPointSizeF(pt);
-  f.setWeight(weight);
+  f.setWeight(static_cast<QFont::Weight>(weight));
   f.setHintingPreference(QFont::PreferVerticalHinting);
   return f;
 }

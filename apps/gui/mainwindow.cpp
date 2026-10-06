@@ -125,12 +125,34 @@ const QStringList kQuietPhases = {"cold_burst", "periodic"};
 
 QString phaseTitle(const QString &phase) {
   static const QMap<QString, QString> names = {
-      {"preflight", "Checking the machine is idle"}, {"st_burst", "Single core, burst"},
-      {"st_sustained", "Single core, sustained"},    {"mc_threaded", "Multi core, threaded"},
-      {"mc_instances", "Multi core, instances"},     {"cold_burst", "Cold start"},
-      {"periodic", "Wake-up lateness"},              {"cooldown", "Cooling down"},
-      {"done", "Computing statistics"}};
+      {"preflight", "Checking the machine is idle"}, {"st_burst", "One core, short tasks"},
+      {"st_sustained", "One core, after warming up"}, {"mc_threaded", "All cores, working together"},
+      {"mc_instances", "All cores, each on its own"}, {"cold_burst", "Started from rest"},
+      {"periodic", "Timer punctuality"},              {"cooldown", "Cooling down"},
+      {"done", "Computing the results"}};
   return names.value(phase, phase);
+}
+
+/* How long a step of this phase normally takes, so a long silence is not mistaken for a hang. */
+QString phaseHint(const QString &phase, const QString &kernel) {
+  if (kernel == "K1x") return QObject::tr("Each build takes a few minutes.");
+  static const QMap<QString, QString> hints = {
+      {"preflight", "Usually under a minute."},
+      {"st_burst", "Each step takes seconds to a minute."},
+      {"st_sustained", "A one-minute warm-up, then about 25 seconds per step (compiling: about a minute)."},
+      {"mc_threaded", "A one-minute warm-up, then about 25 seconds per step (compiling: about a minute)."},
+      {"mc_instances", "Each step takes up to a few minutes."},
+      {"cold_burst", "Each step takes up to a few minutes."},
+      {"periodic", "Each step takes about a minute."},
+      {"cooldown", "Waits for the CPU to cool down: up to 2 minutes."},
+      {"done", "Measuring is finished; usually a few seconds."}};
+  return QObject::tr(qPrintable(hints.value(phase)));
+}
+
+/* No event for this long: something is probably wrong. Above the longest silent step of each phase. */
+int stallMinutes(const QString &phase, const QString &kernel) {
+  if (kernel == "K1x") return 20;
+  return 8;
 }
 
 }  // namespace
@@ -424,20 +446,29 @@ QWidget *MainWindow::buildMeasuringWindow() {
   top->addWidget(ring_);
   auto *tv = new QVBoxLayout;
   tv->addStretch();
-  tv->addWidget(text(tr("MEASURING"), 9, QFont::DemiBold, theme().accent));
+  fzState_ = text(tr("MEASURING"), 9, QFont::DemiBold, theme().accent);
+  tv->addWidget(fzState_);
   fzPhase_ = text(QString(), 19, QFont::Bold);
   tv->addWidget(fzPhase_);
   fzMsg_ = text(QString(), 10, QFont::Normal, theme().muted);
   tv->addWidget(fzMsg_);
+  fzTime_ = text(QString(), 9, QFont::Normal, theme().muted);
+  tv->addWidget(fzTime_);
   tv->addStretch();
   top->addLayout(tv, 1);
   l->addLayout(top);
+  fzStall_ = text(QString(), 10, QFont::Medium, theme().warnText);
+  fzStall_->setStyleSheet(QStringLiteral("color:%1; background:%2; border-radius:10px; padding:10px 14px;")
+                              .arg(theme().warnText.name(), theme().warnBg.name()));
+  fzStall_->hide();
+  l->addWidget(fzStall_);
   fzHands_ = text(QString(), 10, QFont::Medium, theme().warnText);
   fzHands_->setStyleSheet(QStringLiteral("color:%1; background:%2; border-radius:10px; padding:10px 14px;")
                               .arg(theme().warnText.name(), theme().warnBg.name()));
   l->addWidget(fzHands_);
-  l->addWidget(text(tr("The benchmark runs as a separate process and this window stays still, so it does not wake "
-                       "the CPU. Leave the machine alone until the run ends."),
+  l->addWidget(text(tr("The benchmark runs as a separate process. This window changes only when a new step begins, "
+                       "so it does not wake the CPU: a still window is normal. If the runner stops unexpectedly, "
+                       "this window closes and says so. Leave the machine alone until the run ends."),
                     9.5, QFont::Normal, theme().muted));
   fzStatus_ = text(QString(), 8.5, QFont::Normal, theme().faint);
   l->addWidget(fzStatus_);
@@ -447,6 +478,15 @@ QWidget *MainWindow::buildMeasuringWindow() {
   cancel->setCursor(Qt::PointingHandCursor);
   connect(cancel, &QPushButton::clicked, this, &MainWindow::cancelRun);
   l->addWidget(cancel, 0, Qt::AlignLeft);
+
+  stallTimer_ = new QTimer(this);
+  stallTimer_->setSingleShot(true);
+  connect(stallTimer_, &QTimer::timeout, this, &MainWindow::onStall);
+  killTimer_ = new QTimer(this);
+  killTimer_->setSingleShot(true);
+  connect(killTimer_, &QTimer::timeout, this, [this] {
+    if (proc_) proc_->kill();
+  });
   return win;
 }
 
@@ -644,6 +684,8 @@ void MainWindow::refreshRanking() {
     if (!r.complete) row.tags << "partial";
     row.value = r.metrics[m->id];
     if (row.value.unsettled && !r.quick) row.tags << "did not settle";
+    if (row.value.ofThreads) row.tags << tr("%1 of %2 threads").arg(row.value.threads).arg(row.value.ofThreads);
+    if (row.value.clamped) row.tags << tr("throttled");
     rows.push_back(row);
   }
   bool shown = std::any_of(rows.begin(), rows.end(), [&](const RankRow &x) { return x.runId == selected_; });
@@ -821,7 +863,24 @@ void MainWindow::refreshDetails() {
     QString tip = v.hasCi() ? tr("Likely between %1 and %2 %3").arg(formatValue(v.lo), formatValue(v.hi), mt.unit) : QString();
     if (v.unsettled && !r->quick) {
       val->setText(QStringLiteral("<span style='color:%1; font-size:8pt'>%2</span> ").arg(t.warnText.name(), tr("not settled")) + val->text());
-      tip += tr("\nThe speed was still changing when the 10-minute limit was reached.");
+      tip += tr("\nAn older result: the speed was still changing when its 10-minute limit was reached.");
+    }
+    if (v.clamped) {
+      val->setText(QStringLiteral("<span style='color:%1; font-size:8pt'>%2</span> ").arg(t.warnText.name(), tr("throttled")) +
+                   val->text());
+      tip += tr("\nThrottled: during %1 of its measured windows the computer's firmware held the CPU at %2 MHz, "
+                "below its own minimum clock. The score includes it.")
+                 .arg(v.clamped)
+                 .arg(QString::number(v.clampedMhz, 'f', 0));
+    }
+    if (v.ofThreads) {
+      val->setText(QStringLiteral("<span style='color:%1; font-size:8pt'>%2</span> ")
+                       .arg(t.warnText.name(), tr("%1 of %2 threads").arg(v.threads).arg(v.ofThreads)) +
+                   val->text());
+      tip += tr("\nMeasured on %1 of this computer's %2 threads (see Not measured below), so it is not an all-cores "
+                "result.")
+                 .arg(v.threads)
+                 .arg(v.ofThreads);
     }
     val->setToolTip(tip);
     tg->addWidget(val, row++, 1);
@@ -831,6 +890,30 @@ void MainWindow::refreshDetails() {
   if (hiddenResults)
     detailsLayout_->addWidget(text(hiddenResults == 1 ? tr("1 more result in Advanced.") : tr("%1 more results in Advanced.").arg(hiddenResults),
                                    9, QFont::Normal, t.faint));
+
+  /* how much slower the computer got during the warm-ups: what sustained use costs it */
+  if (!r->hot.isEmpty() || r->clampedSeries) {
+    QStringList hot;
+    for (const auto &[mode, label] : {std::pair{QStringLiteral("st_sustained"), tr("one core")},
+                                      std::pair{QStringLiteral("mc_threaded"), tr("all cores")}}) {
+      if (!r->hot.contains(mode)) continue;
+      double pct = (1 - r->hot[mode].v) * 100;
+      hot << (pct >= 1 ? tr("<b>%1 %</b> slower on %2").arg(QString::number(pct, 'f', 0), label)
+                       : tr("no slowdown on %1").arg(label));
+    }
+    if (r->clampedSeries)
+      hot << tr("the firmware throttled the CPU to <b>%1 MHz</b> during %2 test%3")
+                 .arg(QString::number(r->clampedMhz, 'f', 0))
+                 .arg(r->clampedSeries)
+                 .arg(r->clampedSeries == 1 ? QString() : QStringLiteral("s"));
+    detailsLayout_->addWidget(sectionLabel(tr("When hot")));
+    auto *l = text(hot.join(QStringLiteral(" · ")), 9.5);
+    l->setToolTip(tr("Speed at the end of the one-minute warm-up against its first seconds. The long tests are "
+                     "measured after the warm-up, so they already include this slowdown.\nFirmware throttling is the "
+                     "computer's firmware holding the CPU below its own minimum clock, often when it gets very hot; "
+                     "the tests it happened in are marked \"throttled\"."));
+    detailsLayout_->addWidget(l);
+  }
 
   /* what was not measured, once per test and reason */
   QStringList un, seen;
@@ -980,19 +1063,18 @@ bool MainWindow::confirmCompileTests(bool needK1, bool needK1x, bool all, QStrin
     l->setContentsMargins(26, 22, 26, 20);
     l->setSpacing(10);
     l->addWidget(text(tr("“Compiling code” and “Full software build” need a one-time setup"), 14, QFont::Bold));
-    auto row = [&](bool ok, const QString &what) {
-      l->addWidget(text(QStringLiteral("<span style='color:%1'>%2</span>&nbsp; %3")
-                            .arg((ok ? theme().good : theme().bad).name(), ok ? "✓" : "✗", esc(what)),
-                        10));
+    auto mark = [&](const QColor &c, const char *sym, const QString &what, QFont::Weight w = QFont::Normal) {
+      l->addWidget(text(QStringLiteral("<span style='color:%1'>%2</span>&nbsp; %3").arg(c.name(), sym, esc(what)), 10, w));
     };
-    row(!st.snapshot.isEmpty(), st.snapshot.isEmpty() ? tr("Snapshot of the LLVM sources to compile — not prepared yet")
-                                                      : tr("Snapshot prepared: %1").arg(st.snapshot));
+    auto row = [&](bool ok, const QString &what) { mark(ok ? theme().good : theme().bad, ok ? "✓" : "✗", what); };
+    /* Prerequisites first, then the install commands, then the snapshot: it is the last step and the user starts it. */
     row(st.missingBuild.isEmpty(), st.missingBuild.isEmpty() ? tr("Build tools for Full build (clang 19, lld, cmake, ninja)")
                                                              : tr("Missing tools: %1").arg(st.missingBuild.join(", ")));
     row(st.k1Built, st.k1Built ? tr("“Compiling code” is built into this Prismark")
                                : tr("“Compiling code” is not built into this Prismark (needs the Clang 19 libraries)"));
     QString cmds = installInstructions(st);
     bool needInstall = !st.missingPrepare.isEmpty() || !st.k1Built;
+    bool canPrepare = st.snapshot.isEmpty() && st.missingPrepare.isEmpty();
     if (needInstall && !cmds.isEmpty()) {
       l->addWidget(text(tr("To install what is missing, run in a terminal:"), 10, QFont::Medium));
       auto *box = new QPlainTextEdit(cmds);
@@ -1002,13 +1084,21 @@ bool MainWindow::confirmCompileTests(bool needK1, bool needK1x, bool all, QStrin
       box->setLineWrapMode(QPlainTextEdit::NoWrap);
       l->addWidget(box);
     }
+    if (!st.snapshot.isEmpty())
+      row(true, tr("Snapshot prepared: %1").arg(st.snapshot));
+    else if (canPrepare)
+      mark(theme().accent, "→", tr("Last step: prepare the snapshot of the LLVM sources. Press “Prepare now” to start it."),
+           QFont::Medium);
+    else
+      row(false, tr("Last step: prepare the snapshot of the LLVM sources. Once the commands above have run, "
+                    "open this again and press “Prepare now”."));
     if (st.snapshot.isEmpty())
       l->addWidget(text(tr("Preparing the snapshot downloads pinned sources (about 160 MB), builds generated files "
                            "once and measures every unit: 20–60 minutes, about 4 GB of disk while it runs."),
                         9.5, QFont::Normal, theme().muted));
     auto *bb = new QDialogButtonBox;
     QPushButton *prep = nullptr, *without = nullptr, *copy = nullptr;
-    if (st.snapshot.isEmpty() && st.missingPrepare.isEmpty()) {
+    if (canPrepare) {
       prep = bb->addButton(tr("Prepare now"), QDialogButtonBox::AcceptRole);
       prep->setObjectName("primary");
     }
@@ -1095,14 +1185,22 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
   procBuf_.clear();
   procErrTail_.clear();
   phase_.clear();
+  kernel_.clear();
   warnings_ = 0;
-  inputDuringQuiet_ = false;
+  part_ = parts_ = 0;
+  inputDuringQuiet_ = cancelling_ = false;
+  runStart_ = phaseStart_ = QDateTime::currentDateTime();
   ring_->setProgress(0, 0, QStringLiteral("…"));
-  fzPhase_->setText(tr("Starting"));
+  fzState_->setText(tr("STARTING"));
+  fzPhase_->setText(tr("Starting the runner"));
   fzMsg_->setText(QStringLiteral("%1 · %2").arg(m ? tr("%1 only").arg(m->name) : tr("All tests"),
                                                 quick ? tr("quick run") : tr("full run")));
+  fzTime_->setText(tr("Started at %1").arg(QLocale().toString(runStart_.time(), QLocale::ShortFormat)));
   fzHands_->hide();
+  fzStall_->hide();
   fzWarn_->clear();
+  killTimer_->stop();
+  stallTimer_->start(stallMinutes(QString(), QString()) * 60000);
   /* The machine is measured as it is configured: the app never changes power settings. */
   QStringList status;
   bool quiet = !m || m->modes.contains("cold_burst") || m->modes.contains("periodic");
@@ -1122,7 +1220,7 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
 }
 
 void MainWindow::onInputActivity() {
-  if (!proc_) return;
+  if (!proc_ || cancelling_) return; /* after a cancel the runner's input is closed */
   proc_->write("input\n"); /* the runner skips the current test if it needs an idle machine */
   if (kQuietPhases.contains(phase_) && !inputDuringQuiet_) {
     inputDuringQuiet_ = true;
@@ -1142,40 +1240,102 @@ void MainWindow::onRunOutput() {
       if (!line.isEmpty()) procErrTail_ = QString::fromUtf8(line);
       continue;
     }
+    onRunEvent();
     /* Only a new phase or a warning changes the page; info events never redraw anything. */
     QString kind = ev["event"].toString();
-    if (kind == "phase") {
+    if (kind == "info" && ev["phase"].toString() == "run") {
+      part_ = ev["step"].toInt(); /* shown with the next phase, which follows at once */
+      parts_ = ev["steps"].toInt();
+    } else if (kind == "phase") {
       QString phase = ev["phase"].toString(), k = ev["kernel"].toString();
+      if (phase != phase_ || k != kernel_) phaseStart_ = QDateTime::currentDateTime();
       if (phase != phase_) {
         phase_ = phase;
         inputDuringQuiet_ = false;
         fzHands_->setText(tr("✋  Hands off — this test measures waits and wake-ups. Using the keyboard or mouse now "
                              "skips it."));
-        fzHands_->setVisible(kQuietPhases.contains(phase));
+        fzHands_->setVisible(kQuietPhases.contains(phase) && !cancelling_);
       }
-      int steps = ev["steps"].toInt(), step = ev["step"].toInt();
-      ring_->setProgress(step, steps, steps ? QStringLiteral("%1/%2").arg(step).arg(steps) : QStringLiteral("…"));
-      fzPhase_->setText(phaseTitle(phase) + (k.isEmpty() ? QString() : QStringLiteral(" · %1").arg(plainKernel(k))));
+      kernel_ = k;
       fzMsg_->setText(esc(plainText(ev["message"].toString())));
+      showPhase(ev["step"].toInt(), ev["steps"].toInt());
     } else if (kind == "warning") {
       fzWarn_->setText(tr("%1 warning(s); last: %2").arg(++warnings_).arg(esc(plainText(ev["message"].toString()))));
     }
   }
 }
 
+/* The ring shows the whole run: finished parts plus the share of the current one. Its centre counts parts, the
+   text counts the steps of the current part, so the ring never jumps back when a new part begins. */
+void MainWindow::showPhase(int step, int steps) {
+  bool done = phase_ == "done";
+  double within = steps > 0 ? double(std::min(step > 0 ? step - 1 : 0, steps)) / steps : 0;
+  if (done) ring_->setProgress(1, 1, QStringLiteral("✓"));
+  else if (parts_ > 0) ring_->setProgress(int(1000 * (part_ - 1 + within) / parts_), 1000,
+                                          QStringLiteral("%1/%2").arg(part_).arg(parts_));
+  else ring_->setProgress(0, 0, QStringLiteral("…"));
+
+  fzState_->setText(cancelling_ ? tr("CANCELLING")
+                    : done      ? tr("COMPUTING RESULTS")
+                    : phase_ == "cooldown" ? tr("WAITING")
+                    : phase_ == "preflight" ? tr("PREPARING")
+                                            : tr("MEASURING"));
+  QString title = phaseTitle(phase_);
+  if (!kernel_.isEmpty()) title += QStringLiteral(" · %1").arg(plainKernel(kernel_));
+  fzPhase_->setText(title);
+  QStringList when;
+  if (parts_ > 0 && !done) when << tr("Part %1 of %2").arg(part_).arg(parts_);
+  if (steps > 0 && !done) when << tr("step %1 of %2").arg(step).arg(steps);
+  when << tr("this step since %1").arg(QLocale().toString(phaseStart_.time(), QLocale::ShortFormat));
+  when << tr("run started at %1").arg(QLocale().toString(runStart_.time(), QLocale::ShortFormat));
+  fzTime_->setText(when.join(QStringLiteral(" · ")) + "<br>" + esc(phaseHint(phase_, kernel_)));
+}
+
+/* Every event proves the runner is alive: hide a stall notice and restart the (silent) watchdog. */
+void MainWindow::onRunEvent() {
+  if (fzStall_->isVisible()) {
+    fzStall_->hide();
+    measure_->adjustSize();
+  }
+  if (cancelling_) killTimer_->start(60000); /* still answering: give it time to finish the partial result */
+  else stallTimer_->start(stallMinutes(phase_, kernel_) * 60000);
+}
+
+void MainWindow::onStall() {
+  if (!proc_ || cancelling_) return;
+  int mins = stallMinutes(phase_, kernel_);
+  fzState_->setText(tr("NO RESPONSE"));
+  fzStall_->setText(tr("No progress report for %1 minutes, longer than this step normally takes. The runner "
+                       "process is still alive, so it has not crashed, but it may be stuck. If this persists, press "
+                       "Cancel run: the part measured so far is kept.")
+                        .arg(mins));
+  fzStall_->show();
+  measure_->adjustSize();
+}
+
 void MainWindow::cancelRun() {
-  if (!proc_) return;
+  if (!proc_ || cancelling_) return;
+  cancelling_ = true;
+  stallTimer_->stop();
+  fzStall_->hide();
+  fzHands_->hide();
+  fzState_->setText(tr("CANCELLING"));
   fzPhase_->setText(tr("Cancelling"));
-  fzMsg_->setText(tr("Stopping cleanly; the partial result is kept and power settings are restored."));
+  fzMsg_->setText(tr("Stopping cleanly and saving the part measured so far."));
   proc_->write("cancel\n"); /* the runner stops cleanly and keeps the partial result */
   proc_->closeWriteChannel();
-  QTimer::singleShot(20000, this, [this] {
-    if (proc_) proc_->kill();
-  });
+  /* Ended by force only if the runner stops answering; every event it still sends restarts this. */
+  killTimer_->start(60000);
 }
 
 void MainWindow::onRunFinished(int code, QProcess::ExitStatus status) {
   if (!proc_) return;
+  /* The last lines (an error message among them) may still be unread. */
+  onRunOutput();
+  if (!procBuf_.trimmed().isEmpty()) procErrTail_ = QString::fromUtf8(procBuf_.trimmed());
+  procBuf_.clear();
+  stallTimer_->stop(); /* after the drain above, which restarts them */
+  killTimer_->stop();
   input_->stop();
   proc_->deleteLater();
   proc_ = nullptr;
@@ -1193,18 +1353,31 @@ void MainWindow::onRunFinished(int code, QProcess::ExitStatus status) {
         skipped << phaseTitle(v.toString());
   }
   refresh();
+  bool saved = QFileInfo::exists(procOut_);
+  QString reason = procErrTail_;
+  if (reason.startsWith(QStringLiteral("prismark: "))) reason.remove(0, 10);
   if (code == -1) {
     QMessageBox::warning(this, tr("Prismark"), tr("Could not start the runner: %1").arg(cliPath()));
-  } else if (status != QProcess::NormalExit || code != 0) {
+  } else if (cancelling_) {
+    QMessageBox::information(this, tr("Run cancelled"),
+                             saved ? tr("The run was cancelled. The part measured so far was saved and is shown.")
+                                   : tr("The run was cancelled. The runner did not stop in time and was ended, so "
+                                        "nothing was saved."));
+  } else if (status != QProcess::NormalExit) {
+    QMessageBox::warning(this, tr("Prismark"),
+                         tr("The runner stopped unexpectedly (it crashed)%1. %2")
+                             .arg(reason.isEmpty() ? QString() : ": " + reason,
+                                  saved ? tr("A partial result was saved.") : tr("Nothing was saved.")));
+  } else if (code != 0) {
     QMessageBox::information(this, tr("Prismark"),
                              tr("The run did not complete%1.%2")
-                                 .arg(procErrTail_.isEmpty() ? QString() : ": " + procErrTail_,
-                                      QFileInfo::exists(procOut_) ? tr(" Its partial result was saved.") : QString()));
+                                 .arg(reason.isEmpty() ? QString() : ": " + reason,
+                                      saved ? tr(" Its partial result was saved.") : QString()));
   } else if (!skipped.isEmpty()) {
     QMessageBox::information(this, tr("Some tests were skipped"),
                              tr("Keyboard or mouse input during these tests, which need an idle machine: %1.\n\n"
                                 "Their results were discarded. Run them again from their cards (Responsiveness, "
-                                "Memory & jitter) and leave the machine alone meanwhile.")
+                                "Memory & timing) and leave the machine alone meanwhile.")
                                  .arg(skipped.join(", ")));
   }
 }

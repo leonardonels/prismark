@@ -9,6 +9,9 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <linux/perf_event.h>
+#ifdef __GLIBC__
+#include <malloc.h>
+#endif
 #include <math.h>
 #include <sched.h>
 #include <stdio.h>
@@ -375,6 +378,26 @@ int pal_set_timer_slack_min(void) { return prctl(PR_SET_TIMERSLACK, 1, 0, 0, 0);
 /* Input belongs to the desktop session (X11, Wayland), which the runner may not share (it can run as
  * root through pkexec); the desktop app watches it and reports it with pmk_notify_input. */
 int64_t pal_input_idle_ms(void) { return -1; }
+
+int pal_cpu_cur_khz(int cpu) {
+  char p[128];
+  snprintf(p, sizeof p, SYS_CPU "/cpu%d/cpufreq/scaling_cur_freq", cpu);
+  return (int)sysfs_read_ll(p, 0);
+}
+
+uint64_t pal_mem_available(void) {
+#ifdef __GLIBC__
+  malloc_trim(0); /* freed heap of earlier steps would otherwise still count as used */
+#endif
+  FILE *f = fopen("/proc/meminfo", "r");
+  if (!f) return 0;
+  char line[256];
+  unsigned long long kb = 0;
+  while (fgets(line, sizeof line, f))
+    if (sscanf(line, "MemAvailable: %llu kB", &kb) == 1) break;
+  fclose(f);
+  return (uint64_t)kb * 1024;
+}
 const char *pal_input_source(void) { return NULL; }
 
 int pal_random_bytes(void *p, size_t n) {

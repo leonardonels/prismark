@@ -43,8 +43,12 @@ typedef struct pmk_result {
   int windowed;        /* samples are throughput per window, not times */
   double window_ms;
   pmk_dvec temps;      /* CPU temperature at the end of each window */
+  pmk_dvec mhz;        /* average clock of the series' CPUs at the end of each window, 0 if unknown */
+  int clamped;         /* measured windows below the platform-clamp threshold (see wl_sustained) */
+  double lowest_mhz;   /* lowest window clock among them, NaN if none */
   pmk_dvec job_ns;     /* duration of each complete job */
   double job_work;     /* work units per job (burst series), for throughput = work / time */
+  double work_fraction; /* K1x: share of the whole snapshot's compile work its build covers (0 = unknown) */
   uint64_t input_hash, checksum;
   int checksum_ok;     /* every job of the series produced the same checksum */
   int steady;          /* steady state reached (9.3) */
@@ -127,6 +131,11 @@ int ctx_type_of_cpu(const pmk_ctx *c, int cpu);
 int ctx_cpu_order(const pmk_ctx *c, int *out);
 /* Thread counts 1, 2, 4, ... up to the CPU count (capped by cfg.max_threads), which is always included. */
 int ctx_thread_steps(const pmk_ctx *c, int *out, int max);
+/* Clang at -O2 on the snapshot's largest unit peaks at 375 MB (median 164 MB; measured per unit, Clang 19); K1
+   measured 436 MB on one thread and 719 MB on two. K1 and K1x plan 450 MB per thread: 3.6 GB at 8 threads. */
+#define PMK_COMPILE_MEM_PER_THREAD (450ull << 20)
+/* False (and the thread count recorded as unavailable) when n threads of per_thread bytes do not fit now. */
+int ctx_memory_allows(pmk_ctx *c, const char *kernel, int n, uint64_t per_thread);
 /* True once the median CI half-width is within 1% or max_reps is reached. */
 int ctx_precise_enough(pmk_ctx *c, const pmk_result *r, int max_reps);
 void ctx_shuffle(pmk_rng *r, int *v, int n);
@@ -147,13 +156,14 @@ typedef struct sus_spec {
   const void *inst;   /* the kernel instance whose job the threads share */
   int nthreads;       /* threads sharing each job */
   const int *cpus;    /* nthreads CPUs to pin to, or NULL */
-  int min_jobs;       /* do not stop before this many complete jobs (except on cancel) */
+  double warm_s;      /* untimed seconds before the measurement: the mode's warm-up, or a short settle */
+  int warm_only;      /* run warm_s only, measure nothing (a mode's warm-up at full load) */
 } sus_spec;
 
 /*
- * Sustained run: jobs back to back until steady state (t > 5 tau and a flat
- * perf(t) over the last windows) or cfg.sustained_max_s. Fills r with the
- * per-window throughput, temperatures, job times and steady-state markers.
+ * Sustained run: jobs back to back for warm_s seconds (recorded, not scored), then cfg.measure_s (three times
+ * that for K1). Fills r with the per-window throughput, temperatures and job times; steady_from marks the first
+ * measured window.
  */
 int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r);
 

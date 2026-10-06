@@ -154,6 +154,17 @@ static void *k1_create(const pmk_tk_args *a) {
     for (size_t i = 0; i < k->units.size(); i += PMK_K1_QUICK_STRIDE) sub.push_back(k->units[i]);
     k->units = std::move(sub);
   }
+  /* Compile order: a fixed shuffle (own generator: std::shuffle differs between standard libraries), so a
+     fixed-length measurement covers small and large units alike instead of only the largest ones. */
+  uint64_t x = 0x6b31c0de;
+  for (size_t i = k->units.size(); i > 1; i--) {
+    x += 0x9e3779b97f4a7c15ull;
+    uint64_t z = x;
+    z = (z ^ (z >> 30)) * 0xbf58476d1ce4e5b9ull;
+    z = (z ^ (z >> 27)) * 0x94d049bb133111ebull;
+    z ^= z >> 31;
+    std::swap(k->units[i - 1], k->units[z % i]);
+  }
   init_llvm();
   return k.release();
 }
@@ -200,6 +211,11 @@ static uint64_t k1_task(const void *p, void *sp, size_t i) {
   opts.VFS = s->fs;
   std::shared_ptr<clang::CompilerInvocation> inv = clang::createInvocation(argv, opts);
   if (!inv) return fail_unit("the driver");
+  /* The driver adds -disable-free: a compiler process exits right after, so it skips freeing the AST and the
+     LLVM module. Here the process compiles hundreds of units, so every compile would keep its memory (measured:
+     1 GB after a few minutes on one thread, against 375 MB for the largest unit compiled alone). */
+  inv->getFrontendOpts().DisableFree = false;
+  inv->getCodeGenOpts().DisableFree = false;
 
   clang::CompilerInstance ci;
   ci.setInvocation(std::move(inv));

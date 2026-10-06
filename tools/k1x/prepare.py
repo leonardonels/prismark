@@ -90,18 +90,34 @@ def default_data_dir():
     return os.path.join(base, "prismark")
 
 
+def download(url, path, sha256, what):
+    """Downloads url to path unless a file with the pinned hash is already there; returns the digest.
+
+    The download goes to path.part and is renamed only when complete, so an interrupted run (the app's
+    Cancel) never leaves a truncated file behind; a cached file with another hash is fetched again.
+    """
+    if os.path.exists(path):
+        digest = sha256_file(path)
+        if not sha256 or digest == sha256:
+            return digest
+        log(f"cached {what} has the wrong hash (incomplete download?); downloading it again")
+    log(f"downloading {what}: {url}")
+    part = path + ".part"
+    urllib.request.urlretrieve(url, part)
+    os.replace(part, path)
+    digest = sha256_file(path)
+    if sha256 and digest != sha256:
+        sys.exit(f"{what} hash mismatch: {digest} (pinned {sha256})")
+    return digest
+
+
 def fetch_sysroot(work):
     """Downloads and unpacks the pinned sysroot once; returns its directory."""
     dest = os.path.join(work, "sysroot-" + SYSROOT_SHA256[:12])
     if os.path.isfile(os.path.join(dest, ".complete")):
         return dest
     tarball = os.path.join(work, "sysroot.tar.xz")
-    if not os.path.exists(tarball) or sha256_file(tarball) != SYSROOT_SHA256:
-        log("downloading the pinned aarch64 sysroot")
-        urllib.request.urlretrieve(SYSROOT_URL, tarball)
-    digest = sha256_file(tarball)
-    if digest != SYSROOT_SHA256:
-        sys.exit(f"sysroot hash mismatch: {digest} (pinned {SYSROOT_SHA256})")
+    download(SYSROOT_URL, tarball, SYSROOT_SHA256, "the pinned aarch64 sysroot")
     shutil.rmtree(dest, ignore_errors=True)
     os.makedirs(dest)
     with tarfile.open(tarball) as t:
@@ -127,12 +143,7 @@ def fetch_llvm(work, src_arg):
     if src_arg:
         return os.path.abspath(src_arg), None
     tarball = os.path.join(work, os.path.basename(LLVM_URL))
-    if not os.path.exists(tarball):
-        log("downloading", LLVM_URL)
-        urllib.request.urlretrieve(LLVM_URL, tarball)
-    digest = sha256_file(tarball)
-    if LLVM_SHA256 and digest != LLVM_SHA256:
-        sys.exit(f"LLVM tarball hash mismatch: {digest} (pinned {LLVM_SHA256})")
+    digest = download(LLVM_URL, tarball, LLVM_SHA256, f"LLVM {LLVM_VERSION} sources")
     src = os.path.join(work, f"llvm-project-{LLVM_VERSION}.src")
     if not os.path.isfile(os.path.join(src, ".complete")):
         # Only the parts the build reads; the rest (clang tests among them) holds symlinks

@@ -2,10 +2,11 @@
  * K1x — full build. The prepared snapshot (tools/k1x/prepare.py) holds the
  * same translation units that K1 compiles in-process, with pre-generated
  * sources, a pinned aarch64 sysroot and a generated CMake project. Each
- * measurement is one `ninja -j n` from clean in a RAM-backed copy of the
- * tree, with the build processes confined to the same n CPUs that K1's
- * threads use, so R_build = T_K1x(n) / T_K1(n) isolates process creation,
- * file-system I/O, linking and build scheduling.
+ * measurement is one `ninja -j n` of a fixed subset of the units (every 8th
+ * in largest-first order; 3 builds in full runs, 1 in quick) from clean in a RAM-backed
+ * copy of the tree, with the build processes confined to the same n CPUs that
+ * K1's threads use. R_build compares it with K1's time for the same share of
+ * the work, isolating process creation, file-system I/O and build scheduling.
  *
  * Configuring (cmake) and cleaning are not timed.
  *
@@ -31,11 +32,12 @@ static int tool_ok(const char *tool) {
 }
 
 /*
- * Quick runs build only the object files of every PMK_K1_QUICK_STRIDE-th unit in largest-first order
- * (the manifest order), the same units K1 compiles in a quick run. CMake names the object of an
- * absolute source path CMakeFiles/<target>.dir<path>.o. Returns a NULL-terminated argv tail, or NULL.
+ * The object files of every stride-th unit in largest-first order (the manifest order): quick runs build every
+ * PMK_K1_QUICK_STRIDE-th (the units K1 compiles in a quick run), full runs every PMK_K1X_FULL_STRIDE-th. CMake
+ * names the object of an absolute source path CMakeFiles/<target>.dir<path>.o. Returns a NULL-terminated argv
+ * tail, or NULL; *fraction is the share of the whole snapshot's compile cost (cost_us) these units carry.
  */
-static char **quick_targets(const char *data, const char *root, int *count) {
+static char **unit_targets(const char *data, const char *root, size_t stride, int *count, double *fraction) {
   char path[1400], err[160];
   snprintf(path, sizeof path, "%s/manifest.json", data);
   FILE *f = fopen(path, "rb");
@@ -57,8 +59,15 @@ static char **quick_targets(const char *data, const char *root, int *count) {
   const jv *units = jv_get(jdoc_root(d), "units");
   const char *vroot = jv_str(jv_get(jdoc_root(d), "root"), "/k1x");
   size_t n = jv_len(units), k = 0;
-  char **out = calloc(n / PMK_K1_QUICK_STRIDE + 2, sizeof *out);
-  for (size_t i = 0; out && i < n; i += PMK_K1_QUICK_STRIDE) {
+  char **out = calloc(n / stride + 2, sizeof *out);
+  double all = 0, mine = 0;
+  for (size_t i = 0; i < n; i++) {
+    double cost = jv_num(jv_get(&units->items[i], "cost_us"), 1);
+    all += cost;
+    if (i % stride == 0) mine += cost;
+  }
+  *fraction = all > 0 ? mine / all : 0;
+  for (size_t i = 0; out && i < n; i += stride) {
     const jv *u = &units->items[i];
     const char *file = jv_str(jv_get(u, "file"), ""), *target = jv_str(jv_get(u, "target"), "");
     size_t vl = strlen(vroot);
@@ -136,15 +145,19 @@ int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order) {
   ctx_cpu_order(c, cpus);
   int reps = c->cfg.k1x_reps > 0 ? c->cfg.k1x_reps : 3;
   int nquick = 0;
-  char **quick = c->cfg.quick_inputs ? quick_targets(data, root, &nquick) : NULL;
-  if (c->cfg.quick_inputs && !quick) {
-    ctx_unavailable(c, "K1x", NULL, "mc_threaded", "cannot read the snapshot manifest for the quick build");
+  double fraction = 0;
+  char **quick = unit_targets(data, root, c->cfg.quick_inputs ? PMK_K1_QUICK_STRIDE : PMK_K1X_FULL_STRIDE, &nquick,
+                              &fraction);
+  if (!quick) {
+    ctx_unavailable(c, "K1x", NULL, "mc_threaded", "cannot read the snapshot manifest");
     free(cpus);
     pal_remove_tree(dir);
     return PMK_OK;
   }
   for (int si = 0; si < nsteps && rc == PMK_OK; si++) {
     int n = steps[order[si]];
+    /* ninja -j n runs n compilers at once, each as large as one K1 thread. */
+    if (!ctx_memory_allows(c, "K1x", n, PMK_COMPILE_MEM_PER_THREAD)) continue;
     ctx_cooldown(c, "mc_threaded");
     pmk_result *r = ctx_new_result(c, "K1x", "mc_threaded", "ns");
     if (!r) {
@@ -155,28 +168,24 @@ int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order) {
     r->type = ctx_type_of_cpu(c, cpus[0]);
     r->cpu = -1;
     r->nthreads = n;
-    r->size = quick ? "burst" : "full";
+    r->size = c->cfg.quick_inputs ? "burst" : "full";
+    r->work_fraction = fraction;
     snprintf(buf, sizeof buf, "-j%d", n);
     const char *clean[] = {"ninja", "-C", out, "-t", "clean", NULL};
-    const char *full_build[] = {"ninja", "-C", out, buf, NULL};
-    const char **build = full_build;
-    const char **quick_build = NULL;
-    if (quick) { /* ninja -C out -jN <objects...> */
-      quick_build = calloc((size_t)nquick + 5, sizeof *quick_build);
-      if (!quick_build) {
-        rc = PMK_ERR_NOMEM;
-        break;
-      }
-      quick_build[0] = "ninja";
-      quick_build[1] = "-C";
-      quick_build[2] = out;
-      quick_build[3] = buf;
-      for (int q = 0; q < nquick; q++) quick_build[4 + q] = quick[q];
-      build = quick_build;
+    /* ninja -C out -jN <objects...>: the selected units only */
+    const char **build = calloc((size_t)nquick + 5, sizeof *build);
+    if (!build) {
+      rc = PMK_ERR_NOMEM;
+      break;
     }
+    build[0] = "ninja";
+    build[1] = "-C";
+    build[2] = out;
+    build[3] = buf;
+    for (int q = 0; q < nquick; q++) build[4 + q] = quick[q];
     for (int rep = 0; rep < reps && rc == PMK_OK; rep++) {
       ctx_emit(c, PMK_EV_PHASE, "mc_threaded", "K1x", (uint32_t)(si * reps + rep + 1), (uint32_t)(nsteps * reps),
-               "full build, -j%d, repetition %d/%d", n, rep + 1, reps);
+               "build of %d units, -j%d, repetition %d/%d", nquick, n, rep + 1, reps);
       if (pal_run(clean, NULL, log, NULL)) {
         ctx_unavailable(c, "K1x", NULL, "mc_threaded", "ninja clean failed (see the log)");
         rc = PMK_ERR_SYSTEM;
@@ -195,7 +204,7 @@ int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order) {
         rc = PMK_ERR_NOMEM;
       }
     }
-    free(quick_build);
+    free(build);
   }
   for (int q = 0; quick && q < nquick; q++) free(quick[q]);
   free(quick);

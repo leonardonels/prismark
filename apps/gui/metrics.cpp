@@ -25,6 +25,15 @@ QJsonObject largestN(const QVector<QJsonObject> &rows) {
   return best;
 }
 
+/* Marks an all-cores value measured on fewer threads than the machine has, so it is not shown as all cores. */
+void markThreads(std::optional<Value> &v, const QJsonObject &doc, const QJsonObject &row) {
+  int all = doc["machine"].toObject()["cpu"].toObject()["cores"].toArray().size(), n = row["n"].toInt();
+  if (v && all > 0 && n > 0 && n < all) {
+    v->threads = n;
+    v->ofThreads = all;
+  }
+}
+
 QVector<QJsonObject> filter(const QJsonArray &a, const std::function<bool(const QJsonObject &)> &f) {
   QVector<QJsonObject> out;
   for (const QJsonValue &v : a)
@@ -48,6 +57,11 @@ std::function<std::optional<Value>(const QJsonObject &)> throughput(QString kern
     if (r.isEmpty()) return std::nullopt;
     auto v = ci(r["perf_steady"]);
     if (v) v->unsettled = r.contains("steady_reached") && !r["steady_reached"].toBool();
+    if (mode == "mc_threaded") markThreads(v, d, r);
+    if (v && r["clamped_windows"].toInt() > 0) {
+      v->clamped = r["clamped_windows"].toInt();
+      v->clampedMhz = r["clamped_lowest_mhz"].toDouble(NAN);
+    }
     return v;
   };
 }
@@ -122,7 +136,7 @@ std::function<std::optional<Value>(const QJsonObject &)> rresp(double w) {
 const QVector<Group> &groups() {
   static const QVector<Group> g = {
       {"mc", "All cores",
-       "Heavy jobs that use every core at once, measured after the CPU has warmed up and its speed has settled."},
+       "Heavy jobs that use every core at once, measured after a minute of full load has warmed the CPU up."},
       {"st", "One core",
        "How fast a single core is: short everyday tasks, and long tasks once the core has warmed up."},
       {"resp", "Responsiveness",
@@ -142,14 +156,14 @@ const QVector<Group> &groups() {
 const QVector<Metric> &metrics() {
   static const QStringList uplift_modes = {"st_sustained"};
   static const QString kSettle =
-      "It keeps running until its speed and temperature stop changing, at least 30 seconds and at most 10 "
-      "minutes; the score is its speed over the last 10 seconds. Quick runs stop after a few seconds, before the "
-      "processor has warmed up.";
+      "In a full run the processor first works at full load for a minute, so it is as hot (and, if it throttles, as "
+      "slow) as long use makes it; then the test is measured for 20 seconds (compiling: 60). Every computer gets "
+      "exactly the same warm-up and measurement. Quick runs skip the warm-up and measure a few seconds.";
   static const QString kUplift =
       "The same code is built twice: once for the common baseline (SSE4.2 on Intel and AMD, NEON on Arm) and once "
       "for the newest instructions this processor supports (AVX2 or AVX-512 on Intel and AMD; dot product or SVE2 "
       "on Arm). Newer sets mostly process more numbers per step: AVX-512 handles four times as many as SSE4.2. Each "
-      "version runs on one core until its speed settles.";
+      "version is measured on one core after the warm-up.";
   static const QString kUpliftRead = "Higher is better. 1.00× means no gain; 1.50× means 50 % faster.";
   static const QString kBurstHow =
       "The task is repeated on a core that is already running, until its time is known to within about 1 %.";
@@ -183,7 +197,10 @@ const QVector<Metric> &metrics() {
        "ratio:R_build", false, {"mc_threaded"}, "K1x",
        [](const QJsonObject &d) -> std::optional<Value> {
          auto r = largestN(filter(series(d), [](const QJsonObject &x) { return x["kernel"].toString() == "K1x"; }));
-         return r.isEmpty() ? std::nullopt : ci(r["median"], 1e-9);
+         if (r.isEmpty()) return std::nullopt;
+         auto v = ci(r["median"], 1e-9);
+         markThreads(v, d, r);
+         return v;
        }},
       /* One core */
       {"st_k2", "st", "3D rendering, one core", "3D rendering on one core", "One core, after warming up", "M samples/s",
@@ -310,12 +327,23 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
   if (t.isValid()) s.date = t.toLocalTime().toString("yyyy-MM-dd HH:mm");
   s.complete = doc["complete"].toBool();
   s.verified = doc["verified"].toBool();
-  s.quick = doc["config"].toObject()["sustained_max_s"].toDouble(600) < 30;
+  QJsonObject cfg = doc["config"].toObject();
+  s.quick = cfg.contains("quick") ? cfg["quick"].toBool() : cfg["sustained_max_s"].toDouble(600) < 30; /* older */
   s.tiers = doc["tiers"].toObject();
   s.harness = doc["harness"].toObject();
   s.frontend = doc["frontend"].toObject();
   s.state = doc["state"].toObject()["start"].toObject();
   s.unavailable = doc["unavailable"].toArray();
+  for (const QJsonValue &v : series(doc)) {
+    QJsonObject r = v.toObject();
+    if (r["clamped_windows"].toInt() > 0) {
+      s.clampedSeries++;
+      double mhz = r["clamped_lowest_mhz"].toDouble(NAN);
+      if (!(s.clampedMhz <= mhz)) s.clampedMhz = mhz;
+    }
+    if (r["purpose"].toString() != "warmup") continue;
+    if (auto t = ci(r["R_throttle"])) s.hot[r["mode"].toString()] = *t;
+  }
   for (const Metric &m : metrics()) {
     auto v = m.get(doc);
     if (v && std::isfinite(v->v)) s.metrics[m.id] = *v;
@@ -357,6 +385,7 @@ QString plainKernel(const QString &kernel, const QString &variant) {
   QString n = names.value(kernel, kernel);
   if (variant == "fp32") n += ", decimals";
   else if (variant == "int8") n += ", small integers";
+  else if (variant.startsWith("n=")) n += ", " + variant.mid(2) + (variant == "n=1" ? " thread" : " threads");
   else if (!variant.isEmpty()) n += " " + variant;
   return n;
 }
@@ -387,13 +416,14 @@ QString glossaryHtml() {
                "own; Prismark never adds them up into a single score, because each answers a different question."},
       {"Quick run / full run",
        "A quick run takes minutes and gives a first look; its numbers are rough and are never compared with full "
-       "runs. A full run repeats each test until the result is precise and waits for the CPU to warm up; it can take "
-       "hours."},
+       "runs. A full run warms the CPU up before the long tests and repeats the short ones until they are precise; "
+       "about half an hour on a laptop, less on faster computers."},
       {"Core, thread", "A core is one processing unit of the CPU. Many CPUs run two threads per core. “All cores” "
                        "tests use every thread the operating system offers."},
-      {"Warming up, steady state",
-       "A cool CPU runs faster for a while, then heats up and may slow down (throttling). Long tests keep running "
-       "until speed and temperature stop changing, and report the speed from then on."},
+      {"Warming up, when hot",
+       "A cool CPU runs faster for a while, then heats up and may slow down (throttling). In a full run, long tests "
+       "follow a minute of full load, so they measure the computer as it is in sustained use. “When hot” shows how "
+       "much slower it got during that minute."},
       {"From rest (cold start)",
        "To save power an idle CPU sleeps and lowers its clock. Work that arrives then waits for it to wake up and "
        "speed up again. These tests pause for 50–500 ms before each task to measure that delay. Keep your hands off "

@@ -131,6 +131,7 @@ int pal_run(const char *const *argv, const char *cwd, const char *log_path, int 
   pid_t pid = fork();
   if (pid < 0) return -1;
   if (pid == 0) {
+    setpgid(0, 0); /* own process group: a cancel stops the compilers a build tool started, too */
     if (cwd && chdir(cwd)) _exit(127);
     if (log_path) {
       int fd = open(log_path, O_WRONLY | O_CREAT | O_APPEND | O_CLOEXEC, 0644);
@@ -144,19 +145,23 @@ int pal_run(const char *const *argv, const char *cwd, const char *log_path, int 
     execvp(argv[0], (char *const *)argv);
     _exit(127);
   }
+  setpgid(pid, pid); /* also from the parent, so the group exists before a cancel can signal it */
   int status = 0, killed = 0;
   for (;;) {
     pid_t r = waitpid(pid, &status, cancelled ? WNOHANG : 0);
     if (r == pid) break;
     if (r < 0 && errno != EINTR) return -1;
     if (r == 0) {
-      if (!killed && cancelled()) {
-        kill(pid, SIGTERM);
-        killed = 1;
+      if (cancelled()) {
+        /* SIGTERM to the whole group, then SIGKILL after 5 s if anything in it is still running. */
+        if (killed == 0) kill(-pid, SIGTERM);
+        else if (killed == 100) kill(-pid, SIGKILL);
+        killed++;
       }
       pal_sleep_ns(50000000);
     }
   }
+  if (killed) kill(-pid, SIGKILL); /* nothing of a cancelled build outlives it */
   if (WIFEXITED(status)) return WEXITSTATUS(status);
   return 128 + (WIFSIGNALED(status) ? WTERMSIG(status) : 0);
 }

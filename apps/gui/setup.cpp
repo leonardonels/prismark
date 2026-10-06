@@ -68,13 +68,21 @@ QString installInstructions(const CompileStatus &s) {
   QStringList out;
 #if defined(Q_OS_LINUX)
   bool llvm = s.missingPrepare.contains(kClang) || s.missingPrepare.contains("lld");
-  if (llvm) out << "wget https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 19     # clang-19, clang++-19, lld-19";
-  QStringList apt;
-  if (s.missingPrepare.contains("cmake")) apt << "cmake";
-  if (s.missingPrepare.contains("ninja")) apt << "ninja-build";
-  if (s.missingPrepare.contains("python3")) apt << "python3";
-  if (!s.k1Built) apt << "libclang-19-dev" << "llvm-19-dev";
-  if (!apt.isEmpty()) out << "sudo apt install " + apt.join(' ');
+  QStringList pkgs;
+  if (s.missingPrepare.contains("cmake")) pkgs << "cmake";
+  if (s.missingPrepare.contains("ninja")) pkgs << "ninja-build";
+  if (s.missingPrepare.contains("python3")) pkgs << "python3";
+  if (have("dnf")) {
+    // Fedora ships LLVM 19 as versioned compat packages (clang-19, ld.lld-19, /usr/lib64/llvm19).
+    if (s.missingPrepare.contains(kClang)) pkgs << "clang19";
+    if (s.missingPrepare.contains("lld")) pkgs << "lld19";
+    if (!s.k1Built) pkgs << "clang19-devel" << "llvm19-devel";
+    if (!pkgs.isEmpty()) out << "sudo dnf install " + pkgs.join(' ');
+  } else {
+    if (llvm) out << "wget https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 19     # clang-19, clang++-19, lld-19";
+    if (!s.k1Built) pkgs << "libclang-19-dev" << "llvm-19-dev";
+    if (!pkgs.isEmpty()) out << "sudo apt install " + pkgs.join(' ');
+  }
   if (!s.k1Built)
     out << "# then rebuild Prismark so the “Compiling code” tests are built in:"
         << "cmake --preset linux-clang && cmake --build --preset linux-clang";

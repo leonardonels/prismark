@@ -7,35 +7,44 @@ derived quantity compares identical kernels built from identical sources.
 
 The full design is in [docs/spec.md](docs/spec.md).
 
+## Tests
+
+The desktop app names every test by what it does. The command line
+(`--kernels`), result files and source folders use a short kernel ID instead.
+This README uses the app's names, with the ID in brackets where it helps.
+
+| Test (as in the app) | ID | What it runs | Source |
+| --- | --- | --- | --- |
+| Compiling code | K1 | In-process compile: Clang as a library, aarch64 target, in-memory files | `kernels/k1_compile`; needs the [compile-test setup](#compile-tests-setup) |
+| Full software build | K1x | Build of every 8th unit (73 of 577) with CMake + Ninja, all threads, three times | `src/engine/k1x.c`; needs the [compile-test setup](#compile-tests-setup) |
+| 3D rendering | K2 | Path tracer | `kernels/k2_render` |
+| Compression | K3 | zstd 1.5.6, level 3, self-generated corpus | `kernels/k3_compress` |
+| Opening a photo | K4 | JPEG decode (stb_image, SIMD off) and triangle-filter resize | `kernels/k4_image` |
+| Reading JSON | K5 | Validating JSON parser, exact number handling | `kernels/k5_json` |
+| Starting a script | K6 | Lua 5.4.7: new state, load and run a script | `kernels/k6_lua` |
+| Memory delay | K7 | Pointer chase over L1-to-DRAM working sets | `kernels/k7_chase` |
+| Matrix maths | K8 | Matrix multiply, FP32 and INT8 | `kernels/k8_matmul` |
+| Wake-up test | K9 | Calibrated dependent-add loop | `kernels/k9_calib` |
+| Timer punctuality | K10 | Periodic timer | `src/engine/mode_periodic.c` |
+
 ## Measurement modes
 
-| Mode | Measured quantity | Kernels |
-| --- | --- | --- |
-| Single-thread burst | Execution time of short interactive workloads on one core | K3, K4, K5, K6 |
-| Single-thread sustained | Single-core throughput at thermal and power steady state | K1, K2 |
-| Multi-thread | Scaling of multithreaded workloads, including serial fractions | K1, K1x, K2 |
-| Multi-instance | Memory latency while every core uses memory | K7 |
-| Cold start | Latency penalty of work issued from idle, on the machine as configured | K9; K4, K6 |
-| Periodic | Wake-up latency distribution of periodic tasks | K10 |
+Each test runs in one or more modes. The app groups them into the tabs
+All cores, One core, Responsiveness, Memory & timing and New instructions; the
+command line selects modes by ID (`--mode`).
 
-ISA uplift (K2, K3, K4, K8 at the baseline and the max-level ISA) runs under
-single-thread sustained conditions.
+| Mode | Shown in the app as | CLI ID | Measured quantity | Tests |
+| --- | --- | --- | --- | --- |
+| Single-thread burst | one core, short task | `st_burst` | Execution time of short interactive workloads on one core | Compression, Opening a photo, Reading JSON, Starting a script |
+| Single-thread sustained | one core, after warming up | `st_sustained` | Single-core throughput after a warm-up at full load | Compiling code, 3D rendering |
+| Multi-thread | all cores, working together | `mc_threaded` | Scaling of multithreaded workloads, including serial fractions | Compiling code, Full software build, 3D rendering |
+| Multi-instance | all cores, each on its own | `mc_instances` | Memory latency while every core uses memory | Memory delay |
+| Cold start | started from rest | `cold_burst` | Latency penalty of work issued from idle, on the machine as configured | Wake-up test; Opening a photo, Starting a script |
+| Periodic | timer punctuality | `periodic` | Wake-up latency distribution of periodic tasks | Timer punctuality |
 
-## Kernels
-
-| ID | Kernel | Source |
-| --- | --- | --- |
-| K1 | In-process compile: Clang as a library, aarch64 target, in-memory files | `kernels/k1_compile` (needs Clang dev package) |
-| K1x | Full build of the same units with CMake + Ninja | `src/engine/k1x.c`, snapshot from `tools/k1x/prepare.py` |
-| K2 | Path tracer | `kernels/k2_render` |
-| K3 | zstd 1.5.6, level 3, self-generated corpus | `kernels/k3_compress` |
-| K4 | JPEG decode (stb_image, SIMD off) and triangle-filter resize | `kernels/k4_image` |
-| K5 | Validating JSON parser, exact number handling | `kernels/k5_json` |
-| K6 | Lua 5.4.7: new state, load and run a script | `kernels/k6_lua` |
-| K7 | Pointer chase over L1-to-DRAM working sets | `kernels/k7_chase` |
-| K8 | Matrix multiply, FP32 and INT8 | `kernels/k8_matmul` |
-| K9 | Calibrated dependent-add loop | `kernels/k9_calib` |
-| K10 | Periodic timer | `src/engine/mode_periodic.c` |
+ISA uplift (the New instructions tab: 3D rendering, Compression, Opening a
+photo and Matrix maths, each built for the baseline and the max-level ISA) runs
+under single-thread sustained conditions.
 
 Every input is generated from fixed seeds or fetched by hash, so every host does
 identical work. Kernels are built without FP contraction and without libm
@@ -50,9 +59,23 @@ ARM64).
 - Derived metrics (scaling S/E/p, throttling ratio, build overhead R_build,
   instruction-set uplift U_ISA) compare the same
   kernel and the same binary, with bootstrap 95 % intervals.
-- Sustained runs sample perf(t) in windows and stop at steady state: t > 5τ
-  (τ fitted to the temperature trace) and no significant slope over the last
-  ten windows, or at a duration cap, recorded either way.
+- Sustained runs are fixed in length, so a run takes the same time on every
+  machine of a kind and includes the slowdown sustained use causes. In a full
+  run each sustained mode starts with a 60 s warm-up (3D rendering at the
+  mode's full load: one core, or every thread), then every series runs 5 s
+  unscored and is measured for 20 s (Compiling code: 60 s) in 1 s windows
+  (5 s for Compiling code); the score is the median window. The warm-up is
+  recorded: its end against its first seconds is the "when hot" slowdown.
+  Quick runs skip the warm-up and measure 3 s. Each window also records the
+  clock of the CPUs in use: windows below the CPU's own hardware minimum (or
+  15 % of its maximum where that is unknown) are throttling forced from
+  outside the processor, such as laptop firmware asserting BD PROCHOT. They
+  are counted and reported ("throttled"), and the score keeps them. Measured on a 4-core laptop,
+  60 s covers the turbo budget (about 28 s on Intel laptops) and the thermal
+  time constant (2–20 s). Short tasks, responsiveness, memory and timer
+  tests have no warm-up.
+- A full run takes about 30 minutes on a 4-core laptop (i5-1035G1), less on
+  faster machines.
 - Baseline builds target a common instruction-set level (x86-64-v2, Armv8.2-A)
   and contain no vendor-specific intrinsics. Max-level tiers (x86-64-v3/v4,
   Armv8.2-A+dotprod, Armv9-A+SVE2) are separate modules selected at runtime.
@@ -65,43 +88,71 @@ ARM64).
 
 | Phase | Content | State |
 | --- | --- | --- |
-| 1 | Linux core, all six modes, K2, K3, K9, K10 | implemented; gate 1 needs repeat runs on an x86-64 and an ARM64 machine |
-| 2 | K1, K1x, K4–K8, statistics in the core, analyzer | implemented; K1 and K1x untested (need Clang dev libraries and a snapshot) |
+| 1 | Linux core, all six modes, 3D rendering, Compression, Wake-up test, Timer punctuality | implemented; gate 1 needs repeat runs on an x86-64 and an ARM64 machine |
+| 2 | Compiling code, Full software build, Opening a photo, Reading JSON, Starting a script, Memory delay, Matrix maths, statistics in the core, analyzer | implemented; Compiling code and Full software build untested (need the Clang 19 development libraries and a snapshot) |
 | 3 | Windows PAL, CLI | written, not yet compiled or run on Windows |
 | 4 | Android (JNI bridge), GUI | JNI bridge and Kotlin wrapper written, untested; desktop app (Qt) working on Linux |
 | 5 | macOS / iOS PAL, Swift wrapper | written, not yet compiled or run on Apple platforms |
 
-On Linux x86-64 everything except K1/K1x has been run end to end. The gates in
+On Linux x86-64 everything except Compiling code and Full software build has
+been run end to end. The gates in
 the spec are still to be passed.
 
 ## Building
 
 Requires CMake ≥ 3.25, Ninja, network access on first configure (zstd, Lua and
 stb are fetched at pinned versions and verified by SHA-256), and the pinned
-upstream Clang (currently 19):
+upstream Clang (currently 19). The packages differ by distribution; each block
+below installs everything: compiler, build tools, the Clang 19 development
+libraries that build "Compiling code" in, and Qt for the desktop app.
+
+### Ubuntu (x86-64 or arm64)
+
+Clang 19 comes from apt.llvm.org:
 
 ```sh
-wget https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 19   # Ubuntu, x86-64 or arm64
+wget https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 19     # clang-19, clang++-19, lld-19
+sudo apt install cmake ninja-build libclang-19-dev llvm-19-dev \
+                 qt6-base-dev qt6-svg-dev
+```
+
+### Fedora
+
+Clang 19 comes from Fedora's own versioned packages (installed under
+`/usr/lib64/llvm19`, with `clang-19` and `ld.lld-19` in `/usr/bin`); no extra
+repository is needed:
+
+```sh
+sudo dnf install cmake ninja-build clang19 lld19 clang19-devel llvm19-devel \
+                 qt6-qtbase-devel qt6-qtsvg-devel
+```
+
+### Build and test (all distributions)
+
+```sh
 cmake --preset linux-clang
 cmake --build --preset linux-clang
 ctest --preset linux-clang
 ```
+
+The configure output says what will be built in. Look for
+`K1: in-process Clang 19.1.7 from …` (Compiling code) and
+`GUI: prismark-gui with Qt …` (desktop app). If the Clang 19 development
+libraries are not found, Compiling code is listed as unavailable in results;
+point CMake at a custom install with `-DPRISMARK_K1_LLVM_DIR=<prefix>`. Without
+Qt, only the command-line runner is built.
 
 For development with any other compiler, use the `dev` preset instead
 (`cmake --preset dev`); results from such builds are not comparable to
 official ones. Other presets: `windows-clang`, `macos-clang`, `android-arm64`
 (needs `ANDROID_NDK`), `ios-arm64` (static libraries for `bindings/swift`).
 
-K1 is built when the Clang development package is found (`libclang-19-dev`
-and `llvm-19-dev`, or `-DPRISMARK_K1_LLVM_DIR=<prefix>`); otherwise results
-list it as unavailable.
-
 ## Running
 
 ```sh
 ./build/linux-clang/prismark --quick          # smoke run, a few minutes; not for comparison
-./build/linux-clang/prismark                  # full run of all modes (long: sustained runs reach steady state)
-./build/linux-clang/prismark --mode st_burst,cold_burst --kernels K4,K6,K9
+./build/linux-clang/prismark                  # full run of all modes (about 30 min on a 4-core laptop)
+./build/linux-clang/prismark --mode st_burst,cold_burst --kernels K4,K6,K9   # Opening a photo, Starting a script, Wake-up test
 ./build/linux-clang/prismark --help
 ```
 
@@ -131,22 +182,51 @@ no power settings, no frequency limits, no idle states. It needs no root
 rights. What it finds (governor, power mode, idle states, temperatures) is
 recorded with the result.
 
-### K1 and K1x
+### Compile tests setup
 
-K1 runs on Linux, Windows, macOS and iPadOS; K1x on Linux, Windows and macOS
-(it starts other programs, which iPadOS does not allow). Phones do not offer
-either, and they are not shown there at all.
+"Compiling code" (K1) runs on Linux, Windows, macOS and iPadOS; "Full software
+build" (K1x) on Linux, Windows and macOS (it starts other programs, which
+iPadOS does not allow). Phones do not offer either, and they are not shown
+there at all.
 
-Both use a prepared snapshot of a pinned LLVM subset (generated sources
-included, so no host tool runs during the build) cross-compiled to aarch64:
+Both need a one-time setup, in this order:
 
-```sh
-tools/k1x/prepare.py                          # pinned sysroot downloaded; output in ~/.local/share/prismark/k1x
-./build/linux-clang/prismark --k1-data ~/.local/share/prismark/k1x
-```
+1. **Install the packages** for your distribution from [Building](#building)
+   (the Clang 19 development libraries, `lld` and `python3` among them).
+2. **Rebuild Prismark** so Compiling code is built in (check for the `K1:`
+   line in the configure output).
+3. **Prepare the snapshot.** This step is not done by any package or by the
+   build: you start it yourself. In the app, press ▶ Run on a compile test and
+   then **Prepare now** (or Menu › Prepare compile tests). From a terminal:
 
-The script checks the granularity rule (Σ T_i / T_max ≥ 4 n_max) and prints
-the snapshot's statistics.
+   ```sh
+   tools/k1x/prepare.py                       # output in ~/.local/share/prismark/k1x
+   ./build/linux-clang/prismark --k1-data ~/.local/share/prismark/k1x
+   ```
+
+Compiling code compiles the units in a fixed shuffled order (the same on
+every machine), so its fixed-length measurement covers small and large files
+alike; each unit's work is weighted by its compile cost and credited to the
+windows it ran in. Full software build runs only on all threads, and "Full
+build vs. in-memory compile" (R_build) compares it with Compiling code's time
+for the same share of the work.
+
+Both compile tests need about 450 MB of memory per thread (Clang at `-O2` on
+LLVM's largest file peaks at 375 MB): about 3.6 GB on 8 threads, 7.2 GB on
+16. Before each thread count, Prismark checks the memory available and skips
+the counts that do not fit, recording "not enough memory" instead of being
+stopped by the system; the app then marks the result "N of M threads" rather
+than ranking it as an all-cores result. Closing other programs before the run
+frees memory for more threads.
+
+The snapshot is a pinned LLVM subset cross-compiled to aarch64, with its
+generated sources included so no host tool runs during the measured build.
+Preparing it downloads about 160 MB (LLVM sources and a pinned aarch64
+sysroot, both verified by SHA-256), builds the generated files once and
+measures every unit: 20–60 minutes, about 4 GB of disk while it runs. It can be
+cancelled and started again; downloads that were interrupted are fetched
+again. The script checks the granularity rule (Σ T_i / T_max ≥ 4 n_max) and
+prints the snapshot's statistics.
 
 ## Desktop app
 
@@ -162,16 +242,15 @@ scaling.
 ./build/linux-clang/prismark-gui              # or: prismark-gui --run [TEST] [--full], e.g. --run mc_k2
 ```
 
-- Built automatically when Qt Widgets and Svg are found (Qt 6, or Qt 5.15:
-  `sudo apt install qt6-base-dev qt6-svg-dev` or `qtbase5-dev libqt5svg5-dev`); `-DPRISMARK_GUI=OFF`
-  skips it. The Inter typeface is fetched at a pinned version and compiled in.
+- Built automatically when Qt Widgets and Svg are found (Qt 6, or Qt 5.15;
+  the packages are in [Building](#building)); `-DPRISMARK_GUI=OFF` skips it. The Inter typeface is fetched at a pinned version and compiled in.
 - **Isolation.** Runs execute in the `prismark` runner next to the app, as a
   separate process. During a run the main window closes and only a small
   measuring window remains, static except when a new phase begins (spec 7.1);
   closing it cancels the run (the partial result is kept).
-- **Quick runs** use short series and, for Compile and Full build, every 8th
-  compile unit (the same units for both); they are recorded as such and never
-  compared with full runs.
+- **Quick runs** skip the warm-up, use short series, compile every 8th unit in
+  Compiling code and build once; they are recorded as such and never compared
+  with full runs.
 - **As configured.** The app never asks for administrator rights and never
   changes power settings: every test measures the computer as it is set up.
 - **Hands off.** Cold start and periodic measure waits and wake-ups. Keyboard
@@ -181,16 +260,12 @@ scaling.
   it polls the ScreenSaver idle time every 2 s; on Windows and macOS the
   runner reads the last-input time itself. The method is recorded with the
   result.
-- **Compile tests.** Compile (K1) and Full build (K1x) need a one-time
-  snapshot: the app checks what is missing, shows the commands to install it,
-  and prepares the snapshot with progress (Menu › Prepare compile tests). On
-  Ubuntu:
-
-  ```sh
-  wget https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 19     # clang-19, clang++-19, lld-19
-  sudo apt install cmake ninja-build libclang-19-dev llvm-19-dev  # the -dev packages build K1 in
-  cmake --preset linux-clang && cmake --build --preset linux-clang
-  ```
+- **Compile tests.** Compiling code and Full software build need the
+  one-time [setup](#compile-tests-setup). When you run one, the app checks
+  each step: missing tools and libraries come first, with the install commands
+  for your distribution (`apt` on Ubuntu, `dnf` on Fedora); preparing the
+  snapshot is always the last step, started with **Prepare now**, and shows
+  its progress.
 
 - Every run is saved in `results/runs` of the shared results folder (see
   Running) and reloaded at start, along with runs from the command line; the
@@ -220,15 +295,15 @@ uv run prismark-analyze table run1.json run2.json       # CSV of medians across 
 
 ```
 include/prismark/prismark.h   public C ABI (start, cancel, progress events, compare, checksums)
-src/engine/                   runner, modes, sustained-run engine, K1x driver
-src/stats/                    medians, bootstrap, steady state, analysis, compare and profiles
+src/engine/                   runner, modes, sustained-run engine, Full software build (K1x) driver
+src/stats/                    medians, bootstrap, analysis, compare and profiles
 src/result/                   JSON writer and reader
 pal/                          platform layers: linux, darwin, windows, posix, common (ISA detection)
 kernels/                      one directory per kernel; compiled once per ISA tier
 apps/cli, apps/gui            command-line runner, desktop app
 apps/viewer                   static web viewer
 bindings/android, bindings/swift   JNI bridge and Kotlin wrapper; Swift package
-tools/k1x, tools/ci           K1x snapshot preparation, checksum gate
+tools/k1x, tools/ci           compile-test snapshot preparation, checksum gate
 analyzer/                     Python research tools
 ```
 
