@@ -34,7 +34,7 @@
 #endif
 
 static LARGE_INTEGER g_freq;
-static __declspec(thread) HANDLE t_timer;
+static _Thread_local HANDLE t_timer;
 static int g_high_res_timer;
 static GROUP_AFFINITY *g_cpu_affinity; /* per CPU index in pmk_machine.cpus order */
 static int g_ncpu;

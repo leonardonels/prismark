@@ -90,7 +90,7 @@ ARM64).
 | --- | --- | --- |
 | 1 | Linux core, all six modes, 3D rendering, Compression, Wake-up test, Timer punctuality | implemented; gate 1 needs repeat runs on an x86-64 and an ARM64 machine |
 | 2 | Compiling code, Full software build, Opening a photo, Reading JSON, Starting a script, Memory delay, Matrix maths, statistics in the core, analyzer | implemented; Compiling code and Full software build untested (need the Clang 19 development libraries and a snapshot) |
-| 3 | Windows PAL, CLI | written, not yet compiled or run on Windows |
+| 3 | Windows PAL, CLI | cross-compiles with llvm-mingw (`tools/package-windows.sh`); not yet run on Windows |
 | 4 | Android (JNI bridge), GUI | JNI bridge and Kotlin wrapper written, untested; desktop app (Qt) working on Linux |
 | 5 | macOS / iOS PAL, Swift wrapper | written, not yet compiled or run on Apple platforms |
 
@@ -146,6 +146,12 @@ For development with any other compiler, use the `dev` preset instead
 (`cmake --preset dev`); results from such builds are not comparable to
 official ones. Other presets: `windows-clang`, `macos-clang`, `android-arm64`
 (needs `ANDROID_NDK`), `ios-arm64` (static libraries for `bindings/swift`).
+
+A portable Windows x86-64 build (desktop app, runner and DLLs in one zip) can be
+cross-compiled on Linux with llvm-mingw and Qt for Windows:
+`tools/package-windows.sh <llvm-mingw> <Qt/6.8.3/llvm-mingw_64> <Qt/6.8.3/gcc_64>`
+(the script lists where to get them). It leaves out Compiling code and Full
+software build.
 
 ## Running
 
