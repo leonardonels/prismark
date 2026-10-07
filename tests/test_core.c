@@ -10,6 +10,7 @@
 #include "jparse.h"
 #include "json.h"
 #include "kernels.h"
+#include "pal.h"
 #include "prismark/prismark.h"
 #include "stats.h"
 #include "zstd.h"
@@ -122,7 +123,7 @@ static void test_kernels(void) {
   const pmk_kernels *k = &pmk_kernels_baseline;
   CHECK(k->k9_run(1000, 5) == 5 + 1000ull * k->k9_adds_per_iter);
   enum { N = 1000 };
-  pmk_k7_node *nodes = aligned_alloc(64, N * sizeof *nodes);
+  pmk_k7_node *nodes = pal_aligned_alloc(64, N * sizeof *nodes);
   k->k7_build(nodes, N, 1);
   /* Sattolo: one cycle through every node. */
   unsigned char seen[N] = {0};
@@ -134,7 +135,7 @@ static void test_kernels(void) {
   }
   CHECK(p == 0);
   CHECK(k->k7_chase(nodes, 0, N) == 0);
-  free(nodes);
+  pal_aligned_free(nodes);
 }
 
 

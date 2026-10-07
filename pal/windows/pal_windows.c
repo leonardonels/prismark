@@ -43,7 +43,8 @@ static int g_ncpu;
 
 static void os_version(char *out, size_t n) {
   typedef LONG(WINAPI * rtl_get_version)(OSVERSIONINFOEXW *);
-  OSVERSIONINFOEXW v = {sizeof v};
+  OSVERSIONINFOEXW v = {0};
+  v.dwOSVersionInfoSize = sizeof v;
   rtl_get_version f = (rtl_get_version)(void *)GetProcAddress(GetModuleHandleW(L"ntdll.dll"), "RtlGetVersion");
   if (f && f(&v) == 0) snprintf(out, n, "%lu.%lu.%lu", v.dwMajorVersion, v.dwMinorVersion, v.dwBuildNumber);
   else snprintf(out, n, "unknown");
@@ -474,7 +475,8 @@ int pal_run(const char *const *argv, const char *cwd, const char *log_path, int 
     logf = CreateFileA(log_path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, &sa, OPEN_ALWAYS,
                        FILE_ATTRIBUTE_NORMAL, NULL);
   }
-  STARTUPINFOA si = {sizeof si};
+  STARTUPINFOA si = {0};
+  si.cb = sizeof si;
   if (logf != INVALID_HANDLE_VALUE) {
     si.dwFlags = STARTF_USESTDHANDLES;
     si.hStdOutput = si.hStdError = logf;
