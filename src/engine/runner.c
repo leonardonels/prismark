@@ -126,7 +126,7 @@ int ctx_memory_allows(pmk_ctx *c, const char *kernel, int n, uint64_t per_thread
   if (!avail || need <= avail) return 1;
   char variant[16], reason[160];
   snprintf(variant, sizeof variant, "n=%d", n);
-  snprintf(reason, sizeof reason, "not enough memory: %d threads need about %.1f GB, %.1f GB available", n,
+  snprintf(reason, sizeof reason, "not enough memory: %d threads need about %.2f GB, %.2f GB available", n,
            (double)need / 1e9, (double)avail / 1e9);
   ctx_unavailable(c, kernel, variant, "mc_threaded", reason);
   return 0;
@@ -388,6 +388,7 @@ static void machine_json(pmk_jw *w, const pmk_machine *m) {
   jw_bool(w, "timer_slack", m->caps.timer_slack);
   jw_bool(w, "qos_only", m->caps.qos_only);
   jw_str(w, "power", m->caps.power[0] ? m->caps.power : NULL);
+  jw_str(w, "power_note", m->caps.power_note[0] ? m->caps.power_note : NULL);
   jw_obj_end(w);
   jw_obj_end(w);
 }

@@ -20,7 +20,6 @@
 #include "widgets.h"
 
 int main(int argc, char **argv) {
-  QApplication::setAttribute(Qt::AA_EnableHighDpiScaling);
   QApplication app(argc, argv);
   QApplication::setOrganizationName("Prismark");
   QApplication::setApplicationName("Prismark");

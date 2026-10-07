@@ -121,6 +121,9 @@ static void find_power(pmk_caps *c) {
       }
     }
   }
+  /* The counter is there but readable only by root: say so, the fix is a permission. */
+  if (g_power == POWER_NONE && access(RAPL_PKG "/energy_uj", F_OK) == 0)
+    snprintf(c->power_note, sizeof c->power_note, "rapl-needs-root");
 }
 
 /* The power sensor's current reading in watts, NaN if none (the energy counter is read by pal_power_read). */

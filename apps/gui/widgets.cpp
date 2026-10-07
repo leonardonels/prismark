@@ -253,7 +253,7 @@ void ChartView::paintEvent(QPaintEvent *) {
      to 100 % of its own peak). */
   QVector<ChartLine> lines = lines_;
   bool base = std::any_of(lines.begin(), lines.end(), [](const ChartLine &l) { return !l.overlay; });
-  double x0 = INFINITY, x1 = -INFINITY, y0 = INFINITY, y1 = -INFINITY;
+  double x0 = INFINITY, x1 = -INFINITY, y0 = INFINITY, y1 = -INFINITY, e0 = INFINITY, e1 = -INFINITY;
   QVector<double> xs;
   for (const ChartLine &l : lines)
     for (const auto &pt : l.pts) {
@@ -261,13 +261,18 @@ void ChartView::paintEvent(QPaintEvent *) {
       x1 = std::max(x1, pt[0]);
       if (!xs.contains(pt[0])) xs.push_back(pt[0]);
       if (l.overlay) continue;
-      for (int k = 1; k < 4; k++)
-        if (std::isfinite(pt[k])) {
-          y0 = std::min(y0, pt[k]);
-          y1 = std::max(y1, pt[k]);
-        }
+      if (std::isfinite(pt[1])) y0 = std::min(y0, pt[1]), y1 = std::max(y1, pt[1]);
+      for (int k = 2; k < 4; k++)
+        if (std::isfinite(pt[k])) e0 = std::min(e0, pt[k]), e1 = std::max(e1, pt[k]);
     }
   if (!std::isfinite(x0)) return;
+  /* Intervals widen the axis by at most half the values' span: one wild interval (a run disturbed by throttling)
+     would otherwise squash every value into the bottom of the chart. Bars beyond it are clipped. */
+  if (std::isfinite(y0)) {
+    double room = std::max(y1 - y0, std::abs(y1)) * 0.5;
+    if (std::isfinite(e0)) y0 = std::min(y0, std::max(e0, y0 - room));
+    if (std::isfinite(e1)) y1 = std::max(y1, std::min(e1, y1 + room));
+  }
   if (base) {
     y0 = std::isfinite(yMin_) ? yMin_ : std::min(0.0, y0);
     y1 = std::isfinite(yMax_) ? yMax_ : niceCeil(y1 * 1.05);
@@ -352,7 +357,9 @@ void ChartView::paintEvent(QPaintEvent *) {
     for (const auto &pt : l.pts) {
       if (std::isfinite(pt[2]) && std::isfinite(pt[3])) {
         p.setPen(QPen(c, 1.2));
+        p.setClipRect(plot);
         p.drawLine(QPointF(fx(pt[0]), fy(pt[2])), QPointF(fx(pt[0]), fy(pt[3])));
+        p.setClipping(false);
       }
       p.setPen(QPen(t.card, 1.5));
       p.setBrush(c);

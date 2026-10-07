@@ -201,7 +201,7 @@ QWidget *MainWindow::buildMenuButton() {
   b->setToolTip(tr("Menu"));
   b->setPopupMode(QToolButton::InstantPopup);
   auto *m = new QMenu(b);
-  m->addAction(tr("Open result…"), this, &MainWindow::openResult, QKeySequence::Open);
+  m->addAction(tr("Open result…"), this, &MainWindow::openResult)->setShortcut(QKeySequence::Open);
   m->addAction(tr("Compare two results…"), this, &MainWindow::compareRuns);
   m->addSeparator();
   m->addAction(tr("Prepare compile tests…"), this, &MainWindow::prepareCompileTests);
@@ -218,11 +218,11 @@ QWidget *MainWindow::buildMenuButton() {
     for (QWidget *w : QApplication::allWidgets()) w->update();
     refresh();
   });
-  m->addAction(tr("What do these terms mean?"), this, &MainWindow::showGlossary, QKeySequence::HelpContents);
+  m->addAction(tr("What do these terms mean?"), this, &MainWindow::showGlossary)->setShortcut(QKeySequence::HelpContents);
   m->addAction(tr("Data folders…"), this, &MainWindow::showDataFolders);
   m->addAction(tr("About Prismark"), this, &MainWindow::showAbout);
   m->addSeparator();
-  m->addAction(tr("Quit"), qApp, &QApplication::quit, QKeySequence::Quit);
+  m->addAction(tr("Quit"), qApp, &QApplication::quit)->setShortcut(QKeySequence::Quit);
   b->setMenu(m);
   return b;
 }
@@ -791,7 +791,7 @@ void MainWindow::refreshContext() {
     show(tr("Speed-up with more threads"),
          tr("For %1: how many times faster than a single thread. The dashed line is perfect scaling (8 threads = 8× "
             "faster); real programs fall below it as threads wait for each other, for memory, or for power.")
-             .arg(esc(who)));
+              .arg(esc(who)));
     auto *ch = new ChartView;
     ch->setData(lines, false, tr("threads"), 0, NAN, true);
     ch->setYUnit(QStringLiteral("×"));
@@ -942,8 +942,9 @@ void MainWindow::refreshDetails() {
                  .arg(QString::number(v.clampedMhz, 'f', 0));
     }
     if (v.ofThreads) {
-      val->setText(QStringLiteral("<span style='color:%1; font-size:8pt'>%2</span> ")
-                       .arg(t.warnText.name(), tr("%1 of %2 threads").arg(v.threads).arg(v.ofThreads)) +
+      val->setText(QStringLiteral("<span style='color:%1; font-size:8pt'>%2%3</span> ")
+                       .arg(t.warnText.name(), tr("%1 of %2 threads").arg(v.threads).arg(v.ofThreads),
+                            v.clamped ? QStringLiteral(" ·") : QString()) +
                    val->text());
       tip += tr("\nMeasured on %1 of this computer's %2 threads (see Not measured below), so it is not an all-cores "
                 "result.")

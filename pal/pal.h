@@ -34,6 +34,7 @@ typedef struct pmk_caps {
   int timer_slack;   /* timer slack can be reduced */
   int qos_only;      /* no pinning; placement through QoS classes, core type inferred */
   char power[32];    /* power telemetry source, "" if none */
+  char power_note[32]; /* with no source: why, when known ("rapl-needs-root"), else "" */
 } pmk_caps;
 
 typedef struct pmk_machine {
