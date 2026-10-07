@@ -71,6 +71,11 @@ class ChartView : public QWidget {
  public:
   explicit ChartView(QWidget *parent = nullptr);
   void setData(QVector<ChartLine> lines, bool logX, const QString &xLabel, double yMin, double yMax, bool ideal);
+  /* Unit after the y-axis values, e.g. "W" */
+  void setYUnit(const QString &unit) {
+    yUnit_ = unit;
+    update();
+  }
   QSize sizeHint() const override { return {320, 200}; }
   bool hasHeightForWidth() const override { return true; }
   int heightForWidth(int w) const override { return std::max(170, w * 9 / 16); }
@@ -81,8 +86,28 @@ class ChartView : public QWidget {
  private:
   QVector<ChartLine> lines_;
   bool logX_ = false, ideal_ = false;
-  QString xLabel_;
+  QString xLabel_, yUnit_;
   double yMin_ = NAN, yMax_ = NAN;
+};
+
+/* A few labelled horizontal bars on one scale, each with its value: for comparing a handful of numbers. */
+class BarsView : public QWidget {
+  Q_OBJECT
+ public:
+  struct Bar {
+    QString label;
+    double value;
+    QString text; /* the value as shown */
+    int color;    /* seriesColor index */
+  };
+  explicit BarsView(QVector<Bar> bars, QWidget *parent = nullptr);
+  QSize sizeHint() const override;
+
+ protected:
+  void paintEvent(QPaintEvent *) override;
+
+ private:
+  QVector<Bar> bars_;
 };
 
 /* One test in the left column: name, what it measures, your latest score, and a Run button. */

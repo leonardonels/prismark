@@ -287,7 +287,8 @@ void ChartView::paintEvent(QPaintEvent *) {
         for (int k = 1; k < 4; k++) pt[k] = y0 + pt[k] / peak * (overlayTop - y0);
   }
 
-  double legendH = fm.height() + 10, left = fm.horizontalAdvance("00.00") + 10;
+  double legendH = fm.height() + 10,
+         left = fm.horizontalAdvance("00.00" + (yUnit_.isEmpty() ? QString() : " " + yUnit_)) + 10;
   QRectF plot(left, legendH, width() - left - 10, height() - legendH - 2 * fm.height() - 10);
   auto fx = [&](double x) {
     double u = logX_ ? std::log(x / x0) / std::log(x1 / x0) : (x - x0) / (x1 - x0);
@@ -301,8 +302,9 @@ void ChartView::paintEvent(QPaintEvent *) {
     double yv = base ? y0 + (y1 - y0) * k / 4 : 25.0 * k;
     p.setPen(QPen(grid, 1, k ? Qt::DotLine : Qt::SolidLine));
     p.drawLine(QPointF(plot.left(), fy(yv)), QPointF(plot.right(), fy(yv)));
-    if (k % 2 == 0) {
-      QString s = base ? formatValue(yv) : QString::number(yv, 'f', 0) + " %";
+    {
+      QString s = base ? formatValue(yv) + (yUnit_.isEmpty() ? QString() : " " + yUnit_)
+                       : QString::number(yv, 'f', 0) + " %";
       p.setPen(t.faint);
       p.drawText(QPointF(plot.left() - fm.horizontalAdvance(s) - 6, fy(yv) + fm.ascent() / 2.6), s);
     }
@@ -396,6 +398,42 @@ void ChartView::paintEvent(QPaintEvent *) {
         p.drawText(QPointF(x, g.y), g.s);
       }
     }
+  }
+}
+
+/* ---------- BarsView ---------- */
+
+BarsView::BarsView(QVector<Bar> bars, QWidget *parent) : QWidget(parent), bars_(std::move(bars)) {
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  setFixedHeight(sizeHint().height());
+}
+
+QSize BarsView::sizeHint() const {
+  QFontMetrics fm(uiFont(9));
+  return {320, int(bars_.size() * (fm.height() * 2 + 14))};
+}
+
+void BarsView::paintEvent(QPaintEvent *) {
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing);
+  const Theme &t = theme();
+  QFont f = uiFont(9);
+  p.setFont(f);
+  QFontMetrics fm(f);
+  double top = 0;
+  for (const Bar &b : bars_) top = std::max(top, b.value);
+  double y = 0, rowH = fm.height() * 2 + 14;
+  for (const Bar &b : bars_) {
+    p.setPen(t.muted);
+    p.drawText(QPointF(0, y + fm.ascent()), b.label);
+    double tw = fm.horizontalAdvance(b.text) + 10, w = (width() - tw) * (top > 0 ? b.value / top : 0);
+    QRectF bar(0, y + fm.height() + 4, std::max(w, 2.0), fm.height());
+    p.setPen(Qt::NoPen);
+    p.setBrush(seriesColor(b.color));
+    p.drawRoundedRect(bar, 3, 3);
+    p.setPen(t.text);
+    p.drawText(QPointF(bar.right() + 8, bar.top() + fm.ascent()), b.text);
+    y += rowH;
   }
 }
 

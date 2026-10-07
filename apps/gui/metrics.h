@@ -67,8 +67,9 @@ struct RunSummary {
   struct ColdPt { double w; Value r; }; /* r: R_resp in percent */
   struct ScalePt { QString kernel; int n; Value s; };
   struct Ratio { QString name, kernel, variant; int n; Value v; };
-  /* Median clock (MHz) and package power (W) over the measured windows of an all-cores series; NaN if unknown. */
-  struct LoadPt { QString kernel; int n; double mhz, watts; };
+  /* Medians over the measured windows of an all-cores series: result (in unit), clock (MHz) and package power (W);
+     NaN if unknown. */
+  struct LoadPt { QString kernel; int n; double perf, mhz, watts; QString unit; };
   QVector<ColdPt> cold;
   QVector<ScalePt> scaling;
   QVector<LoadPt> load;

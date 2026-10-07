@@ -681,6 +681,7 @@ void MainWindow::refreshRanking() {
     if (r.reference && !r.placeholder) row.tags << "reference";
     if (&r == latest && allRuns_->isChecked()) row.tags << "latest";
     if (r.quick) row.tags << "quick";
+    if (r.state["ac_online"] == QJsonValue(false)) row.tags << tr("on battery");
     if (!r.complete) row.tags << "partial";
     row.value = r.metrics[m->id];
     if (row.value.unsettled && !r.quick) row.tags << "did not settle";
@@ -699,7 +700,10 @@ void MainWindow::refreshRanking() {
 
 void MainWindow::refreshContext() {
   while (QLayoutItem *it = contextLayout_->takeAt(0)) {
-    if (it->widget()) it->widget()->deleteLater();
+    if (it->widget()) {
+      it->widget()->hide(); /* deleted later: until then it must not show through the new content */
+      it->widget()->deleteLater();
+    }
     delete it;
   }
   const Metric *m = findMetric(metric_);
@@ -735,54 +739,91 @@ void MainWindow::refreshContext() {
     ch->setData({l}, true, tr("task length (ms)"), 0, 100, false);
     contextLayout_->addWidget(ch);
   } else if (kind == "scaling") {
+    auto byN = [](const auto &a, const auto &b) { return a[0] < b[0]; };
+    ChartLine watts, perf, ghz;
+    watts.name = tr("power");
+    watts.color = 1;
+    perf.name = tr("result");
+    perf.color = 0;
+    ghz.name = tr("clock");
+    ghz.unit = tr("GHz");
+    ghz.color = 2;
+    perf.overlay = ghz.overlay = true;
+    for (const auto &x : r->load) {
+      if (x.kernel != arg) continue;
+      perf.unit = x.unit == "Msamples/s" ? tr("M/s") : x.unit;
+      if (std::isfinite(x.watts)) watts.pts.push_back({double(x.n), x.watts, NAN, NAN});
+      if (std::isfinite(x.perf)) perf.pts.push_back({double(x.n), x.perf, NAN, NAN});
+      if (std::isfinite(x.mhz)) ghz.pts.push_back({double(x.n), x.mhz / 1000, NAN, NAN});
+    }
+    for (ChartLine *l : {&watts, &perf, &ghz}) std::sort(l->pts.begin(), l->pts.end(), byN);
+
+    if (watts.pts.size() >= 2) {
+      /* Power on the axis, result and clock labelled: a result that stops growing while the power stays flat is the
+         power limit; one that falls with the power and the clock is the platform holding the processor back. */
+      QVector<ChartLine> lines{watts};
+      for (ChartLine *o : {&perf, &ghz})
+        if (o->pts.size() >= 2) lines.push_back(*o);
+      show(tr("Result, power and clock with more threads"),
+           tr("For %1: the power drawn by the processor (axis, in watts), with the result and the clock labelled at "
+              "each thread count. More threads should give more result for more power until the power limit; from "
+              "there the clock eases off. If the result falls together with the power and the clock, something "
+              "outside the program (a power setting, a charger or dock) is holding the processor back.")
+               .arg(esc(who)));
+      auto *ch = new ChartView;
+      ch->setData(lines, false, tr("threads"), 0, NAN, false);
+      ch->setYUnit(tr("W"));
+      contextLayout_->addWidget(ch);
+      return;
+    }
+
+    /* Results without power: speed-up against perfect scaling, with the clock labelled where known. */
     ChartLine l;
     l.name = tr("speed-up");
     l.color = 0;
     for (const auto &s : r->scaling)
       if (s.kernel == arg) l.pts.push_back({double(s.n), s.s.v, s.s.lo, s.s.hi});
-    std::sort(l.pts.begin(), l.pts.end(), [](const auto &a, const auto &b) { return a[0] < b[0]; });
+    std::sort(l.pts.begin(), l.pts.end(), byN);
     if (l.pts.size() < 2) return;
-    /* What the processor did meanwhile, drawn over the speed-up: a speed-up that falls together with the clock and
-       the power is the platform holding the processor back (a power limit, a charger or dock), not the program. */
-    ChartLine ghz, watts;
-    ghz.name = tr("clock");
-    ghz.unit = tr("GHz");
-    ghz.color = 2;
-    watts.name = tr("power");
-    watts.unit = tr("W");
-    watts.color = 1;
-    ghz.overlay = watts.overlay = true;
-    for (const auto &x : r->load) {
-      if (x.kernel != arg) continue;
-      if (std::isfinite(x.mhz)) ghz.pts.push_back({double(x.n), x.mhz / 1000, NAN, NAN});
-      if (std::isfinite(x.watts)) watts.pts.push_back({double(x.n), x.watts, NAN, NAN});
-    }
+    ghz.overlay = true;
     QVector<ChartLine> lines{l};
-    for (ChartLine *o : {&ghz, &watts})
-      if (o->pts.size() >= 2) {
-        std::sort(o->pts.begin(), o->pts.end(), [](const auto &a, const auto &b) { return a[0] < b[0]; });
-        lines.push_back(*o);
-      }
-    QString caption = tr("For %1: how many times faster than a single thread. The dashed line is perfect scaling (8 "
-                         "threads = 8× faster); real programs fall below it as threads wait for each other, for "
-                         "memory, or for power.").arg(esc(who));
-    if (lines.size() > 1)
-      caption += " " + tr("The labelled lines show the processor's clock and power draw while it ran (scaled to fit). "
-                          "If the speed-up falls together with them, something outside the program (a power limit, "
-                          "a charger or dock) is holding the processor back.");
-    show(tr("Speed-up with more threads"), caption);
+    if (ghz.pts.size() >= 2) lines.push_back(ghz);
+    show(tr("Speed-up with more threads"),
+         tr("For %1: how many times faster than a single thread. The dashed line is perfect scaling (8 threads = 8× "
+            "faster); real programs fall below it as threads wait for each other, for memory, or for power.")
+             .arg(esc(who)));
     auto *ch = new ChartView;
     ch->setData(lines, false, tr("threads"), 0, NAN, true);
+    ch->setYUnit(QStringLiteral("×"));
     contextLayout_->addWidget(ch);
   } else if (kind == "ratio") {
     ChartLine l = byThreads(arg, QString());
     if (l.pts.isEmpty()) return;
-    show(tr("Time added by the build tools, by number of threads"),
-         tr("For %1: time of the full build divided by the time of compiling the same files in memory. 1.0 means "
-            "the tools add nothing; 2.0 means the build takes twice as long as the compiling alone.").arg(esc(who)));
-    auto *ch = new ChartView;
-    ch->setData({l}, false, tr("threads"), 0, NAN, false);
-    contextLayout_->addWidget(ch);
+    if (l.pts.size() >= 2) {
+      show(tr("Time added by the build tools, by number of threads"),
+           tr("For %1: time of the full build divided by the time of compiling the same files in memory. 1.0 means "
+              "the tools add nothing; 2.0 means the build takes twice as long as the compiling alone.").arg(esc(who)));
+      auto *ch = new ChartView;
+      ch->setData({l}, false, tr("threads"), 0, NAN, false);
+      contextLayout_->addWidget(ch);
+      return;
+    }
+    /* One thread count (full builds run only on all threads): the two times side by side. */
+    const double ratio = l.pts[0][1];
+    const int n = int(l.pts[0][0]);
+    if (!r->metrics.contains(m->id) || !(ratio > 0)) return;
+    const double build = r->metrics[m->id].v, compile = build / ratio;
+    show(tr("Time added by the build tools"),
+         tr("For %1, on %2 threads: the full build against compiling the same files in memory. The difference (%3) "
+            "is the time the build tools take: starting programs, reading and writing files, linking.")
+             .arg(esc(who))
+             .arg(n)
+             .arg(ratio >= 1 ? tr("+%1 %").arg(QString::number((ratio - 1) * 100, 'f', 0))
+                             : tr("%1 %").arg(QString::number((ratio - 1) * 100, 'f', 0))));
+    contextLayout_->addWidget(new BarsView({{tr("Full build with CMake and Ninja"), build,
+                                             tr("%1 s").arg(formatValue(build)), 0},
+                                            {tr("Compiling the same files in memory"), compile,
+                                             tr("%1 s").arg(formatValue(compile)), 2}}));
   } else if (kind == "isa") {
     QString pair = isaPair(r->tiers);
     if (pair.isEmpty()) return;
