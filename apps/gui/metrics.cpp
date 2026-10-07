@@ -358,6 +358,24 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
     QJsonObject r = v.toObject();
     if (auto c = ci(r["S"])) s.scaling.push_back({r["kernel"].toString(), r["n"].toInt(), *c});
   }
+  /* Clock and power by thread count, from the windows of each all-cores series (older results have no power). */
+  for (const QJsonValue &v : doc["results"].toArray()) {
+    QJsonObject r = v.toObject(), p = r["params"].toObject();
+    if (r["mode"].toString() != "mc_threaded" || r["tier"].toString() != "baseline" || p.contains("purpose") ||
+        !r.contains("mhz"))
+      continue;
+    int from = r["steady"].toObject()["from_window"].toInt();
+    auto median = [from](const QJsonArray &a) {
+      QVector<double> x;
+      for (int i = from; i < a.size(); i++)
+        if (a[i].isDouble() && a[i].toDouble() > 0) x.push_back(a[i].toDouble());
+      if (x.isEmpty()) return double(NAN);
+      std::sort(x.begin(), x.end());
+      return x.size() % 2 ? x[x.size() / 2] : (x[x.size() / 2 - 1] + x[x.size() / 2]) / 2;
+    };
+    s.load.push_back({r["kernel"].toString(), p["threads"].toInt(), median(r["mhz"].toArray()),
+                      median(r["power_w"].toArray())});
+  }
   for (const QJsonValue &v : an["ratios"].toArray()) {
     QJsonObject r = v.toObject();
     if (auto c = ci(r["value"]))

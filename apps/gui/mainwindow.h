@@ -116,6 +116,7 @@ class MainWindow : public QMainWindow {
   bool inputDuringQuiet_ = false, cancelling_ = false;
   int warnings_ = 0;
   int part_ = 0, parts_ = 0; /* overall position: the runner's "run" events */
+  int runStep_ = 0, runSteps_ = 0; /* steps of the whole run begun and planned: its "progress" events */
   QDateTime runStart_, phaseStart_;
   /* Single-shot, restarted by every runner event: fires only when the runner has been silent too long, so the
      window stays still while a run is healthy. killTimer_ ends a cancelled run that stopped answering. */

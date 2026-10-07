@@ -215,6 +215,14 @@ static int realistic(pmk_ctx *c, const char *id, int type) {
   return rc;
 }
 
+int mode_cold_burst_steps(const pmk_ctx *c) {
+  int ntypes = c->cfg.cpu >= 0 ? 1 : c->m.ntypes, n = ctx_kernel_selected(c, "K9") ? ntypes * NW : 0;
+  static const char *const REALISTIC[] = {"K4", "K6"};
+  for (int k = 0; k < 2; k++)
+    if (ctx_kernel_selected(c, REALISTIC[k]) && pmk_find_tk(c->k, REALISTIC[k], NULL)) n += ntypes * 2;
+  return n;
+}
+
 int mode_cold_burst(pmk_ctx *c) {
   pal_set_timer_slack_min();
   int order[PMK_MAX_TYPES] = {0, 1, 2, 3};

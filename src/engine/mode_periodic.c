@@ -90,6 +90,8 @@ static int run_condition(pmk_ctx *c, int cpu, int loaded, const pmk_k7_node *nod
   return rc;
 }
 
+int mode_periodic_steps(const pmk_ctx *c) { return c->m.ncpu > 1 ? 2 : 1; }
+
 int mode_periodic(pmk_ctx *c) {
   int cpu = ctx_cpu_for_type(c, 0);
   if (ctx_can_place(c) && pal_pin_self(cpu))

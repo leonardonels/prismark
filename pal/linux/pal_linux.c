@@ -1,6 +1,6 @@
 /*
  * Linux platform layer: sysfs/procfs for machine state, sched_setaffinity
- * for pinning, perf_event_open for cycle counts, RAPL or INA3221 for power.
+ * for pinning, perf_event_open for cycle counts, RAPL, AMD APU PPT or INA3221 for power.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
@@ -81,58 +81,104 @@ static void find_cpu_temp(void) {
 
 /* ---------- power telemetry ---------- */
 
+/*
+ * Sources, best first: the RAPL package energy counter (Intel, AMD; root-only on Linux >= 5.10), the SoC power
+ * the SMU of an AMD APU reports through amdgpu (PPT, the quantity its power limits act on; readable without root),
+ * and an INA3221 rail monitor (Jetson-class boards, VDD_IN).
+ */
 #define RAPL_PKG "/sys/class/powercap/intel-rapl:0"
-static char g_ina_in[300], g_ina_curr[300];
+static enum { POWER_NONE, POWER_RAPL, POWER_PPT, POWER_INA } g_power;
+static char g_ppt[300], g_ina_in[300], g_ina_curr[300];
 
 static void find_power(pmk_caps *c) {
   c->power[0] = 0;
+  g_power = POWER_NONE;
   if (sysfs_read_ll(RAPL_PKG "/energy_uj", -1) >= 0) {
+    g_power = POWER_RAPL;
     snprintf(c->power, sizeof c->power, "rapl");
     return;
   }
   char p[300], name[64], label[64];
-  for (int h = 0; h < 64; h++) {
+  for (int h = 0; h < 64 && g_power == POWER_NONE; h++) {
     snprintf(p, sizeof p, "/sys/class/hwmon/hwmon%d/name", h);
-    if (sysfs_read(p, name, sizeof name) || strcmp(name, "ina3221")) continue;
-    for (int ch = 1; ch <= 3; ch++) {
-      snprintf(p, sizeof p, "/sys/class/hwmon/hwmon%d/in%d_label", h, ch);
-      if (sysfs_read(p, label, sizeof label) || strcmp(label, "VDD_IN")) continue;
-      snprintf(g_ina_in, sizeof g_ina_in, "/sys/class/hwmon/hwmon%d/in%d_input", h, ch);
-      snprintf(g_ina_curr, sizeof g_ina_curr, "/sys/class/hwmon/hwmon%d/curr%d_input", h, ch);
-      snprintf(c->power, sizeof c->power, "ina3221:VDD_IN");
-      return;
+    if (sysfs_read(p, name, sizeof name)) continue;
+    if (!strcmp(name, "amdgpu")) {
+      snprintf(p, sizeof p, "/sys/class/hwmon/hwmon%d/power1_label", h);
+      if (sysfs_read(p, label, sizeof label) || strcmp(label, "PPT")) continue;
+      snprintf(g_ppt, sizeof g_ppt, "/sys/class/hwmon/hwmon%d/power1_input", h);
+      if (sysfs_read_ll(g_ppt, -1) < 0) continue;
+      g_power = POWER_PPT;
+      snprintf(c->power, sizeof c->power, "amdgpu:PPT");
+    } else if (!strcmp(name, "ina3221")) {
+      for (int ch = 1; ch <= 3; ch++) {
+        snprintf(p, sizeof p, "/sys/class/hwmon/hwmon%d/in%d_label", h, ch);
+        if (sysfs_read(p, label, sizeof label) || strcmp(label, "VDD_IN")) continue;
+        snprintf(g_ina_in, sizeof g_ina_in, "/sys/class/hwmon/hwmon%d/in%d_input", h, ch);
+        snprintf(g_ina_curr, sizeof g_ina_curr, "/sys/class/hwmon/hwmon%d/curr%d_input", h, ch);
+        g_power = POWER_INA;
+        snprintf(c->power, sizeof c->power, "ina3221:VDD_IN");
+        break;
+      }
     }
   }
 }
 
-double pal_idle_power_w(double seconds) {
-  if (sysfs_read_ll(RAPL_PKG "/energy_uj", -1) >= 0) {
-    long long range = sysfs_read_ll(RAPL_PKG "/max_energy_range_uj", 0);
-    long long e0 = sysfs_read_ll(RAPL_PKG "/energy_uj", -1);
-    uint64_t t0 = pal_now_ns();
-    pal_sleep_ns((uint64_t)(seconds * 1e9));
-    long long e1 = sysfs_read_ll(RAPL_PKG "/energy_uj", -1);
-    uint64_t t1 = pal_now_ns();
-    if (e0 < 0 || e1 < 0) return NAN;
-    long long de = e1 - e0;
-    if (de < 0) de += range;
-    return (double)de * 1e-6 / ((double)(t1 - t0) * 1e-9);
+/* The power sensor's current reading in watts, NaN if none (the energy counter is read by pal_power_read). */
+static double sensor_w(void) {
+  if (g_power == POWER_PPT) {
+    long long uw = sysfs_read_ll(g_ppt, -1);
+    return uw >= 0 ? (double)uw * 1e-6 : NAN;
   }
-  if (g_ina_in[0]) {
-    double sum = 0;
-    int n = 0;
-    uint64_t end = pal_now_ns() + (uint64_t)(seconds * 1e9);
-    while (pal_now_ns() < end) {
-      long long mv = sysfs_read_ll(g_ina_in, -1), ma = sysfs_read_ll(g_ina_curr, -1);
-      if (mv >= 0 && ma >= 0) {
-        sum += (double)mv * (double)ma * 1e-6;
-        n++;
-      }
-      pal_sleep_ns(100000000);
-    }
-    return n ? sum / n : NAN;
+  if (g_power == POWER_INA) {
+    long long mv = sysfs_read_ll(g_ina_in, -1), ma = sysfs_read_ll(g_ina_curr, -1);
+    return mv >= 0 && ma >= 0 ? (double)mv * (double)ma * 1e-6 : NAN;
   }
   return NAN;
+}
+
+void pal_power_start(pal_power *p) {
+  p->uj = g_power == POWER_RAPL ? sysfs_read_ll(RAPL_PKG "/energy_uj", -1) : -1;
+  p->ns = pal_now_ns();
+}
+
+double pal_power_read(pal_power *p) {
+  if (g_power != POWER_RAPL) {
+    p->ns = pal_now_ns();
+    return sensor_w();
+  }
+  long long e = sysfs_read_ll(RAPL_PKG "/energy_uj", -1);
+  uint64_t t = pal_now_ns();
+  double w = NAN;
+  if (p->uj >= 0 && e >= 0 && t > p->ns) {
+    long long de = e - p->uj;
+    if (de < 0) de += sysfs_read_ll(RAPL_PKG "/max_energy_range_uj", 0); /* the counter wrapped */
+    w = (double)de * 1e-6 / ((double)(t - p->ns) * 1e-9);
+  }
+  p->uj = e;
+  p->ns = t;
+  return w;
+}
+
+double pal_idle_power_w(double seconds) {
+  if (g_power == POWER_NONE) return NAN;
+  if (g_power == POWER_RAPL) {
+    pal_power m;
+    pal_power_start(&m);
+    pal_sleep_ns((uint64_t)(seconds * 1e9));
+    return pal_power_read(&m);
+  }
+  double sum = 0;
+  int n = 0;
+  uint64_t end = pal_now_ns() + (uint64_t)(seconds * 1e9);
+  while (pal_now_ns() < end) {
+    double w = sensor_w();
+    if (isfinite(w)) {
+      sum += w;
+      n++;
+    }
+    pal_sleep_ns(100000000);
+  }
+  return n ? sum / n : NAN;
 }
 
 /* ---------- cycle counter ---------- */

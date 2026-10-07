@@ -2,6 +2,7 @@
 #include "widgets.h"
 
 #include <QKeyEvent>
+#include <QMap>
 #include <QMouseEvent>
 #include <QPainter>
 #include <QPainterPath>
@@ -248,25 +249,43 @@ void ChartView::paintEvent(QPaintEvent *) {
   p.setFont(small);
   QFontMetrics fm(small);
 
+  /* The y axis belongs to the ordinary lines; overlay lines are scaled to the chart (or, with only overlays, each
+     to 100 % of its own peak). */
+  QVector<ChartLine> lines = lines_;
+  bool base = std::any_of(lines.begin(), lines.end(), [](const ChartLine &l) { return !l.overlay; });
   double x0 = INFINITY, x1 = -INFINITY, y0 = INFINITY, y1 = -INFINITY;
   QVector<double> xs;
-  for (const ChartLine &l : lines_)
+  for (const ChartLine &l : lines)
     for (const auto &pt : l.pts) {
       x0 = std::min(x0, pt[0]);
       x1 = std::max(x1, pt[0]);
+      if (!xs.contains(pt[0])) xs.push_back(pt[0]);
+      if (l.overlay) continue;
       for (int k = 1; k < 4; k++)
         if (std::isfinite(pt[k])) {
           y0 = std::min(y0, pt[k]);
           y1 = std::max(y1, pt[k]);
         }
-      if (!xs.contains(pt[0])) xs.push_back(pt[0]);
     }
   if (!std::isfinite(x0)) return;
-  y0 = std::isfinite(yMin_) ? yMin_ : std::min(0.0, y0);
-  y1 = std::isfinite(yMax_) ? yMax_ : niceCeil(y1 * 1.05);
-  if (ideal_) y1 = std::max(y1, x1);
+  if (base) {
+    y0 = std::isfinite(yMin_) ? yMin_ : std::min(0.0, y0);
+    y1 = std::isfinite(yMax_) ? yMax_ : niceCeil(y1 * 1.05);
+    if (ideal_) y1 = std::max(y1, x1);
+  } else {
+    y0 = 0, y1 = 125; /* room above 100 % for the labels */
+  }
   if (x1 == x0) x1 = x0 + 1;
   if (y1 == y0) y1 = y0 + 1;
+  double overlayTop = base ? y0 + (y1 - y0) * 0.85 : 100;
+  for (ChartLine &l : lines) {
+    if (!l.overlay) continue;
+    double peak = 0;
+    for (const auto &pt : l.pts) peak = std::max(peak, pt[1]);
+    if (peak > 0)
+      for (auto &pt : l.pts)
+        for (int k = 1; k < 4; k++) pt[k] = y0 + pt[k] / peak * (overlayTop - y0);
+  }
 
   double legendH = fm.height() + 10, left = fm.horizontalAdvance("00.00") + 10;
   QRectF plot(left, legendH, width() - left - 10, height() - legendH - 2 * fm.height() - 10);
@@ -279,11 +298,11 @@ void ChartView::paintEvent(QPaintEvent *) {
   /* grid */
   QColor grid = t.border;
   for (int k = 0; k <= 4; k++) {
-    double yv = y0 + (y1 - y0) * k / 4;
+    double yv = base ? y0 + (y1 - y0) * k / 4 : 25.0 * k;
     p.setPen(QPen(grid, 1, k ? Qt::DotLine : Qt::SolidLine));
     p.drawLine(QPointF(plot.left(), fy(yv)), QPointF(plot.right(), fy(yv)));
     if (k % 2 == 0) {
-      QString s = formatValue(yv);
+      QString s = base ? formatValue(yv) : QString::number(yv, 'f', 0) + " %";
       p.setPen(t.faint);
       p.drawText(QPointF(plot.left() - fm.horizontalAdvance(s) - 6, fy(yv) + fm.ascent() / 2.6), s);
     }
@@ -305,16 +324,16 @@ void ChartView::paintEvent(QPaintEvent *) {
     p.drawLine(QPointF(fx(x0), fy(x0)), QPointF(fx(x1), fy(std::min(x1, y1))));
   }
   double lx = plot.left();
-  for (int i = 0; i < lines_.size(); i++) {
-    QColor c = seriesColor(i);
-    const ChartLine &l = lines_[i];
+  for (int i = 0; i < lines.size(); i++) {
+    const ChartLine &l = lines[i];
+    QColor c = seriesColor(l.color >= 0 ? l.color : i);
     /* soft area under the first series */
     QPainterPath path;
     for (int k = 0; k < l.pts.size(); k++) {
       QPointF q(fx(l.pts[k][0]), fy(l.pts[k][1]));
       k ? path.lineTo(q) : path.moveTo(q);
     }
-    if (i == 0 && l.pts.size() > 1) {
+    if (i == 0 && l.pts.size() > 1 && !l.overlay) {
       QPainterPath area = path;
       area.lineTo(fx(l.pts.last()[0]), plot.bottom());
       area.lineTo(fx(l.pts.first()[0]), plot.bottom());
@@ -343,6 +362,40 @@ void ChartView::paintEvent(QPaintEvent *) {
     p.setPen(t.muted);
     p.drawText(QPointF(lx + 14, 3 + fm.ascent()), l.name);
     lx += 14 + fm.horizontalAdvance(l.name) + 16;
+  }
+
+  /* Overlays: each point labelled with its value, above it, nudged apart where lines meet at the same x. */
+  {
+    struct Tag { double x, y; QString s; QColor c; int line; };
+    QMap<double, QVector<Tag>> byX;
+    for (int i = 0; i < lines.size(); i++)
+      for (int k = 0; lines[i].overlay && k < lines[i].pts.size(); k++) {
+        double v = lines_[i].pts[k][1];
+        if (!std::isfinite(v)) continue;
+        QString s = formatValue(v) + (lines_[i].unit.isEmpty() ? QString() : " " + lines_[i].unit);
+        byX[lines[i].pts[k][0]].push_back({fx(lines[i].pts[k][0]), fy(lines[i].pts[k][1]) - 7, s,
+                                           seriesColor(lines[i].color >= 0 ? lines[i].color : i), i});
+      }
+    QMap<int, double> lastRight; /* per line: where its previous label ended; closer points go unlabelled */
+    for (auto it = byX.begin(); it != byX.end(); ++it) {
+      QVector<Tag> &tags = it.value();
+      /* stacked upwards from the lowest, so no label sits on a line below its own point */
+      std::sort(tags.begin(), tags.end(), [](const Tag &a, const Tag &b) { return a.y > b.y; });
+      for (int k = 1; k < tags.size(); k++) tags[k].y = std::min(tags[k].y, tags[k - 1].y - fm.height());
+      for (const Tag &g : tags) {
+        double tw = fm.horizontalAdvance(g.s);
+        double x = std::clamp(g.x - tw / 2, plot.left(), plot.right() - tw);
+        if (lastRight.contains(g.line) && x < lastRight[g.line] + 4) continue;
+        lastRight[g.line] = x + tw;
+        QColor bg = t.card;
+        bg.setAlpha(220);
+        p.setPen(Qt::NoPen);
+        p.setBrush(bg);
+        p.drawRoundedRect(QRectF(x - 3, g.y - fm.ascent(), tw + 6, fm.height()), 3, 3);
+        p.setPen(g.c);
+        p.drawText(QPointF(x, g.y), g.s);
+      }
+    }
   }
 }
 

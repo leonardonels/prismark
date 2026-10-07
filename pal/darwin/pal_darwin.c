@@ -179,6 +179,16 @@ double pal_idle_power_w(double seconds) {
   return NAN; /* powermetrics needs root and is not called from inside a measurement */
 }
 
+void pal_power_start(pal_power *p) {
+  p->uj = -1;
+  p->ns = pal_now_ns();
+}
+
+double pal_power_read(pal_power *p) {
+  (void)p;
+  return NAN;
+}
+
 /* 0 nominal, 1 moderate, 2 heavy, 3 trapping, 4 sleeping; -1 if unknown. */
 static int thermal_pressure(void) {
   int token;

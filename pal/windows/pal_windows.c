@@ -294,6 +294,16 @@ double pal_idle_power_w(double seconds) {
   return NAN; /* package power needs a kernel driver (spec 12) */
 }
 
+void pal_power_start(pal_power *p) {
+  p->uj = -1;
+  p->ns = pal_now_ns();
+}
+
+double pal_power_read(pal_power *p) {
+  (void)p;
+  return NAN;
+}
+
 /* ---------- power plan ---------- */
 
 static DWORD read_ac(const GUID *sub, const GUID *setting, DWORD def) {

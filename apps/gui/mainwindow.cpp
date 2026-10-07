@@ -737,15 +737,42 @@ void MainWindow::refreshContext() {
   } else if (kind == "scaling") {
     ChartLine l;
     l.name = tr("speed-up");
+    l.color = 0;
     for (const auto &s : r->scaling)
       if (s.kernel == arg) l.pts.push_back({double(s.n), s.s.v, s.s.lo, s.s.hi});
     std::sort(l.pts.begin(), l.pts.end(), [](const auto &a, const auto &b) { return a[0] < b[0]; });
     if (l.pts.size() < 2) return;
-    show(tr("Speed-up with more threads"),
-         tr("For %1: how many times faster than a single thread. The dashed line is perfect scaling (8 threads = 8× "
-            "faster); real programs fall below it as threads wait for each other, for memory, or for power.").arg(esc(who)));
+    /* What the processor did meanwhile, drawn over the speed-up: a speed-up that falls together with the clock and
+       the power is the platform holding the processor back (a power limit, a charger or dock), not the program. */
+    ChartLine ghz, watts;
+    ghz.name = tr("clock");
+    ghz.unit = tr("GHz");
+    ghz.color = 2;
+    watts.name = tr("power");
+    watts.unit = tr("W");
+    watts.color = 1;
+    ghz.overlay = watts.overlay = true;
+    for (const auto &x : r->load) {
+      if (x.kernel != arg) continue;
+      if (std::isfinite(x.mhz)) ghz.pts.push_back({double(x.n), x.mhz / 1000, NAN, NAN});
+      if (std::isfinite(x.watts)) watts.pts.push_back({double(x.n), x.watts, NAN, NAN});
+    }
+    QVector<ChartLine> lines{l};
+    for (ChartLine *o : {&ghz, &watts})
+      if (o->pts.size() >= 2) {
+        std::sort(o->pts.begin(), o->pts.end(), [](const auto &a, const auto &b) { return a[0] < b[0]; });
+        lines.push_back(*o);
+      }
+    QString caption = tr("For %1: how many times faster than a single thread. The dashed line is perfect scaling (8 "
+                         "threads = 8× faster); real programs fall below it as threads wait for each other, for "
+                         "memory, or for power.").arg(esc(who));
+    if (lines.size() > 1)
+      caption += " " + tr("The labelled lines show the processor's clock and power draw while it ran (scaled to fit). "
+                          "If the speed-up falls together with them, something outside the program (a power limit, "
+                          "a charger or dock) is holding the processor back.");
+    show(tr("Speed-up with more threads"), caption);
     auto *ch = new ChartView;
-    ch->setData({l}, false, tr("threads"), 0, NAN, true);
+    ch->setData(lines, false, tr("threads"), 0, NAN, true);
     contextLayout_->addWidget(ch);
   } else if (kind == "ratio") {
     ChartLine l = byThreads(arg, QString());
@@ -1187,7 +1214,7 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
   phase_.clear();
   kernel_.clear();
   warnings_ = 0;
-  part_ = parts_ = 0;
+  part_ = parts_ = runStep_ = runSteps_ = 0;
   inputDuringQuiet_ = cancelling_ = false;
   runStart_ = phaseStart_ = QDateTime::currentDateTime();
   ring_->setProgress(0, 0, QStringLiteral("…"));
@@ -1246,6 +1273,9 @@ void MainWindow::onRunOutput() {
     if (kind == "info" && ev["phase"].toString() == "run") {
       part_ = ev["step"].toInt(); /* shown with the next phase, which follows at once */
       parts_ = ev["steps"].toInt();
+    } else if (kind == "info" && ev["phase"].toString() == "progress") {
+      runStep_ = ev["step"].toInt(); /* likewise */
+      runSteps_ = ev["steps"].toInt();
     } else if (kind == "phase") {
       QString phase = ev["phase"].toString(), k = ev["kernel"].toString();
       if (phase != phase_ || k != kernel_) phaseStart_ = QDateTime::currentDateTime();
@@ -1265,12 +1295,14 @@ void MainWindow::onRunOutput() {
   }
 }
 
-/* The ring shows the whole run: finished parts plus the share of the current one. Its centre counts parts, the
-   text counts the steps of the current part, so the ring never jumps back when a new part begins. */
+/* The ring shows the whole run: its centre counts the steps of every test together (the runner plans them before
+   it starts), and it fills with the steps finished. Older runners without a plan: by parts, as far as known. */
 void MainWindow::showPhase(int step, int steps) {
   bool done = phase_ == "done";
   double within = steps > 0 ? double(std::min(step > 0 ? step - 1 : 0, steps)) / steps : 0;
   if (done) ring_->setProgress(1, 1, QStringLiteral("✓"));
+  else if (runSteps_ > 0) ring_->setProgress(runStep_ > 0 ? runStep_ - 1 : 0, runSteps_,
+                                             QStringLiteral("%1/%2").arg(std::max(runStep_, 1)).arg(runSteps_));
   else if (parts_ > 0) ring_->setProgress(int(1000 * (part_ - 1 + within) / parts_), 1000,
                                           QStringLiteral("%1/%2").arg(part_).arg(parts_));
   else ring_->setProgress(0, 0, QStringLiteral("…"));
@@ -1285,7 +1317,7 @@ void MainWindow::showPhase(int step, int steps) {
   fzPhase_->setText(title);
   QStringList when;
   if (parts_ > 0 && !done) when << tr("Part %1 of %2").arg(part_).arg(parts_);
-  if (steps > 0 && !done) when << tr("step %1 of %2").arg(step).arg(steps);
+  if (runSteps_ <= 0 && steps > 0 && !done) when << tr("step %1 of %2").arg(step).arg(steps);
   when << tr("this step since %1").arg(QLocale().toString(phaseStart_.time(), QLocale::ShortFormat));
   when << tr("run started at %1").arg(QLocale().toString(runStart_.time(), QLocale::ShortFormat));
   fzTime_->setText(when.join(QStringLiteral(" · ")) + "<br>" + esc(phaseHint(phase_, kernel_)));

@@ -67,8 +67,11 @@ struct RunSummary {
   struct ColdPt { double w; Value r; }; /* r: R_resp in percent */
   struct ScalePt { QString kernel; int n; Value s; };
   struct Ratio { QString name, kernel, variant; int n; Value v; };
+  /* Median clock (MHz) and package power (W) over the measured windows of an all-cores series; NaN if unknown. */
+  struct LoadPt { QString kernel; int n; double mhz, watts; };
   QVector<ColdPt> cold;
   QVector<ScalePt> scaling;
+  QVector<LoadPt> load;
   QVector<Ratio> ratios;
   bool checksumsOk = true;
   /* How much slower each warm-up ended than it started (speed hot / speed cold, below 1 when it throttles), by

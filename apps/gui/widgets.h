@@ -59,6 +59,11 @@ class RankingView : public QWidget {
 struct ChartLine {
   QString name;
   QVector<std::array<double, 4>> pts; /* x, value, lo, hi */
+  /* An overlay line has its own unit: it is scaled to the chart's height instead of using the y axis, and each
+     point is labelled with its value and unit. */
+  bool overlay = false;
+  QString unit;
+  int color = -1; /* seriesColor index; -1: the line's position */
 };
 
 class ChartView : public QWidget {

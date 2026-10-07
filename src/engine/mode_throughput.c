@@ -85,6 +85,13 @@ static int burst_series(pmk_ctx *c, const pmk_tk *tk, int type, uint32_t step, u
   return rc;
 }
 
+int mode_st_burst_steps(const pmk_ctx *c) {
+  int n = 0;
+  for (int i = 0; i < COUNT(BURST_KERNELS); i++)
+    if (ctx_kernel_selected(c, BURST_KERNELS[i]) && pmk_find_tk(c->k, BURST_KERNELS[i], NULL)) n++;
+  return (c->cfg.cpu >= 0 ? 1 : c->m.ntypes) * n;
+}
+
 int mode_st_burst(pmk_ctx *c) {
   const pmk_tk *list[COUNT(BURST_KERNELS)];
   int n = 0;
@@ -163,6 +170,19 @@ static int st_sustained_kernel(pmk_ctx *c, const pmk_tk *tk, const pmk_kernels *
   return rc;
 }
 
+int mode_st_sustained_steps(const pmk_ctx *c) {
+  int n = 0;
+  for (int i = 0; i < COUNT(SUSTAINED_KERNELS); i++)
+    if (ctx_kernel_selected(c, SUSTAINED_KERNELS[i]) && pmk_find_tk(c->k, SUSTAINED_KERNELS[i], NULL)) n++;
+  n *= c->cfg.cpu >= 0 ? 1 : c->m.ntypes;
+  for (int i = 0; c->cfg.isa_uplift && c->kmax && i < COUNT(UPLIFT_KERNELS); i++)
+    if (ctx_kernel_selected(c, UPLIFT_KERNELS[i].id) &&
+        pmk_find_tk(c->k, UPLIFT_KERNELS[i].id, UPLIFT_KERNELS[i].variant) &&
+        pmk_find_tk(c->kmax, UPLIFT_KERNELS[i].id, UPLIFT_KERNELS[i].variant))
+      n += 2;
+  return n;
+}
+
 int mode_st_sustained(pmk_ctx *c) {
   typedef struct job {
     const pmk_tk *tk;
@@ -215,6 +235,15 @@ int mode_st_sustained(pmk_ctx *c) {
 }
 
 /* ---------- MC threaded ---------- */
+
+int mode_mc_threaded_steps(const pmk_ctx *c) {
+  int steps[MAX_STEPS], nsteps = ctx_thread_steps(c, steps, MAX_STEPS), n = 0;
+  for (int i = 0; i < COUNT(THREADED_KERNELS); i++)
+    if (ctx_kernel_selected(c, THREADED_KERNELS[i]) && pmk_find_tk(c->k, THREADED_KERNELS[i], NULL)) n += nsteps;
+  /* K1x: one build per repetition at the largest n, when a snapshot is given */
+  if (ctx_kernel_selected(c, "K1x") && c->cfg.k1_data && *c->cfg.k1_data) n += c->cfg.k1x_reps > 0 ? c->cfg.k1x_reps : 3;
+  return n;
+}
 
 int mode_mc_threaded(pmk_ctx *c) {
   int *cpus = malloc((size_t)c->m.ncpu * sizeof *cpus);
@@ -289,15 +318,23 @@ static void *chaser_main(void *arg) {
  * n - 1 copies chase the same (read-only) ring from other random starts on
  * the other CPUs. Each working-set size gets its own ring.
  */
-static int k7_series(pmk_ctx *c, const int *cpus, const int *steps, int nsteps) {
-  if (!ctx_kernel_selected(c, "K7")) return PMK_OK;
-  enum { NSIZES = 12 };
-  uint64_t sizes[NSIZES];
+enum { K7_NSIZES = 12 };
+
+/* Working-set sizes: 16 KiB upwards in steps of 4, to 4x the last-level cache (at least 64 MiB). */
+static int k7_sizes(const pmk_ctx *c, uint64_t sizes[K7_NSIZES]) {
   int ns = 0;
   uint64_t top = c->m.llc_bytes ? c->m.llc_bytes * 4 : 256ull << 20;
   if (top < (64ull << 20)) top = 64ull << 20;
-  for (uint64_t s = 16ull << 10; s <= top && ns < NSIZES; s *= 4) sizes[ns++] = s;
-  if (sizes[ns - 1] < top && ns < NSIZES) sizes[ns++] = top;
+  for (uint64_t s = 16ull << 10; s <= top && ns < K7_NSIZES; s *= 4) sizes[ns++] = s;
+  if (sizes[ns - 1] < top && ns < K7_NSIZES) sizes[ns++] = top;
+  return ns;
+}
+
+static int k7_series(pmk_ctx *c, const int *cpus, const int *steps, int nsteps) {
+  if (!ctx_kernel_selected(c, "K7")) return PMK_OK;
+  enum { NSIZES = K7_NSIZES };
+  uint64_t sizes[NSIZES];
+  int ns = k7_sizes(c, sizes);
 
   int sorder[NSIZES];
   for (int i = 0; i < ns; i++) sorder[i] = i;
@@ -367,6 +404,13 @@ static int k7_series(pmk_ctx *c, const int *cpus, const int *steps, int nsteps) 
     pal_aligned_free(nodes);
   }
   return rc;
+}
+
+int mode_mc_instances_steps(const pmk_ctx *c) {
+  if (!ctx_kernel_selected(c, "K7")) return 0;
+  uint64_t sizes[K7_NSIZES];
+  int steps[MAX_STEPS];
+  return k7_sizes(c, sizes) * ctx_thread_steps(c, steps, MAX_STEPS);
 }
 
 int mode_mc_instances(pmk_ctx *c) {

@@ -44,6 +44,7 @@ typedef struct pmk_result {
   double window_ms;
   pmk_dvec temps;      /* CPU temperature at the end of each window */
   pmk_dvec mhz;        /* average clock of the series' CPUs at the end of each window, 0 if unknown */
+  pmk_dvec power;      /* package power over each window in W, NaN if unknown */
   int clamped;         /* measured windows below the platform-clamp threshold (see wl_sustained) */
   double lowest_mhz;   /* lowest window clock among them, NaN if none */
   pmk_dvec job_ns;     /* duration of each complete job */
@@ -103,6 +104,7 @@ typedef struct pmk_ctx {
   pmk_analysis *an;
   pmk_analysis_tp *antp;
   int oom;
+  uint32_t run_step, run_steps; /* position in the whole run: steps begun, steps planned (0 if not planned) */
 } pmk_ctx;
 
 pmk_result *ctx_new_result(pmk_ctx *c, const char *kernel, const char *mode, const char *unit);
@@ -175,6 +177,14 @@ int mode_st_burst(pmk_ctx *c);
 int mode_st_sustained(pmk_ctx *c);
 int mode_mc_threaded(pmk_ctx *c);
 int mode_mc_instances(pmk_ctx *c);
+/* Steps each mode will report (its PHASE events with a step number), counted before anything runs, for the
+   run-wide position. Steps that turn out impossible (not enough memory, a failed build) are not run. */
+int mode_cold_burst_steps(const pmk_ctx *c);
+int mode_periodic_steps(const pmk_ctx *c);
+int mode_st_burst_steps(const pmk_ctx *c);
+int mode_st_sustained_steps(const pmk_ctx *c);
+int mode_mc_threaded_steps(const pmk_ctx *c);
+int mode_mc_instances_steps(const pmk_ctx *c);
 /* K1x: full build of the prepared snapshot at n jobs; part of MC threaded. */
 int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order);
 

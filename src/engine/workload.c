@@ -236,11 +236,14 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
       started++;
     }
 
-    /* Monitor: a fixed number of windows. It records the temperature and the core of worker 0 per window;
+    /* Monitor: a fixed number of windows. It records the temperature, clock, package power and the core of
+       worker 0 per window;
        the throughput of each window is read after the run, once every task has been credited. */
     int *cpu_of = calloc(total_w, sizeof *cpu_of);
     if (!cpu_of) rc = PMK_ERR_NOMEM;
     uint64_t last_event = t0_mono;
+    pal_power pw;
+    pal_power_start(&pw);
     size_t w = 0;
     for (; rc == PMK_OK && w < total_w; w++) {
       pal_sleep_until_ns(t0_mono + (uint64_t)(w + 1) * sh->win_ns);
@@ -251,7 +254,9 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
         int k = pal_cpu_cur_khz(s->cpus ? s->cpus[i] : c->m.cpus[i % c->m.ncpu].id);
         if (k > 0) khz += k, nk++;
       }
-      if (dvec_push(&r->temps, pal_cpu_temp_c()) || dvec_push(&r->mhz, nk ? khz / nk / 1000 : 0)) rc = PMK_ERR_NOMEM;
+      if (dvec_push(&r->temps, pal_cpu_temp_c()) || dvec_push(&r->mhz, nk ? khz / nk / 1000 : 0) ||
+          dvec_push(&r->power, pal_power_read(&pw)))
+        rc = PMK_ERR_NOMEM;
       if (ctx_cancelled()) rc = PMK_ERR_CANCELLED;
       if (atomic_load(&sh->failed)) rc = PMK_ERR_NOMEM;
       if (rc == PMK_OK && pal_now_ns() - last_event > 10000000000ull) {

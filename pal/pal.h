@@ -71,6 +71,17 @@ int pal_random_bytes(void *p, size_t n);
 double pal_cpu_temp_c(void);                /* NaN if unknown */
 double pal_background_load(double seconds); /* busy fraction of all CPUs, NaN on error */
 double pal_idle_power_w(double seconds);    /* NaN without telemetry */
+/*
+ * Package power over consecutive intervals: pal_power_start marks the start, and each pal_power_read returns the
+ * average watts since the previous mark (energy counters) or the sensor's latest reading (power sensors, which
+ * average over their own short interval), then marks again. NaN without telemetry.
+ */
+typedef struct pal_power {
+  long long uj;
+  uint64_t ns;
+} pal_power;
+void pal_power_start(pal_power *p);
+double pal_power_read(pal_power *p);
 
 /* Machine state (governors, idle states, temperatures, power) as a JSON object. */
 void pal_state_json(pmk_jw *w, const char *key, const pmk_machine *m, int measure_power);

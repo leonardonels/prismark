@@ -69,6 +69,17 @@ static const double *steady_set(const pmk_result *r, size_t *n) {
   return r->samples + r->steady_from;
 }
 
+/* Median of a per-window record over the scored windows, leaving out unknown values (NaN, or 0 for the clock). */
+static double steady_median(const pmk_result *r, const pmk_dvec *d) {
+  size_t end = d->n < r->n ? d->n : r->n, m = 0;
+  double *x = end > r->steady_from ? malloc((end - r->steady_from) * sizeof *x) : NULL;
+  for (size_t i = r->steady_from; x && i < end; i++)
+    if (isfinite(d->v[i]) && d->v[i] > 0) x[m++] = d->v[i];
+  double v = m ? pmk_median(x, m) : NAN;
+  free(x);
+  return v;
+}
+
 static const double *initial_set(const pmk_result *r, size_t *n) {
   size_t from = r->n > 1 + INITIAL_WINDOWS ? 1 : 0;
   *n = r->n - from < INITIAL_WINDOWS ? r->n - from : INITIAL_WINDOWS;
@@ -327,6 +338,8 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
       jw_num(w, "perf_ci_rel", (row->perf.hi - row->perf.lo) / 2 / row->perf.est);
       jw_int(w, "clamped_windows", r->clamped);
       jw_num(w, "clamped_lowest_mhz", r->lowest_mhz);
+      jw_num(w, "mhz", steady_median(r, &r->mhz));
+      jw_num(w, "power_w", steady_median(r, &r->power));
     } else {
       jw_str(w, "unit", r->unit);
       ci_json(w, "median", row->med);

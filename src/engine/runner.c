@@ -201,7 +201,16 @@ void ctx_emit(pmk_ctx *c, pmk_event_kind kind, const char *phase, const char *ke
   va_start(ap, fmt);
   vsnprintf(msg, sizeof msg, fmt, ap);
   va_end(ap);
-  pmk_event ev = {sizeof ev, kind, phase, kernel, msg, step, steps, pal_cpu_temp_c()};
+  double temp = pal_cpu_temp_c();
+  /* A numbered step of a mode advances the run-wide position, reported just before it. */
+  if (kind == PMK_EV_PHASE && step > 0 && c->run_steps > 0 && strcmp(phase, "preflight")) {
+    if (c->run_step < c->run_steps) c->run_step++;
+    char pos[64];
+    snprintf(pos, sizeof pos, "step %u of %u", c->run_step, c->run_steps);
+    pmk_event p = {sizeof p, PMK_EV_INFO, "progress", NULL, pos, c->run_step, c->run_steps, temp};
+    c->cb(&p, c->user);
+  }
+  pmk_event ev = {sizeof ev, kind, phase, kernel, msg, step, steps, temp};
   c->cb(&ev, c->user);
 }
 
@@ -247,6 +256,7 @@ int result_push(pmk_result *r, double sample, double wake, int cpu) {
 void result_free(pmk_result *r) {
   dvec_free(&r->temps);
   dvec_free(&r->mhz);
+  dvec_free(&r->power);
   dvec_free(&r->job_ns);
   free(r->samples);
   free(r->wake);
@@ -448,6 +458,7 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
   if (r->windowed) {
     samples_json(w, "temp_c", r->temps.v, r->temps.n, 0);
     samples_json(w, "mhz", r->mhz.v, r->mhz.n, 1);
+    samples_json(w, "power_w", r->power.v, r->power.n, 0);
     samples_json(w, "job_ns", r->job_ns.v, r->job_ns.n, 1);
     jw_obj_begin(w, "steady");
     jw_bool(w, "reached", r->steady);
@@ -502,21 +513,23 @@ static void tiers_json(pmk_jw *w, const pmk_ctx *c) {
 }
 
 typedef int (*mode_fn)(pmk_ctx *);
+typedef int (*steps_fn)(const pmk_ctx *);
 
 /* quiet: the mode measures waits and wake-ups and needs an idle machine (no keyboard or mouse input). */
 static const struct {
   uint32_t bit;
   mode_fn fn;
+  steps_fn steps;
   const char *name;
   int quiet;
   const char *kernels[3];
 } MODES[] = {
-    {PMK_MODE_COLD_BURST, mode_cold_burst, "cold_burst", 1, {"K9", "K4", "K6"}},
-    {PMK_MODE_PERIODIC, mode_periodic, "periodic", 1, {"K10", NULL, NULL}},
-    {PMK_MODE_ST_BURST, mode_st_burst, "st_burst", 0, {NULL}},
-    {PMK_MODE_ST_SUSTAINED, mode_st_sustained, "st_sustained", 0, {NULL}},
-    {PMK_MODE_MC_THREADED, mode_mc_threaded, "mc_threaded", 0, {NULL}},
-    {PMK_MODE_MC_INSTANCES, mode_mc_instances, "mc_instances", 0, {NULL}},
+    {PMK_MODE_COLD_BURST, mode_cold_burst, mode_cold_burst_steps, "cold_burst", 1, {"K9", "K4", "K6"}},
+    {PMK_MODE_PERIODIC, mode_periodic, mode_periodic_steps, "periodic", 1, {"K10", NULL, NULL}},
+    {PMK_MODE_ST_BURST, mode_st_burst, mode_st_burst_steps, "st_burst", 0, {NULL}},
+    {PMK_MODE_ST_SUSTAINED, mode_st_sustained, mode_st_sustained_steps, "st_sustained", 0, {NULL}},
+    {PMK_MODE_MC_THREADED, mode_mc_threaded, mode_mc_threaded_steps, "mc_threaded", 0, {NULL}},
+    {PMK_MODE_MC_INSTANCES, mode_mc_instances, mode_mc_instances_steps, "mc_instances", 0, {NULL}},
 };
 
 /* Runs one mode; a quiet mode interrupted by input is discarded and recorded as skipped. */
@@ -689,6 +702,7 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
     for (int i = 0; i < NMODES; i++)
       if (c->cfg.modes & MODES[i].bit) modes[nmodes++] = i;
     ctx_shuffle(&c->rng, modes, nmodes);
+    for (int i = 0; i < nmodes; i++) c->run_steps += (uint32_t)MODES[modes[i]].steps(c);
     for (int i = 0; i < nmodes && rc == PMK_OK; i++) {
       /* Overall position for front-ends: modes run in shuffled order, so they cannot work it out themselves. */
       ctx_emit(c, PMK_EV_INFO, "run", NULL, (uint32_t)i + 1, (uint32_t)nmodes, "part %d of %d: %s", i + 1, nmodes,
