@@ -1507,7 +1507,7 @@ void MainWindow::compareRuns() {
   f->addRow(bb);
   if (d.exec() != QDialog::Accepted) return;
   QProcess p;
-  p.start(cliPath(), {"compare", a->currentData().toString(), b->currentData().toString()});
+  p.start(cliPath(), {"compare", "--detail", a->currentData().toString(), b->currentData().toString()});
   p.waitForFinished(120000);
   QDialog out(this);
   out.setWindowTitle(tr("Comparison"));

@@ -693,6 +693,7 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   jw_num(&w, "idle_temp_c", idle_temp);
   jw_obj_end(&w);
   c->idle_temp = idle_temp;
+  if (rc == PMK_OK && ctx_cancelled()) rc = PMK_ERR_CANCELLED; /* during the preflight waits */
 
   if (rc == PMK_OK) {
     ctx_emit(c, PMK_EV_PHASE, "preflight", NULL, 2, 2, "recording machine state");
@@ -705,6 +706,10 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
     ctx_shuffle(&c->rng, modes, nmodes);
     for (int i = 0; i < nmodes; i++) c->run_steps += (uint32_t)MODES[modes[i]].steps(c);
     for (int i = 0; i < nmodes && rc == PMK_OK; i++) {
+      if (ctx_cancelled()) {
+        rc = PMK_ERR_CANCELLED;
+        break;
+      }
       /* Overall position for front-ends: modes run in shuffled order, so they cannot work it out themselves. */
       ctx_emit(c, PMK_EV_INFO, "run", NULL, (uint32_t)i + 1, (uint32_t)nmodes, "part %d of %d: %s", i + 1, nmodes,
                MODES[modes[i]].name);
@@ -738,14 +743,17 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   analysis_compute(c);
   analysis_tp_compute(c);
   analysis_json(c, &w, "analysis");
+  /* Stored with the result, so front-ends can show it again later (pmk_describe). */
+  char *summary = analysis_text(c, run_id, rc == PMK_OK ? NULL : "INCOMPLETE RUN: results above are partial.");
+  jw_str(&w, "summary", summary);
   jw_obj_end(&w);
 
   char *json = buf_take(&w.b);
   if (!json) rc = PMK_ERR_NOMEM;
   if (result_json) *result_json = json;
   else free(json);
-  if (summary_text)
-    *summary_text = analysis_text(c, run_id, rc == PMK_OK ? NULL : "INCOMPLETE RUN: results above are partial.");
+  if (summary_text) *summary_text = summary;
+  else free(summary);
 
   analysis_free(c);
   analysis_tp_free(c);

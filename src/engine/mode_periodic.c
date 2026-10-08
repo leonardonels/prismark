@@ -90,9 +90,13 @@ static int run_condition(pmk_ctx *c, int cpu, int loaded, const pmk_k7_node *nod
   return rc;
 }
 
-int mode_periodic_steps(const pmk_ctx *c) { return c->m.ncpu > 1 ? 2 : 1; }
+int mode_periodic_steps(const pmk_ctx *c) {
+  if (!ctx_kernel_selected(c, "K10")) return 0;
+  return c->m.ncpu > 1 ? 2 : 1;
+}
 
 int mode_periodic(pmk_ctx *c) {
+  if (!ctx_kernel_selected(c, "K10")) return PMK_OK; /* --kernels without K10 */
   int cpu = ctx_cpu_for_type(c, 0);
   if (ctx_can_place(c) && pal_pin_self(cpu))
     ctx_emit(c, PMK_EV_WARNING, "periodic", "K10", 0, 0, "could not pin to CPU %d", cpu);

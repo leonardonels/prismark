@@ -262,7 +262,8 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
       if (rc == PMK_OK && pal_now_ns() - last_event > 10000000000ull) {
         last_event = pal_now_ns();
         double t = (double)(w + 1) * win_s;
-        ctx_emit(c, PMK_EV_INFO, r->mode, tk->id, 0, 0, "%s n=%d: %.0f s of %.0f (%s)", r->mode, s->nthreads, t,
+        ctx_emit(c, PMK_EV_INFO, r->mode, tk->id, 0, 0, "%d thread%s: %.0f s of %.0f (%s)", s->nthreads,
+                 s->nthreads == 1 ? "" : "s", t,
                  (double)total_w * win_s, w + 1 <= warm_w ? "warming up, not scored" : "measuring");
       }
     }

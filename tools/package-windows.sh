@@ -45,6 +45,7 @@ cp "$QT_WIN"/plugins/iconengines/qsvgicon.dll "$STAGE"/iconengines/
 # The C++ runtime the binaries were linked against (newer than Qt's own copy, and compatible with it).
 cp "$LLVM_MINGW"/x86_64-w64-mingw32/bin/{libc++,libunwind}.dll "$STAGE"/
 cp "$SRC"/LICENSE "$STAGE"/
+mkdir -p "$STAGE"/references && cp "$SRC"/references/*.json "$STAGE"/references/   # for prismark compare
 
 # Every DLL a binary imports must be in the folder or be part of Windows.
 OBJDUMP=$LLVM_MINGW/bin/llvm-objdump

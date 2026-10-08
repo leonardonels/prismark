@@ -231,11 +231,27 @@ software build.
 ## Running
 
 ```sh
-./build/linux-clang/prismark --quick          # smoke run, a few minutes; not for comparison
-./build/linux-clang/prismark                  # full run of all modes (about 30 min on a 4-core laptop)
-./build/linux-clang/prismark --mode st_burst,cold_burst --kernels K4,K6,K9   # Opening a photo, Starting a script, Wake-up test
-./build/linux-clang/prismark --help
+./build/linux-clang/prismark                  # menu: full or quick run, choose tests, past runs, compare
+./build/linux-clang/prismark run              # full run of all modes (about 30 min on a 4-core laptop)
+./build/linux-clang/prismark run --quick      # smoke run, a few minutes; not for comparison
+./build/linux-clang/prismark --mode short-task,from-rest --tests photo,script,wakeup
+./build/linux-clang/prismark tests            # every test and mode, with the names and IDs it accepts
+./build/linux-clang/prismark help             # options; `help advanced` for tuning and desktop-app options
 ```
+
+`prismark` alone never starts a run: on a terminal it opens a menu, and
+otherwise it exits with a hint. Options without a command (`prismark --quick
+…`) still start a run, as before. Runs started from the menu include the
+compile tests when the desktop app's compile-test snapshot is prepared.
+
+`--tests` and `--mode` take the app's names (`"Opening a photo"`, `photo`), a
+short name, or the ID (`K4`, `st_burst`); `--kernels` is the same as `--tests`.
+On a terminal the run shows one progress line (overall step, elapsed time,
+temperature, what runs now) and keeps only part headers, notices and warnings
+on screen; piped, it prints one plain line per event. Colour is used on a
+terminal only, and `NO_COLOR` or `--no-color` turns it off. Ctrl+C stops the
+run after the current measurement and saves what was measured; a second
+Ctrl+C quits at once.
 
 Each run writes `prismark-<run_id>.json` with every raw sample, the machine
 state at start and end, and the statistics computed from them. It goes in the
@@ -249,13 +265,28 @@ too (`-o FILE` writes elsewhere; runs as root write to the current folder):
 ```
 
 ```sh
-prismark compare a.json b.json                # per-kernel ratios with CIs, and the profiles
+prismark list                                 # past runs in the results folder, newest first
+prismark show latest                          # a run's summary again
+prismark compare latest intel-i5-1035g1       # the headline results against a reference system
+prismark compare 6f07bd9e latest              # ... or against another run
+prismark compare 6f07bd9e latest --detail     # every series with 95 % CIs, and the profiles
 prismark compare a.json b.json --profiles my-profiles.json
+prismark references                           # the reference systems compare accepts
 prismark profiles                             # the default profiles (Daily, Dev, Render, Realtime)
 prismark checksums -o checksums.json          # kernel output checksums, no timing
 ```
 
-`compare` refuses runs measured under different capabilities, and reports a
+A run is named by its file, its run ID or the first characters of it (as
+`list` shows them), or `latest`. Results store their summary, so `show` can
+print it again; older result files have none, and `show` says so.
+
+`compare` shows the headline results the desktop app shows, side by side, and
+says for each whether A is better, worse or the same within the 95 % ranges.
+Either side may be a reference system from [`references/`](references/README.md)
+(installed with the program) or from your own `results/references`, named by
+its file name; placeholders are labelled as such. `--detail` compares every
+measured series instead, and needs two measured results. It refuses runs
+measured under different capabilities, and reports a
 profile only when every kernel it names exists in both runs.
 
 Prismark measures the machine as it is configured and changes nothing on it:

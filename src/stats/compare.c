@@ -202,10 +202,18 @@ static void tail_json(pmk_jw *w, const char *key, const series *s) {
   jw_obj_end(w);
 }
 
+/* "Wake-up test (K9), started from rest: cold, 20 ms task, core P" */
 static void series_label(char *out, size_t n, const series *s) {
-  snprintf(out, n, "%s%s%s %s%s%s n=%d%s%s", s->kernel, s->variant ? " " : "", s->variant ? s->variant : "", s->mode,
-           s->start ? " " : "", s->start ? s->start : "", s->n, s->purpose ? " isa_uplift/" : " ",
-           s->purpose ? s->tier : s->core);
+  size_t k = (size_t)snprintf(out, n, "%s (%s%s%s), %s:", pmk_display_name(s->kernel), s->kernel,
+                              s->variant ? " " : "", s->variant ? s->variant : "", pmk_display_name(s->mode));
+#define ADD(...) (k += (size_t)snprintf(out + (k < n ? k : n), k < n ? n - k : 0, __VA_ARGS__))
+  if (s->start) ADD(" %s,", s->start);
+  if (s->w_ms > 0) ADD(" %g ms task,", s->w_ms);
+  if (s->ws > 0) ADD(" %g KiB,", s->ws / 1024);
+  if (s->n > 1) ADD(" %d %s,", s->n, !strcmp(s->mode, "mc_instances") ? "copies" : "threads");
+  if (s->purpose) ADD(" new instructions (%s)", s->tier);
+  else ADD(" core %s", s->core ? s->core : "?");
+#undef ADD
 }
 
 /* ---------- profiles ---------- */
@@ -432,7 +440,7 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
   jw_arr_begin(&w, "kernels");
   double *reps = malloc(B * sizeof *reps);
   size_t matched = 0, skipped_inputs = 0;
-  buf_printf(&t, "\nPer kernel (* = CI excludes 1)\n");
+  buf_printf(&t, "\nPer test (* = CI excludes 1)\n");
   for (size_t i = 0; reps && i < A.ns; i++) {
     const series *a = &A.s[i];
     if (!strcmp(a->mode, "periodic")) continue;
@@ -462,7 +470,7 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
     ci_json(&w, "r", ci);
     jw_bool(&w, "different", differ);
     jw_obj_end(&w);
-    buf_printf(&t, "  %-48s %7.3f [%.3f, %.3f]%s\n", lab, ci.est, ci.lo, ci.hi, differ ? " *" : "");
+    buf_printf(&t, "  %-66s %7.3f [%.3f, %.3f]%s\n", lab, ci.est, ci.lo, ci.hi, differ ? " *" : "");
     matched++;
   }
   jw_arr_end(&w);

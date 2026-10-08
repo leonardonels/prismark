@@ -7,6 +7,10 @@ removing one, rebuild (`cmake --build --preset linux-clang`).
 - **Add a system:** add a file.
 - **Remove a system:** delete its file.
 
+The command line reads the same files (`prismark references`, `prismark
+compare latest <file name without .json>`); they are installed to
+`share/prismark/references` beside it.
+
 Users can add their own references without rebuilding: the app also reads
 `results/references` in their results folder (Menu › Data folders), next to
 `results/runs` where their own runs are saved.
