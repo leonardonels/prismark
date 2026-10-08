@@ -56,6 +56,8 @@ class MainWindow : public QMainWindow {
   void showDataFolders();
   void showAbout();
   void removeSelected();
+  void saveAsReference(); /* the selected run, as the user's own reference system */
+  void removeReference(); /* the selected reference, when it is one of the user's own */
 
  private:
   void buildUi();
