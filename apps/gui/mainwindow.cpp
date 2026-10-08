@@ -21,6 +21,8 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
+#include <QInputDialog>
+#include <QLineEdit>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLabel>
@@ -29,6 +31,7 @@
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
+#include <QRegularExpression>
 #include <QScrollArea>
 #include <QSettings>
 #include <QStackedWidget>
@@ -1094,7 +1097,8 @@ void MainWindow::refreshDetails() {
     detailsLayout_->addWidget(tw);
   }
 
-  if (!r->reference) {
+  bool ownReference = r->reference && QFileInfo(r->file).absolutePath() == QFileInfo(referencesDir()).absoluteFilePath();
+  if (!r->reference || ownReference) {
     auto *w = new QWidget;
     auto *btns = new QHBoxLayout(w);
     btns->setContentsMargins(0, 12, 0, 0);
@@ -1103,11 +1107,23 @@ void MainWindow::refreshDetails() {
     connect(show, &QPushButton::clicked, this, [this] {
       if (const RunSummary *s = selectedRun()) QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(s->file).absolutePath()));
     });
-    auto *rm = new QPushButton(tr("Move to trash"));
-    rm->setObjectName("ghost");
-    connect(rm, &QPushButton::clicked, this, &MainWindow::removeSelected);
     btns->addWidget(show);
-    btns->addWidget(rm);
+    if (ownReference) {
+      auto *rm = new QPushButton(tr("Remove reference"));
+      rm->setObjectName("ghost");
+      connect(rm, &QPushButton::clicked, this, &MainWindow::removeReference);
+      btns->addWidget(rm);
+    } else {
+      auto *save = new QPushButton(tr("Save as reference…"));
+      save->setObjectName("ghost");
+      save->setToolTip(tr("Keep this run in the rankings as a reference system to compare later runs with"));
+      connect(save, &QPushButton::clicked, this, &MainWindow::saveAsReference);
+      auto *rm = new QPushButton(tr("Move to trash"));
+      rm->setObjectName("ghost");
+      connect(rm, &QPushButton::clicked, this, &MainWindow::removeSelected);
+      btns->addWidget(save);
+      btns->addWidget(rm);
+    }
     btns->addStretch();
     detailsLayout_->addWidget(w);
   }
@@ -1592,6 +1608,77 @@ void MainWindow::showAbout() {
                         "tagged PLACEHOLDER are example values, not measurements.<br><br>Apache License 2.0. Inter "
                         "typeface: SIL Open Font License 1.1.")
                          .arg(QCoreApplication::applicationVersion()));
+}
+
+/* "amd-ryzen-7-8845hs" from "AMD Ryzen 7 8845HS w/ Radeon 780M Graphics": the name offered for a reference (as
+   the command line's references add offers it). */
+static QString suggestReferenceName(QString model) {
+  for (const char *cut : {" w/ ", " with ", " @ ", " CPU"}) {
+    int at = model.indexOf(QLatin1String(cut));
+    if (at >= 0) model.truncate(at);
+  }
+  model.remove(QStringLiteral("(R)"), Qt::CaseInsensitive).remove(QStringLiteral("(TM)"), Qt::CaseInsensitive);
+  QString name = model.toLower().replace(QRegularExpression(QStringLiteral("[^a-z0-9]+")), QStringLiteral("-"));
+  name = name.left(48).remove(QRegularExpression(QStringLiteral("^-+|-+$")));
+  return name.isEmpty() ? QStringLiteral("my-computer") : name;
+}
+
+void MainWindow::saveAsReference() {
+  const RunSummary *r = selectedRun();
+  if (!r || r->reference) return;
+  QString file = r->file, model = r->machine["cpu"].toObject()["model"].toString(r->name);
+  bool quick = r->quick;
+  static const QRegularExpression valid(QStringLiteral("^[A-Za-z0-9_-][A-Za-z0-9._-]{0,79}$"));
+  QString name = suggestReferenceName(model);
+  for (;;) {
+    bool ok = false;
+    name = QInputDialog::getText(
+               this, tr("Save as reference"),
+               tr("Keep this run as a reference system: it stays in the rankings next to the bundled ones, and "
+                  "later runs can be compared with it (also from the command line: prismark compare latest NAME).%1"
+                  "\n\nName (letters, digits, - _ .):")
+                   .arg(quick ? tr("\n\nThis is a quick run: comparisons with it are rough.") : QString()),
+               QLineEdit::Normal, name, &ok)
+               .trimmed();
+    if (!ok) return;
+    if (!valid.match(name).hasMatch()) {
+      QMessageBox::information(this, tr("Save as reference"),
+                               tr("“%1” cannot be a reference name. Use letters, digits, “-”, “_” and “.”.").arg(name));
+      continue;
+    }
+    QString dest = QDir(referencesDir()).filePath(name + ".json");
+    if (QFileInfo::exists(dest)) {
+      if (QMessageBox::question(this, tr("Save as reference"),
+                                tr("You already have a reference system “%1”. Replace it?").arg(name)) != QMessageBox::Yes)
+        continue;
+      QFile::remove(dest);
+    }
+    if (!QFile::copy(file, dest)) {
+      QMessageBox::warning(this, tr("Prismark"), tr("Could not save %1.").arg(dest));
+      return;
+    }
+    loadFile(dest, true);
+    selected_ = QStringLiteral("reference-") + name; /* show the new reference */
+    refresh();
+    return;
+  }
+}
+
+void MainWindow::removeReference() {
+  const RunSummary *r = selectedRun();
+  if (!r || !r->reference) return;
+  QString file = r->file, name = QFileInfo(file).completeBaseName();
+  if (QMessageBox::question(this, tr("Remove reference"),
+                            tr("Remove your reference system “%1” from the rankings? Its file goes to the trash.\n%2")
+                                .arg(name, file)) != QMessageBox::Yes)
+    return;
+  if (!QFile::moveToTrash(file) && !QFile::remove(file)) {
+    QMessageBox::warning(this, tr("Prismark"), tr("Could not remove %1.").arg(file));
+    return;
+  }
+  loadAll(); /* a bundled reference of the same name, which this one replaced, comes back */
+  selected_.clear();
+  refresh();
 }
 
 void MainWindow::removeSelected() {
