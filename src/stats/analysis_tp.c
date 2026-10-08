@@ -410,10 +410,9 @@ static const char *fmt_time(char *out, size_t n, double ns) {
   return out;
 }
 
-/* The app's name for the kernel, its variant and its id, e.g. "Matrix maths fp32 (K8)". */
+/* The app's name for the kernel and its variant, e.g. "Matrix maths fp32". */
 static const char *label(char *out, size_t n, const pmk_result *r) {
-  snprintf(out, n, "%s%s%s (%s)", pmk_display_name(r->kernel), r->variant ? " " : "", r->variant ? r->variant : "",
-           r->kernel);
+  snprintf(out, n, "%s%s%s", pmk_display_name(r->kernel), r->variant ? " " : "", r->variant ? r->variant : "");
   return out;
 }
 
@@ -435,10 +434,10 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
         buf_printf(b, "\nOne core, short task: time per job, median [95%% CI]\n  %-24s %-4s %-24s %14s\n", "test", "core",
                    "time", "throughput");
       else if (!strcmp(r->kernel, "K7"))
-        buf_printf(b, "\nAll cores, each on its own: Memory delay (K7), ns per load under contention\n  %10s %6s %24s\n", "set",
+        buf_printf(b, "\nAll cores, each on its own: Memory delay, ns per load under contention\n  %10s %6s %24s\n", "set",
                    "copies", "median [95% CI]");
       else if (!strcmp(r->kernel, "K1x"))
-        buf_printf(b, "\nAll cores, working together: Full software build (K1x)\n  %6s %24s\n", "n", "time [95% CI]");
+        buf_printf(b, "\nAll cores, working together: Full software build\n  %6s %24s\n", "n", "time [95% CI]");
       else
         buf_printf(b, "\n%s: steady-state throughput, R_throttle = steady / initial\n  %-24s %-8s %4s %-28s %-22s %s\n",
                    !strcmp(mode, "st_sustained")  ? "One core, after warming up"
@@ -473,7 +472,7 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
                "test", "n", "S [95% CI]", "E", "p [95% CI]");
     for (size_t i = 0; i < a->nsc; i++) {
       const scale_row *s = &a->sc[i];
-      snprintf(l, sizeof l, "%s (%s)", pmk_display_name(s->kernel), s->kernel);
+      snprintf(l, sizeof l, "%s", pmk_display_name(s->kernel));
       buf_printf(b, "  %-24s %4d %6.3f [%.3f, %.3f]   %.3f    ", l, s->n, s->S.est, s->S.lo, s->S.hi, s->E.est);
       if (isfinite(s->p.est)) buf_printf(b, "%.3f [%.3f, %.3f]\n", s->p.est, s->p.lo, s->p.hi);
       else buf_printf(b, "-\n");
@@ -483,8 +482,8 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
     buf_printf(b, "\nSame-kernel ratios\n");
     for (size_t i = 0; i < a->nra; i++) {
       const ratio_row *r = &a->ra[i];
-      snprintf(l, sizeof l, "%s%s%s (%s)", pmk_display_name(r->kernel), r->variant ? " " : "",
-               r->variant ? r->variant : "", r->kernel);
+      snprintf(l, sizeof l, "%s%s%s", pmk_display_name(r->kernel), r->variant ? " " : "",
+               r->variant ? r->variant : "");
       buf_printf(b, "  %-8s %-26s", r->name, l);
       if (r->n) buf_printf(b, " n=%-3d", r->n);
       else buf_printf(b, " %-5s", r->core_type);

@@ -193,6 +193,21 @@ int ctx_thread_steps(const pmk_ctx *c, int *out, int max) {
   return n;
 }
 
+/*
+ * Seconds left in the run: the modes still to come at their estimates, and the running mode's estimate less the
+ * time it has run. A mode slower than its estimate is extrapolated from its own pace over the steps it finished.
+ */
+static double ctx_remaining_s(const pmk_ctx *c) {
+  if (!c->mode_t0) return NAN;
+  double ran = (double)(pal_now_ns() - c->mode_t0) * 1e-9, left = c->mode_est_s - ran;
+  uint32_t done = c->run_step > c->mode_step0 + 1 ? c->run_step - c->mode_step0 - 1 : 0;
+  if (done && done < c->mode_steps) {
+    double pace = ran / done * (c->mode_steps - done);
+    if (pace > left) left = pace;
+  }
+  return c->later_est_s + (left > 0 ? left : 0);
+}
+
 void ctx_emit(pmk_ctx *c, pmk_event_kind kind, const char *phase, const char *kernel, uint32_t step,
               uint32_t steps, const char *fmt, ...) {
   if (!c->cb) return;
@@ -203,14 +218,16 @@ void ctx_emit(pmk_ctx *c, pmk_event_kind kind, const char *phase, const char *ke
   va_end(ap);
   double temp = pal_cpu_temp_c();
   /* A numbered step of a mode advances the run-wide position, reported just before it. */
-  if (kind == PMK_EV_PHASE && step > 0 && c->run_steps > 0 && strcmp(phase, "preflight")) {
-    if (c->run_step < c->run_steps) c->run_step++;
+  int advance = kind == PMK_EV_PHASE && step > 0 && c->run_steps > 0 && strcmp(phase, "preflight");
+  if (advance && c->run_step < c->run_steps) c->run_step++;
+  double left = ctx_remaining_s(c);
+  if (advance) {
     char pos[64];
     snprintf(pos, sizeof pos, "step %u of %u", c->run_step, c->run_steps);
-    pmk_event p = {sizeof p, PMK_EV_INFO, "progress", NULL, pos, c->run_step, c->run_steps, temp};
+    pmk_event p = {sizeof p, PMK_EV_INFO, "progress", NULL, pos, c->run_step, c->run_steps, temp, left};
     c->cb(&p, c->user);
   }
-  pmk_event ev = {sizeof ev, kind, phase, kernel, msg, step, steps, temp};
+  pmk_event ev = {sizeof ev, kind, phase, kernel, msg, step, steps, temp, left};
   c->cb(&ev, c->user);
 }
 
@@ -304,7 +321,9 @@ static temp_wait wait_temperature(pmk_ctx *c, const char *phase, double target, 
   temp_wait tw = {0, pal_cpu_temp_c(), 0};
   if (!isfinite(tw.temp_c)) return tw;
   uint64_t t0 = pal_now_ns();
-  ctx_emit(c, PMK_EV_PHASE, phase, NULL, 0, 0, "waiting for CPU temperature to settle (%.1f C)", tw.temp_c);
+  ctx_emit(c, PMK_EV_PHASE, phase, NULL, 0, 0,
+           "waiting up to %.0f s for the CPU temperature to settle, so every test starts from the same state",
+           timeout_s);
   for (;;) {
     double t = pal_cpu_temp_c();
     hist[n % WINDOW] = t;
@@ -515,22 +534,24 @@ static void tiers_json(pmk_jw *w, const pmk_ctx *c) {
 
 typedef int (*mode_fn)(pmk_ctx *);
 typedef int (*steps_fn)(const pmk_ctx *);
+typedef double (*est_fn)(const pmk_ctx *);
 
 /* quiet: the mode measures waits and wake-ups and needs an idle machine (no keyboard or mouse input). */
 static const struct {
   uint32_t bit;
   mode_fn fn;
   steps_fn steps;
+  est_fn est;
   const char *name;
   int quiet;
   const char *kernels[3];
 } MODES[] = {
-    {PMK_MODE_COLD_BURST, mode_cold_burst, mode_cold_burst_steps, "cold_burst", 1, {"K9", "K4", "K6"}},
-    {PMK_MODE_PERIODIC, mode_periodic, mode_periodic_steps, "periodic", 1, {"K10", NULL, NULL}},
-    {PMK_MODE_ST_BURST, mode_st_burst, mode_st_burst_steps, "st_burst", 0, {NULL}},
-    {PMK_MODE_ST_SUSTAINED, mode_st_sustained, mode_st_sustained_steps, "st_sustained", 0, {NULL}},
-    {PMK_MODE_MC_THREADED, mode_mc_threaded, mode_mc_threaded_steps, "mc_threaded", 0, {NULL}},
-    {PMK_MODE_MC_INSTANCES, mode_mc_instances, mode_mc_instances_steps, "mc_instances", 0, {NULL}},
+    {PMK_MODE_COLD_BURST, mode_cold_burst, mode_cold_burst_steps, mode_cold_burst_est, "cold_burst", 1, {"K9", "K4", "K6"}},
+    {PMK_MODE_PERIODIC, mode_periodic, mode_periodic_steps, mode_periodic_est, "periodic", 1, {"K10", NULL, NULL}},
+    {PMK_MODE_ST_BURST, mode_st_burst, mode_st_burst_steps, mode_st_burst_est, "st_burst", 0, {NULL}},
+    {PMK_MODE_ST_SUSTAINED, mode_st_sustained, mode_st_sustained_steps, mode_st_sustained_est, "st_sustained", 0, {NULL}},
+    {PMK_MODE_MC_THREADED, mode_mc_threaded, mode_mc_threaded_steps, mode_mc_threaded_est, "mc_threaded", 0, {NULL}},
+    {PMK_MODE_MC_INSTANCES, mode_mc_instances, mode_mc_instances_steps, mode_mc_instances_est, "mc_instances", 0, {NULL}},
 };
 
 /* Runs one mode; a quiet mode interrupted by input is discarded and recorded as skipped. */
@@ -704,12 +725,22 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
     for (int i = 0; i < NMODES; i++)
       if (c->cfg.modes & MODES[i].bit) modes[nmodes++] = i;
     ctx_shuffle(&c->rng, modes, nmodes);
-    for (int i = 0; i < nmodes; i++) c->run_steps += (uint32_t)MODES[modes[i]].steps(c);
+    double est[NMODES];
+    for (int i = 0; i < nmodes; i++) {
+      c->run_steps += (uint32_t)MODES[modes[i]].steps(c);
+      est[i] = MODES[modes[i]].est(c);
+      c->later_est_s += est[i];
+    }
     for (int i = 0; i < nmodes && rc == PMK_OK; i++) {
       if (ctx_cancelled()) {
         rc = PMK_ERR_CANCELLED;
         break;
       }
+      c->later_est_s -= est[i];
+      c->mode_est_s = est[i];
+      c->mode_t0 = pal_now_ns();
+      c->mode_step0 = c->run_step;
+      c->mode_steps = (uint32_t)MODES[modes[i]].steps(c);
       /* Overall position for front-ends: modes run in shuffled order, so they cannot work it out themselves. */
       ctx_emit(c, PMK_EV_INFO, "run", NULL, (uint32_t)i + 1, (uint32_t)nmodes, "part %d of %d: %s", i + 1, nmodes,
                MODES[modes[i]].name);

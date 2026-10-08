@@ -105,6 +105,11 @@ typedef struct pmk_ctx {
   pmk_analysis_tp *antp;
   int oom;
   uint32_t run_step, run_steps; /* position in the whole run: steps begun, steps planned (0 if not planned) */
+  /* Time left, for progress events: the running mode's estimate, when it started and its first run step, and
+     the estimates of the modes still to come. mode_t0 is 0 until the first mode starts. */
+  double mode_est_s, later_est_s;
+  uint64_t mode_t0;
+  uint32_t mode_step0, mode_steps;
 } pmk_ctx;
 
 pmk_result *ctx_new_result(pmk_ctx *c, const char *kernel, const char *mode, const char *unit);
@@ -136,6 +141,8 @@ int ctx_thread_steps(const pmk_ctx *c, int *out, int max);
 /* Clang at -O2 on the snapshot's largest unit peaks at 375 MB (median 164 MB; measured per unit, Clang 19); K1
    measured 436 MB on one thread and 719 MB on two. K1 and K1x plan 450 MB per thread: 3.6 GB at 8 threads. */
 #define PMK_COMPILE_MEM_PER_THREAD (450ull << 20)
+/* K1 measures this many times cfg.measure_s: one job is a whole translation unit. */
+#define SLOW_KERNEL_MEASURE_FACTOR 3
 /* False (and the thread count recorded as unavailable) when n threads of per_thread bytes do not fit now. */
 int ctx_memory_allows(pmk_ctx *c, const char *kernel, int n, uint64_t per_thread);
 /* True once the median CI half-width is within 1% or max_reps is reached. */
@@ -185,6 +192,13 @@ int mode_st_burst_steps(const pmk_ctx *c);
 int mode_st_sustained_steps(const pmk_ctx *c);
 int mode_mc_threaded_steps(const pmk_ctx *c);
 int mode_mc_instances_steps(const pmk_ctx *c);
+/* Rough seconds each mode takes on a typical machine, from the configuration, for the time left in a run. */
+double mode_cold_burst_est(const pmk_ctx *c);
+double mode_periodic_est(const pmk_ctx *c);
+double mode_st_burst_est(const pmk_ctx *c);
+double mode_st_sustained_est(const pmk_ctx *c);
+double mode_mc_threaded_est(const pmk_ctx *c);
+double mode_mc_instances_est(const pmk_ctx *c);
 /* K1x: full build of the prepared snapshot at n jobs; part of MC threaded. */
 int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order);
 

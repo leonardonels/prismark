@@ -5,7 +5,8 @@
  * and prints kernel checksums.
  *
  *   prismark [run options]
- *   prismark tests | list | show RUN | compare RUN RUN | profiles | checksums | info | help [COMMAND]
+ *   prismark tests | list | show RUN | compare RUN RUN | references | profiles | checksums | info
+ *   prismark completion bash|zsh | help [COMMAND]
  *
  * On a terminal, progress is one status line redrawn in place, with colour
  * (NO_COLOR or --no-color turn colour off); otherwise one plain line per
@@ -14,6 +15,7 @@
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
 #include <ctype.h>
+#include <limits.h>
 #include <errno.h>
 #include <math.h>
 #include <signal.h>
@@ -79,18 +81,52 @@ static void term_init(int no_color) {
   term.live = err_tty && !dumb;
 }
 
-static int term_width(void) {
+/* Columns of the terminal on stderr (fd 2) or stdout (fd 1); 80 when it is not one. */
+static int term_width_of(int fd) {
   int w = 0;
 #ifdef _WIN32
   CONSOLE_SCREEN_BUFFER_INFO info;
-  if (GetConsoleScreenBufferInfo(GetStdHandle(STD_ERROR_HANDLE), &info))
+  if (GetConsoleScreenBufferInfo(GetStdHandle(fd == 1 ? STD_OUTPUT_HANDLE : STD_ERROR_HANDLE), &info))
     w = info.srWindow.Right - info.srWindow.Left + 1;
 #else
   struct winsize ws;
-  if (ioctl(2, TIOCGWINSZ, &ws) == 0) w = ws.ws_col;
+  if (ioctl(fd, TIOCGWINSZ, &ws) == 0) w = ws.ws_col;
 #endif
   if (w <= 0 && getenv("COLUMNS")) w = atoi(getenv("COLUMNS"));
   return w >= 40 ? w : 80;
+}
+
+static int term_width(void) { return term_width_of(2); }
+
+/* Room left on a stdout line after used columns, for a value that may be cut (a CPU name); at least 20, and
+   everything when stdout is not a terminal. */
+static int room_after(int used) {
+  if (!isatty(fileno(stdout))) return 1000;
+  int w = term_width_of(1) - 1 - used;
+  return w > 20 ? w : 20;
+}
+
+/* "2026-10-08 08:26" in local time, from a result's "2026-10-08T06:26:06Z". */
+static const char *local_time(char *out, size_t n, const char *utc) {
+  struct tm tm;
+  memset(&tm, 0, sizeof tm);
+  if (sscanf(utc, "%d-%d-%dT%d:%d:%d", &tm.tm_year, &tm.tm_mon, &tm.tm_mday, &tm.tm_hour, &tm.tm_min, &tm.tm_sec) != 6) {
+    snprintf(out, n, "%.16s", utc);
+    return out;
+  }
+  tm.tm_year -= 1900;
+  tm.tm_mon -= 1;
+#ifdef _WIN32
+  time_t t = _mkgmtime(&tm);
+  struct tm lt;
+  int ok = t != (time_t)-1 && localtime_s(&lt, &t) == 0;
+#else
+  time_t t = timegm(&tm);
+  struct tm lt;
+  int ok = t != (time_t)-1 && localtime_r(&t, &lt) != NULL;
+#endif
+  if (!ok || !strftime(out, n, "%Y-%m-%d %H:%M", &lt)) snprintf(out, n, "%.16s", utc);
+  return out;
 }
 
 static double now_s(void) {
@@ -126,12 +162,12 @@ static const char *pretty_path(char *out, size_t n, const char *path) {
  * tests list says about them (the desktop app's wording, apps/gui/metrics.cpp).
  */
 #define ST_B PMK_MODE_ST_BURST
-#define ST_S PMK_MODE_ST_SUSTAINED /* also the new-instruction gain of K2, K3, K4 and K8 */
+#define ST_S PMK_MODE_ST_SUSTAINED
 #define MC_T PMK_MODE_MC_THREADED
 static const struct {
   const char *id, *slug;
-  uint32_t modes;
-  int isa;               /* also measured for the gain from the newest instructions */
+  uint32_t modes;        /* the modes it runs in */
+  int isa;               /* also measured one core, after warming up, for the gain from the newest instructions */
   const char *tag;       /* a few words, for the menu */
   const char *what;      /* what it runs */
   const char *reports;   /* what it reports */
@@ -145,10 +181,10 @@ static const struct {
     {"K2", "render", ST_S | MC_T, 1, "path tracer",
      "A small path tracer draws a fixed scene, as 3D rendering and video software do.",
      "million light samples per second (higher is better)."},
-    {"K3", "compression", ST_B | ST_S, 1, "zstd on a small file",
+    {"K3", "compression", ST_B, 1, "zstd on a small file",
      "Compresses a small generated file with zstd (level 3), a common compression format.",
      "milliseconds per file (lower is better)."},
-    {"K4", "photo", ST_B | ST_S | PMK_MODE_COLD_BURST, 1, "JPEG decode and resize",
+    {"K4", "photo", ST_B | PMK_MODE_COLD_BURST, 1, "JPEG decode and resize",
      "Decodes a JPEG photo and resizes it, as a photo viewer or a web page does.",
      "milliseconds per photo (lower is better)."},
     {"K5", "json", ST_B, 0, "web-style text data",
@@ -160,7 +196,7 @@ static const struct {
     {"K7", "memory", PMK_MODE_MC_INSTANCES, 0, "wait for main memory",
      "Follows a chain of links through memory larger than every cache, so each step waits for main memory.",
      "nanoseconds per read, alone and with every core reading (lower is better)."},
-    {"K8", "matrix", ST_S, 1, "decimal and int8 maths",
+    {"K8", "matrix", 0, 1, "decimal and int8 maths",
      "Multiplies large tables of decimal numbers (as in graphics) and small integers (as in AI models).",
      "only the gain from the newest instructions (higher is better)."},
     {"K9", "wakeup", PMK_MODE_COLD_BURST, 0, "tasks after a rest",
@@ -288,6 +324,95 @@ static int parse_modes(const char *s, uint32_t *out, const char **bad, size_t *b
   return *out ? 0 : -1;
 }
 
+/* Whether the comma-separated list has id. */
+static int has_id(const char *list, const char *id) {
+  size_t n = strlen(id);
+  for (const char *p = list; *p;) {
+    size_t len = strcspn(p, ",");
+    if (len == n && !strncmp(p, id, n)) return 1;
+    p += len + (p[len] == ',');
+  }
+  return 0;
+}
+
+/* The modes kernel k runs in, with the new-instruction runs (one core, after warming up) when isa is on. */
+static uint32_t kernel_modes(size_t k, int isa) {
+  return KERNELS[k].modes | (isa && KERNELS[k].isa ? (uint32_t)PMK_MODE_ST_SUSTAINED : 0);
+}
+
+/* "short-task, from-rest": the short names of the modes in bits. */
+static const char *mode_slugs(char *out, size_t n, uint32_t bits) {
+  size_t k = 0;
+  out[0] = 0;
+  for (size_t i = 0; i < NMODES; i++)
+    if (bits & MODES[i].bit) k += (size_t)snprintf(out + k, k < n ? n - k : 0, "%s%s", k ? ", " : "", MODES[i].slug);
+  return out;
+}
+
+/*
+ * Whether the chosen tests (IDs, comma-separated) run in the chosen modes (0: all). Tests that run in none of
+ * them are named; when no test would be measured at all, -1: the run would only produce an empty result.
+ */
+static int check_selection(const char *tests, uint32_t modes, int isa) {
+  if (!tests) return 0;
+  if (!modes) modes = PMK_MODE_ALL;
+  int measured = 0, skipped = 0;
+  char chosen[160], runs[160];
+  mode_slugs(chosen, sizeof chosen, modes);
+  for (const char *p = tests; *p;) {
+    size_t len = strcspn(p, ",");
+    for (size_t k = 0; k < NKERNELS; k++) {
+      if (strlen(KERNELS[k].id) != len || strncmp(KERNELS[k].id, p, len)) continue;
+      if (kernel_modes(k, isa) & modes) {
+        measured++;
+        break;
+      }
+      skipped++;
+      mode_slugs(runs, sizeof runs, kernel_modes(k, 1));
+      if (kernel_modes(k, 1) & modes)
+        fprintf(stderr, "prismark: %s runs warmed-up only for the new-instruction gain, which --no-isa-uplift turns "
+                        "off\n", pmk_display_name(KERNELS[k].id));
+      else
+        fprintf(stderr, "prismark: %s does not run in --mode %s; it runs in %s\n", pmk_display_name(KERNELS[k].id),
+                chosen, runs);
+    }
+    p += len + (p[len] == ',');
+  }
+  if (!measured) {
+    fprintf(stderr, "prismark: nothing to measure with these tests and modes (prismark tests shows which go "
+                    "together)\n");
+    return -1;
+  }
+  if (skipped) fprintf(stderr, "prismark: running the rest\n");
+  return 0;
+}
+
+/* A whole number from lo to hi for option opt; -1 after saying what is wrong. */
+static int parse_long(const char *opt, const char *v, long lo, long hi, long *out) {
+  char *end;
+  errno = 0;
+  long x = strtol(v, &end, 10);
+  if (end == v || *end || errno || x < lo || x > hi) {
+    if (hi == LONG_MAX) fprintf(stderr, "prismark: %s takes a whole number of at least %ld, not '%s'\n", opt, lo, v);
+    else fprintf(stderr, "prismark: %s takes a whole number from %ld to %ld, not '%s'\n", opt, lo, hi, v);
+    return -1;
+  }
+  *out = x;
+  return 0;
+}
+
+/* A number of at least lo (above lo when open) for option opt; -1 after saying what is wrong. */
+static int parse_double(const char *opt, const char *v, double lo, int open, double *out) {
+  char *end;
+  double x = strtod(v, &end);
+  if (end == v || *end || !isfinite(x) || x < lo || (open && x == lo)) {
+    fprintf(stderr, "prismark: %s takes a number %s %g, not '%s'\n", opt, open ? "above" : "of at least", lo, v);
+    return -1;
+  }
+  *out = x;
+  return 0;
+}
+
 /* "One core, short task" for st_burst: the app's mode name, capitalised. */
 static const char *mode_title(char *out, size_t n, const char *id) {
   snprintf(out, n, "%s", pmk_display_name(id));
@@ -343,6 +468,20 @@ static int results_dir(char *out, size_t n, int create) {
 #endif
 #endif
   return create ? make_dirs(out) : 0;
+}
+
+/* The desktop app's compile-test snapshot (<user data>/prismark/k1x), if prepared. */
+static int k1_snapshot(char *out, size_t n) {
+  char dir[1100];
+  if (results_dir(dir, sizeof dir, 0)) return -1;
+  size_t len = strlen(dir);
+  if (len < 13) return -1;
+  dir[len - 13] = 0; /* strip "/results/runs" */
+  snprintf(out, n, "%s/k1x", dir);
+  char manifest[1200];
+  snprintf(manifest, sizeof manifest, "%s/manifest.json", out);
+  struct stat st;
+  return stat(manifest, &st) == 0 ? 0 : -1;
 }
 
 /* When elevated through sudo or pkexec, hand the result file back to the user who asked for the run. */
@@ -658,6 +797,8 @@ typedef struct {
   uint32_t step, steps;   /* position in the whole run */
   double t0;
   double temp;
+  double left, left_at;   /* the core's estimate of the seconds left, and when it came (now_s) */
+  int finishing;          /* every step has run: the statistics are being computed */
   char activity[512];     /* what runs now, shown on the status line */
   int shown;              /* the status line is on screen */
 } progress;
@@ -679,20 +820,36 @@ static void status_clear(progress *p) {
   p->shown = 0;
 }
 
-/*   ━━━━━━━━━━━━━━━━━━━━  45%  5/11  0:42  34°C  Wake-up test: core P, task of 0.5 ms */
+/* "about 24 min left", from the core's estimate less the time since it came; "" when there is none. */
+static const char *fmt_left(char *out, size_t n, const progress *p) {
+  out[0] = 0;
+  if (!isfinite(p->left) || p->finishing) return out;
+  double s = p->left - (now_s() - p->left_at);
+  long m = (long)(s / 60 + 0.5);
+  if (s < 60) snprintf(out, n, "under a minute left");
+  else if (m < 90) snprintf(out, n, "about %ld min left", m);
+  else snprintf(out, n, "about %ld h %02ld min left", m / 60, m % 60);
+  return out;
+}
+
+/*   ━━━━━━━━━━━━━━━━━━━━  45%  5/11  0:42  about 24 min left  34°C  Wake-up test: core P, task of 0.5 ms
+   The line is redrawn only when the core reports progress, which it does between measurements: a timer
+   redrawing it would wake the machine during tests that measure waking up. */
 static void status_draw(progress *p) {
   int width = term_width() - 1, cols = 0;
-  char line[1024], el[16];
+  char line[1024], el[16], left[48];
   size_t k = 0;
 #define PUT(...) (k += (size_t)snprintf(line + k, k < sizeof line ? sizeof line - k : 0, __VA_ARGS__))
   if (p->steps) {
-    int bar = 20, done = (int)((double)bar * p->step / p->steps + 0.5);
+    /* the step announced is running: count the ones before it as done */
+    uint32_t finished = p->finishing ? p->steps : p->step ? p->step - 1 : 0;
+    int bar = 20, done = (int)((double)bar * finished / p->steps + 0.5);
     PUT("  %s", e(CYAN));
     for (int i = 0; i < bar; i++) {
       if (i == done) PUT("%s%s", e(RESET), e(DIM));
       PUT("━");
     }
-    PUT("%s %3d%%  %u/%u", e(RESET), (int)(100.0 * p->step / p->steps), p->step, p->steps);
+    PUT("%s %3d%%  %u/%u", e(RESET), (int)(100.0 * finished / p->steps), p->step, p->steps);
     cols = 2 + bar + 5 + 2 + snprintf(NULL, 0, "%u/%u", p->step, p->steps);
   } else {
     PUT("  ");
@@ -701,6 +858,10 @@ static void status_draw(progress *p) {
   int n = snprintf(NULL, 0, "  %s", fmt_duration(el, sizeof el, now_s() - p->t0));
   PUT("  %s", el);
   cols += n;
+  if (fmt_left(left, sizeof left, p)[0]) {
+    PUT("  %s", left);
+    cols += 2 + (int)strlen(left);
+  }
   if (isfinite(p->temp)) {
     n = snprintf(NULL, 0, "  %.0f C", p->temp);
     PUT("  %s%.0f°C%s", e(DIM), p->temp, e(RESET));
@@ -744,8 +905,13 @@ static void on_event(const pmk_event *ev, void *user) {
   }
 
   const char *phase = ev->phase ? ev->phase : "", *msg = ev->message ? ev->message : "";
-  char text[768], title[64];
+  char text[768], title[64], left[48];
   p->temp = ev->temp_c;
+  if (ev->struct_size >= offsetof(pmk_event, remaining_s) + sizeof ev->remaining_s && isfinite(ev->remaining_s)) {
+    p->left = ev->remaining_s;
+    p->left_at = now_s();
+  }
+  if (!strcmp(phase, "done")) p->finishing = 1;
   if (!strcmp(phase, "progress")) { /* the run-wide position; the step it announces follows */
     p->step = ev->step;
     p->steps = ev->steps;
@@ -754,10 +920,15 @@ static void on_event(const pmk_event *ev, void *user) {
   if (!strcmp(phase, "run")) { /* "part 2 of 5: st_burst" */
     const char *id = strstr(msg, ": ");
     id = id ? id + 2 : msg;
+    fmt_left(left, sizeof left, p);
     snprintf(text, sizeof text, "\nPart %u of %u · %s", ev->step, ev->steps, mode_title(title, sizeof title, id));
     p->activity[0] = 0;
-    if (term.live) live_line(p, BOLD, text);
-    else fprintf(stderr, "%s (%s)\n", text, id);
+    if (term.live) {
+      if (left[0]) snprintf(text + strlen(text), sizeof text - strlen(text), "%s%s  (%s)", e(RESET), e(DIM), left);
+      live_line(p, BOLD, text);
+    } else {
+      fprintf(stderr, "%s (%s)%s%s\n", text, id, left[0] ? ", " : "", left);
+    }
     return;
   }
 
@@ -890,6 +1061,7 @@ static void help_main(FILE *f) {
           "  profiles                 the default comparison profiles (JSON)\n"
           "  checksums                kernel output checksums, no timing\n"
           "  info                     what this build can run on this machine (JSON)\n"
+          "  completion bash|zsh      shell completion: eval \"$(prismark completion bash)\"\n"
           "  help [COMMAND|advanced]  this text, a command's options, or the advanced run options\n"
           "\nRUN is a result file, a run ID or its first characters (see prismark list), 'latest', or for compare\n"
           "a reference system's name (see prismark references).\n"
@@ -900,7 +1072,7 @@ static void help_main(FILE *f) {
           "  --no-isa-uplift          skip the new-instruction runs (3D rendering, Compression, Opening a photo,\n"
           "                           Matrix maths at the newest instruction level)\n"
           "  --k1-data DIR            prepared snapshot for Compiling code and Full software build\n"
-          "                           (tools/k1x/prepare.py)\n"
+          "                           (default: the one the desktop app or tools/k1x/prepare.py prepared)\n"
           "\n%swhere it runs:%s\n"
           "  --cpu N                  single-core work on CPU N (default: one CPU per core type)\n"
           "  --max-threads N          most threads in the all-cores modes (default: all CPUs)\n"
@@ -909,6 +1081,7 @@ static void help_main(FILE *f) {
           "  -q, --quiet              no progress\n"
           "  --no-color               no colours (also off with NO_COLOR set, or when not on a terminal)\n"
           "  --version\n"
+          "\nMore run options (repetitions, warm-up, timings): prismark help advanced\n"
           "\nA full run takes about 30 minutes on a 4-core laptop. Ctrl+C stops it and keeps what was measured.\n"
           "Results go to %s%s.\n",
           o(BOLD), pmk_version(), o(RESET), o(BOLD), o(RESET), o(BOLD), o(RESET), o(BOLD), o(RESET), o(BOLD),
@@ -944,10 +1117,11 @@ static void help_advanced(FILE *f) {
 }
 
 static void help_cmd(FILE *f, const char *cmd) {
-  if (!strcmp(cmd, "advanced") || !strcmp(cmd, "run")) help_advanced(f);
+  if (!strcmp(cmd, "advanced")) help_advanced(f);
   else if (!strcmp(cmd, "tests")) fprintf(f, "usage: prismark tests\n\nThe tests and measurement modes, with the names --tests and --mode accept.\n");
   else if (!strcmp(cmd, "list"))
-    fprintf(f, "usage: prismark list [--dir DIR]\n\nPast runs in the results folder (or DIR), newest first.\n");
+    fprintf(f, "usage: prismark list [--dir DIR] [--ids]\n\nPast runs in the results folder (or DIR), newest first, "
+               "with local start times.\n\n  --ids   only the full run IDs, one per line (for scripts)\n");
   else if (!strcmp(cmd, "show"))
     fprintf(f, "usage: prismark show RUN\n\nThe summary of a past run. RUN is a result file, a run ID or its first\n"
                "characters, or 'latest'.\n");
@@ -961,13 +1135,19 @@ static void help_cmd(FILE *f, const char *cmd) {
                "  --profiles FILE   profiles to use instead of the defaults (implies --detail)\n"
                "  -o FILE           also write the detailed comparison as JSON\n");
   else if (!strcmp(cmd, "references"))
-    fprintf(f, "usage: prismark references\n\nThe reference systems compare accepts: the ones that come with Prismark\n"
-               "and your own, in the references folder next to your results (see references/README.md).\n");
+    fprintf(f, "usage: prismark references [--ids]\n\nThe reference systems compare accepts: the ones that come with "
+               "Prismark\nand your own, in the references folder next to your results (see references/README.md).\n\n"
+               "  --ids   only their names, one per line (for scripts)\n");
   else if (!strcmp(cmd, "checksums"))
     fprintf(f, "usage: prismark checksums [--k1-data DIR] [--tests LIST] [--burst-only] [-o FILE]\n\n"
                "Runs one job of every kernel at every instruction level and prints input hashes and output\n"
                "checksums. No timing.\n");
   else if (!strcmp(cmd, "profiles")) fprintf(f, "usage: prismark profiles\n\nThe default profiles as JSON, editable and usable with compare --profiles.\n");
+  else if (!strcmp(cmd, "completion"))
+    fprintf(f, "usage: prismark completion bash|zsh\n\nPrints a completion script for commands, options, test and mode "
+               "names, run IDs and\nreference systems. Load it from your shell's startup file:\n"
+               "  eval \"$(prismark completion bash)\"     in ~/.bashrc\n"
+               "  eval \"$(prismark completion zsh)\"      in ~/.zshrc\n");
   else if (!strcmp(cmd, "info")) fprintf(f, "usage: prismark info\n\nWhat this build can run on this machine, as JSON.\n");
   else help_main(f);
 }
@@ -1041,37 +1221,53 @@ static int cmd_tests(void) {
 
 static int cmd_list(int argc, char **argv) {
   char dir[1100], pd[1200];
-  int have = 0;
+  int have = 0, ids = 0;
   for (int i = 2; i < argc; i++) {
     if (is_help(argv[i])) return help_cmd(stdout, "list"), 0;
     if (!strcmp(argv[i], "--dir") && i + 1 < argc) snprintf(dir, sizeof dir, "%s", argv[++i]), have = 1;
+    else if (!strcmp(argv[i], "--ids")) ids = 1;
     else return bad_usage("list", "unexpected '%s'", argv[i]);
   }
   if (!have && results_dir(dir, sizeof dir, 0)) snprintf(dir, sizeof dir, ".");
+  pretty_path(pd, sizeof pd, dir);
+  struct stat st;
+  if (stat(dir, &st) || !S_ISDIR(st.st_mode)) {
+    if (have) {
+      fprintf(stderr, "prismark: %s: no such folder\n", pd);
+      return 1;
+    }
+    if (!ids) printf("No runs yet. Start one with: prismark (a menu) or prismark run --quick (a few minutes).\n");
+    return 0;
+  }
   run_entry *v = NULL;
   size_t n = scan_runs(dir, &v);
-  pretty_path(pd, sizeof pd, dir);
-  if (!n) {
-    printf("No runs in %s yet. Start one with: prismark --quick (a few minutes) or prismark (a full run).\n", pd);
+  if (ids) { /* for scripts and shell completion */
+    for (size_t i = 0; i < n; i++) printf("%s\n", v[i].b.run_id);
     free(v);
     return 0;
   }
-  printf("%s%-10s %-17s %-6s %-11s %-4s %-6s %s%s\n", o(DIM), "run", "started (UTC)", "kind", "state", "from",
+  if (!n) {
+    printf("No runs in %s yet. Start one with: prismark (a menu) or prismark run --quick (a few minutes).\n", pd);
+    free(v);
+    return 0;
+  }
+  printf("%s%-10s %-17s %-6s %-11s %-4s %-6s %s%s\n", o(DIM), "run", "started", "kind", "state", "from",
          "modes", "CPU", o(RESET));
+  int room = room_after(10 + 1 + 17 + 1 + 6 + 1 + 11 + 1 + 4 + 1 + 6 + 1);
   for (size_t i = 0; i < n; i++) {
     const pmk_brief *b = &v[i].b;
     char when[32];
-    snprintf(when, sizeof when, "%.10s %.5s", b->started_utc, strlen(b->started_utc) > 11 ? b->started_utc + 11 : "");
+    local_time(when, sizeof when, b->started_utc);
     int nm = 0;
     for (size_t k = 0; k < NMODES; k++) nm += !!(b->modes & MODES[k].bit);
     char modes[16];
     snprintf(modes, sizeof modes, "%d/%d", nm, (int)NMODES);
-    printf("%s%-10.8s%s %-17s %-6s %s%-11s%s %-4s %-6s %.48s\n", o(BOLD), b->run_id, o(RESET), when,
+    printf("%s%-10.8s%s %-17s %-6s %s%-11s%s %-4s %-6s %.*s\n", o(BOLD), b->run_id, o(RESET), when,
            b->quick == 1 ? "quick" : b->quick == 0 ? "full" : "?", b->complete ? "" : o(YELLOW),
-           b->complete ? "complete" : "incomplete", o(RESET), b->frontend, modes, b->model);
+           b->complete ? "complete" : "incomplete", o(RESET), b->frontend, modes, room, b->model);
   }
-  printf("\n%s%zu run%s in %s. Details: prismark show RUN. Compare: prismark compare RUN RUN.%s\n", o(DIM), n,
-         n == 1 ? "" : "s", pd, o(RESET));
+  printf("\n%s%zu run%s in %s, times are local. Details: prismark show RUN. Compare: prismark compare RUN RUN.%s\n",
+         o(DIM), n, n == 1 ? "" : "s", pd, o(RESET));
   free(v);
   return 0;
 }
@@ -1094,7 +1290,7 @@ static int cmd_show(int argc, char **argv) {
     if (!arg && argv[i][0] != '-') arg = argv[i];
     else return bad_usage("show", "unexpected '%s'", argv[i]);
   }
-  char path[1200], pd[1200];
+  char path[1200], pd[1200], when[32];
   if (!arg) arg = "latest";
   if (resolve_run(arg, path, sizeof path)) return 1;
   char *json = read_file(path, 0);
@@ -1115,34 +1311,38 @@ static int cmd_show(int argc, char **argv) {
   if (summary) print_summary(summary);
   else
     printf("%sPrismark run %s%s\n%s, started %s, %s run%s\n\nThis result was saved by an older Prismark, which did "
-           "not store its summary.\nOpen it in the desktop app, or: cd analyzer && uv run prismark-analyze plot FILE\n",
-           o(BOLD), b.run_id, o(RESET), b.model, b.started_utc, b.quick == 1 ? "quick" : "full",
-           b.complete ? "" : " (incomplete)");
+           "not store its summary.\nOpen it in the desktop app (Menu › Open result), or see its headline results "
+           "next to another run:\n  prismark compare %.8s latest\n",
+           o(BOLD), b.run_id, o(RESET), b.model, local_time(when, sizeof when, b.started_utc),
+           b.quick == 1 ? "quick" : "full", b.complete ? "" : " (incomplete)", b.run_id);
   printf("\n%sfile: %s%s\n", o(DIM), pretty_path(pd, sizeof pd, path), o(RESET));
   pmk_free(summary);
   return 0;
 }
 
-/* The headline comparison: section titles in bold, "better" in green and "worse" in yellow. */
+/* The headline comparison: section titles in bold, verdicts with "better" in green and "worse" in yellow. */
 static void print_headline(const char *s) {
   for (int first = 1; *s; first = 0) {
     size_t len = strcspn(s, "\n");
-    const char *better = NULL, *worse = NULL;
-    if (len > 2 && s[0] == ' ' && s[1] == ' ' && s[2] != ' ') {
-      for (const char *p = s; p < s + len; p++) {
-        if (!strncmp(p, "x better", 8)) better = p + 2;
-        if (!strncmp(p, "x worse", 7)) worse = p + 2;
+    /* A result row: "  name  unit  A  B   verdict"; the verdict follows the last run of three spaces. */
+    const char *verdict = NULL;
+    if (len > 2 && s[0] == ' ' && s[1] == ' ' && s[2] != ' ')
+      for (const char *p = s; p + 3 <= s + len; p++)
+        if (!strncmp(p, "   ", 3)) verdict = p + 3;
+    while (verdict && *verdict == ' ') verdict++;
+    const char *style = NULL;
+    if (verdict) {
+      size_t vl = (size_t)(s + len - verdict);
+      for (const char *p = verdict; p + 5 <= verdict + vl; p++) {
+        if (p + 6 <= verdict + vl && !strncmp(p, "better", 6)) style = GREEN;
+        if (!strncmp(p, "worse", 5)) style = YELLOW;
       }
     }
     int title = first || (len && s[0] != ' ' && len < 20 && !memchr(s, '.', len));
-    const char *word = better ? better : worse;
-    if (word && term.color_out) {
-      const char *start = word - 2;
-      while (start > s && start[-1] != ' ') start--;
-      printf("%.*s%s%.*s%s\n", (int)(start - s), s, better ? GREEN : YELLOW, (int)(s + len - start), start, RESET);
-    } else {
+    if (style && term.color_out)
+      printf("%.*s%s%.*s%s\n", (int)(verdict - s), s, style, (int)(s + len - verdict), verdict, RESET);
+    else
       printf("%s%.*s%s\n", title ? o(BOLD) : "", (int)len, s, title ? o(RESET) : "");
-    }
     s += len;
     if (*s) s++;
   }
@@ -1201,8 +1401,15 @@ static int cmd_compare(int argc, char **argv) {
 
 static int cmd_references(int argc, char **argv) {
   if (argc > 2 && is_help(argv[2])) return help_cmd(stdout, "references"), 0;
+  int ids = argc > 2 && !strcmp(argv[2], "--ids");
+  if (argc > 2 + ids) return bad_usage("references", "unexpected '%s'", argv[2 + ids]);
   static ref_list l;
-  if (!scan_refs(&l)) {
+  scan_refs(&l);
+  if (ids) {
+    for (size_t i = 0; i < l.n; i++) printf("%s\n", l.v[i].id);
+    return 0;
+  }
+  if (!l.n) {
     printf("No reference systems found (references/ beside the program, or results/references in your data).\n");
     return 0;
   }
@@ -1244,6 +1451,61 @@ static int cmd_checksums(int argc, char **argv) {
   return rc == PMK_OK ? 0 : 1;
 }
 
+/* ---------- shell completion ---------- */
+
+static int cmd_completion(int argc, char **argv) {
+  const char *shell = argc > 2 ? argv[2] : "";
+  if (is_help(shell) || (strcmp(shell, "bash") && strcmp(shell, "zsh"))) {
+    help_cmd(is_help(shell) ? stdout : stderr, "completion");
+    return is_help(shell) ? 0 : 2;
+  }
+  char tests[512] = "", modes[256] = "";
+  for (size_t i = 0; i < NKERNELS; i++)
+    snprintf(tests + strlen(tests), sizeof tests - strlen(tests), "%s%s %s", i ? " " : "", KERNELS[i].slug, KERNELS[i].id);
+  for (size_t i = 0; i < NMODES; i++)
+    snprintf(modes + strlen(modes), sizeof modes - strlen(modes), "%s%s %s", i ? " " : "", MODES[i].slug, MODES[i].id);
+  if (!strcmp(shell, "zsh")) printf("autoload -U +X bashcompinit && bashcompinit\n");
+  printf("# prismark completion: eval \"$(prismark completion %s)\" in your ~/.%src\n"
+         "_prismark() {\n"
+         "  local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD-1]} prog=${COMP_WORDS[0]}\n"
+         "  local cmds='run tests list show compare references profiles checksums info help completion'\n"
+         "  local runopts='--quick --tests --mode --no-isa-uplift --k1-data --cpu --max-threads -o --output -q --quiet\n"
+         "    --no-color --version --seed --min-reps --max-reps --cold-max-reps --warmup --settle --measure --window-ms\n"
+         "    --cooldown --period-ms --periodic-seconds --k1x-reps --skip-preflight --max-load'\n"
+         "  local list\n"
+         "  case $prev in\n"
+         "    --tests|--kernels|--mode)\n"
+         "      [[ $prev == --mode ]] && list='%s' || list='%s'\n"
+         "      local pre=''; [[ $cur == *,* ]] && pre=${cur%%,*},\n"
+         "      COMPREPLY=($(compgen -P \"$pre\" -W \"$list\" -- \"${cur##*,}\")); return ;;\n"
+         "    -o|--output|--k1-data|--profiles|--dir) COMPREPLY=($(compgen -f -- \"$cur\")); return ;;\n"
+         "    --cpu|--max-threads|--seed|--min-reps|--max-reps|--cold-max-reps|--warmup|--settle|--measure|\\\n"
+         "    --window-ms|--period-ms|--periodic-seconds|--k1x-reps|--max-load) return ;;\n"
+         "  esac\n"
+         "  if ((COMP_CWORD == 1)); then\n"
+         "    [[ $cur == -* ]] && list=\"$runopts --help\" || list=$cmds\n"
+         "    COMPREPLY=($(compgen -W \"$list\" -- \"$cur\")); return\n"
+         "  fi\n"
+         "  local runs=\"latest $(\"$prog\" list --ids 2>/dev/null | cut -c1-8)\"\n"
+         "  case ${COMP_WORDS[1]} in\n"
+         "    show) list=$runs ;;\n"
+         "    compare) list=\"$runs $(\"$prog\" references --ids 2>/dev/null) --detail --profiles -o\" ;;\n"
+         "    list) list='--dir --ids' ;;\n"
+         "    references) list='--ids' ;;\n"
+         "    checksums) list='--k1-data --tests --burst-only -o' ;;\n"
+         "    help) list=\"$cmds advanced\" ;;\n"
+         "    completion) list='bash zsh' ;;\n"
+         "    tests|profiles|info) return ;;\n"
+         "    *) list=$runopts ;;\n"
+         "  esac\n"
+         "  COMPREPLY=($(compgen -W \"$list\" -- \"$cur\"))\n"
+         "  [[ ${COMP_WORDS[1]} == @(show|compare) && $cur != -* ]] && COMPREPLY+=($(compgen -f -X '!*.json' -- \"$cur\"))\n"
+         "}\n"
+         "complete -F _prismark prismark\n",
+         shell, shell, modes, tests);
+  return 0;
+}
+
 /* ---------- run ---------- */
 
 static int cmd_run(int argc, char **argv) {
@@ -1263,6 +1525,16 @@ static int cmd_run(int argc, char **argv) {
     if (!v) return bad_usage(NULL, "%s needs a value", a);          \
     i++;                                                            \
   } while (0)
+#define INT(field, lo, hi)                                          \
+  do {                                                              \
+    long x_;                                                        \
+    if (parse_long(a, v, lo, hi, &x_)) return 2;                    \
+    field = (int)x_;                                                \
+  } while (0)
+#define NUM(field, lo, open)                                        \
+  do {                                                              \
+    if (parse_double(a, v, lo, open, &field)) return 2;             \
+  } while (0)
     const char *bad;
     size_t badlen;
     if (!strcmp(a, "--mode")) {
@@ -1279,23 +1551,32 @@ static int cmd_run(int argc, char **argv) {
       }
       cfg.kernels = tests;
     }
-    else if (!strcmp(a, "--cpu")) { NEED_ARG; cfg.cpu = atoi(v); }
-    else if (!strcmp(a, "--max-threads")) { NEED_ARG; cfg.max_threads = atoi(v); }
-    else if (!strcmp(a, "--seed")) { NEED_ARG; cfg.seed = strtoull(v, NULL, 0); }
+    else if (!strcmp(a, "--cpu")) { NEED_ARG; INT(cfg.cpu, 0, 65535); }
+    else if (!strcmp(a, "--max-threads")) { NEED_ARG; INT(cfg.max_threads, 1, 65536); }
+    else if (!strcmp(a, "--seed")) {
+      NEED_ARG;
+      char *end;
+      errno = 0;
+      cfg.seed = strtoull(v, &end, 0);
+      if (end == v || *end || errno || v[0] == '-') {
+        fprintf(stderr, "prismark: --seed takes a whole number, not '%s'\n", v);
+        return 2;
+      }
+    }
     else if (!strcmp(a, "--no-isa-uplift")) cfg.isa_uplift = 0;
-    else if (!strcmp(a, "--min-reps")) { NEED_ARG; cfg.min_reps = atoi(v); }
-    else if (!strcmp(a, "--max-reps")) { NEED_ARG; cfg.max_reps = atoi(v); }
-    else if (!strcmp(a, "--cold-max-reps")) { NEED_ARG; cfg.cold_max_reps = atoi(v); }
-    else if (!strcmp(a, "--window-ms")) { NEED_ARG; cfg.window_ms = atof(v); }
-    else if (!strcmp(a, "--warmup")) { NEED_ARG; cfg.warmup_s = atof(v); }
-    else if (!strcmp(a, "--settle")) { NEED_ARG; cfg.settle_s = atof(v); }
-    else if (!strcmp(a, "--measure")) { NEED_ARG; cfg.measure_s = atof(v); }
+    else if (!strcmp(a, "--min-reps")) { NEED_ARG; INT(cfg.min_reps, 3, 1000000); }
+    else if (!strcmp(a, "--max-reps")) { NEED_ARG; INT(cfg.max_reps, 3, 1000000); }
+    else if (!strcmp(a, "--cold-max-reps")) { NEED_ARG; INT(cfg.cold_max_reps, 3, 1000000); }
+    else if (!strcmp(a, "--window-ms")) { NEED_ARG; NUM(cfg.window_ms, 10, 0); }
+    else if (!strcmp(a, "--warmup")) { NEED_ARG; NUM(cfg.warmup_s, 0, 0); }
+    else if (!strcmp(a, "--settle")) { NEED_ARG; NUM(cfg.settle_s, 0, 0); }
+    else if (!strcmp(a, "--measure")) { NEED_ARG; NUM(cfg.measure_s, 0, 1); }
     else if (!strcmp(a, "--cooldown")) cfg.cooldown = 1;
     else if (!strcmp(a, "--no-cooldown")) cfg.cooldown = 0;
-    else if (!strcmp(a, "--period-ms")) { NEED_ARG; cfg.periodic_period_ms = atof(v); }
-    else if (!strcmp(a, "--periodic-seconds")) { NEED_ARG; cfg.periodic_seconds = atof(v); }
+    else if (!strcmp(a, "--period-ms")) { NEED_ARG; NUM(cfg.periodic_period_ms, 0, 1); }
+    else if (!strcmp(a, "--periodic-seconds")) { NEED_ARG; NUM(cfg.periodic_seconds, 0, 1); }
     else if (!strcmp(a, "--k1-data")) { NEED_ARG; cfg.k1_data = v; }
-    else if (!strcmp(a, "--k1x-reps")) { NEED_ARG; cfg.k1x_reps = atoi(v); }
+    else if (!strcmp(a, "--k1x-reps")) { NEED_ARG; INT(cfg.k1x_reps, 1, 1000); }
     else if (!strcmp(a, "--quick")) {
       quick = 1;
       cfg.max_reps = 20;
@@ -1310,7 +1591,14 @@ static int cmd_run(int argc, char **argv) {
       cfg.quick_inputs = 1;
     }
     else if (!strcmp(a, "--skip-preflight")) cfg.skip_preflight = 1;
-    else if (!strcmp(a, "--max-load")) { NEED_ARG; cfg.max_background_load = atof(v); }
+    else if (!strcmp(a, "--max-load")) {
+      NEED_ARG;
+      NUM(cfg.max_background_load, 0, 0);
+      if (cfg.max_background_load > 1) {
+        fprintf(stderr, "prismark: --max-load is a fraction from 0 to 1, not '%s'\n", v);
+        return 2;
+      }
+    }
     else if (!strcmp(a, "--frontend")) { NEED_ARG; cfg.frontend = v; cfg.ui_state = strcmp(v, "cli") ? "frozen" : "none"; }
     else if (!strcmp(a, "--progress-json")) out_mode = OUT_JSON;
     else if (!strcmp(a, "--cancel-on-stdin")) cancel_on_stdin = 1;
@@ -1321,9 +1609,33 @@ static int cmd_run(int argc, char **argv) {
     else if (!strcmp(a, "--version")) { printf("prismark %s\n", pmk_version()); return 0; }
     else return bad_usage(NULL, a[0] == '-' ? "unknown option '%s'" : "unknown command '%s'", a);
 #undef NEED_ARG
+#undef INT
+#undef NUM
   }
+  if (cfg.min_reps > cfg.max_reps || cfg.min_reps > cfg.cold_max_reps) {
+    fprintf(stderr, "prismark: --min-reps (%d) is above --max-reps (%d) or --cold-max-reps (%d)\n", cfg.min_reps,
+            cfg.max_reps, cfg.cold_max_reps);
+    return 2;
+  }
+  if (cfg.cpu >= 0) { /* the core refuses an unknown CPU only as "bad configuration" */
+    char *info = NULL, pat[32];
+    snprintf(pat, sizeof pat, "{\"id\":%d,", cfg.cpu);
+    int found = pmk_info(&info) != PMK_OK || !info || strstr(info, pat);
+    pmk_free(info);
+    if (!found) {
+      fprintf(stderr, "prismark: this machine has no CPU %d (prismark info lists them under machine.cpu.cores)\n",
+              cfg.cpu);
+      return 2;
+    }
+  }
+  if (check_selection(cfg.kernels, cfg.modes, cfg.isa_uplift)) return 2;
+  /* The compile tests use the snapshot the desktop app (or tools/k1x/prepare.py) prepared, as in the menu. The
+     desktop app passes its own --k1-data, so this is for runs from the command line only. */
+  char snapshot[1200];
+  int found_k1 = !cfg.k1_data && !strcmp(cfg.frontend, "cli") && k1_snapshot(snapshot, sizeof snapshot) == 0;
+  if (found_k1) cfg.k1_data = snapshot;
 
-  progress prog = {out_mode, 0, 0, now_s(), NAN, "", 0};
+  progress prog = {out_mode, 0, 0, now_s(), NAN, NAN, 0, 0, "", 0};
   if (out_mode == OUT_JSON) term.live = 0;
   int live = out_mode == OUT_TEXT && term.live;
   g_live_signal = live;
@@ -1337,6 +1649,11 @@ static int cmd_run(int argc, char **argv) {
             quick ? "quick run: a smoke test, not for comparison" : subset ? "selected tests" : "full run",
             quick || subset ? "" : ", about 30 minutes on a 4-core laptop",
             live ? ". Ctrl+C stops and keeps what was measured." : "");
+    char pd[1200];
+    int compile = !cfg.kernels || has_id(cfg.kernels, "K1") || has_id(cfg.kernels, "K1x");
+    if (found_k1 && compile)
+      fprintf(stderr, "%sCompile tests: the prepared snapshot in %s%s\n", e(DIM), pretty_path(pd, sizeof pd, snapshot),
+              e(RESET));
   }
 
   char *json = NULL, *summary = NULL;
@@ -1397,16 +1714,20 @@ static int ask(const char *prompt, char *buf, size_t n) {
   return 0;
 }
 
-/* A yes/no question, asked again until answered; def on Enter, -1 at end of input. */
+/* "b" or "back": every menu prompt takes it, to go one step back. */
+static int is_back(const char *s) { return !strcmp(s, "b") || !strcmp(s, "B") || !strcmp(s, "back"); }
+
+/* A yes/no question, asked again until answered; def on Enter, -1 for back or at end of input. */
 static int ask_yn(const char *prompt, int def) {
   char buf[16];
   for (;;) {
     if (ask(prompt, buf, sizeof buf)) return -1;
     for (char *c = buf; *c; c++) *c = (char)tolower((unsigned char)*c);
     if (!buf[0]) return def;
+    if (is_back(buf)) return -1;
     if (!strcmp(buf, "y") || !strcmp(buf, "yes")) return 1;
     if (!strcmp(buf, "n") || !strcmp(buf, "no")) return 0;
-    printf("  %sAnswer y or n.%s\n", o(YELLOW), o(RESET));
+    printf("  %sAnswer y or n, or b to go back.%s\n", o(YELLOW), o(RESET));
   }
 }
 
@@ -1415,32 +1736,39 @@ static void pause_for_enter(void) {
   ask("\nPress Enter to go back to the menu.", buf, sizeof buf);
 }
 
-/* The desktop app's compile-test snapshot (<user data>/prismark/k1x), if prepared. */
-static int k1_snapshot(char *out, size_t n) {
-  char dir[1100];
-  if (results_dir(dir, sizeof dir, 0)) return -1;
-  size_t len = strlen(dir);
-  if (len < 13) return -1;
-  dir[len - 13] = 0; /* strip "/results/runs" */
-  snprintf(out, n, "%s/k1x", dir);
-  char manifest[1200];
-  snprintf(manifest, sizeof manifest, "%s/manifest.json", out);
-  struct stat st;
-  return stat(manifest, &st) == 0 ? 0 : -1;
+/* "K3,K4" -> "compression,photo", or mode IDs to their short names: as the command line is usually written. */
+static const char *to_slugs(char *out, size_t n, const char *ids, int modes) {
+  size_t k = 0;
+  out[0] = 0;
+  for (const char *p = ids; *p;) {
+    size_t len = strcspn(p, ",");
+    const char *slug = NULL;
+    for (size_t i = 0; !modes && i < NKERNELS; i++)
+      if (strlen(KERNELS[i].id) == len && !strncmp(KERNELS[i].id, p, len)) slug = KERNELS[i].slug;
+    for (size_t i = 0; modes && i < NMODES; i++)
+      if (strlen(MODES[i].id) == len && !strncmp(MODES[i].id, p, len)) slug = MODES[i].slug;
+    if (slug) k += (size_t)snprintf(out + k, k < n ? n - k : 0, "%s%s", k ? "," : "", slug);
+    p += len + (p[len] == ',');
+  }
+  return out;
 }
 
-/* Starts a run with the menu's choices; the same code path as prismark run. */
-static void menu_run(int quick, const char *tests, const char *modes, const char *k1, int isa) {
+/* Starts a run with the menu's choices; the same code path as prismark run, whose command it shows first. Like
+   prismark run, it finds the compile-test snapshot itself. */
+static void menu_run(int quick, const char *tests, const char *modes, int isa) {
   const char *args[14];
   int n = 0;
   args[n++] = "prismark";
   if (quick) args[n++] = "--quick";
   if (tests && *tests) args[n++] = "--tests", args[n++] = tests;
   if (modes && *modes) args[n++] = "--mode", args[n++] = modes;
-  if (k1) args[n++] = "--k1-data", args[n++] = k1;
   if (!isa) args[n++] = "--no-isa-uplift";
   args[n] = NULL;
-  printf("\n");
+  char ts[256] = "", ms[256] = "";
+  if (tests && *tests) to_slugs(ts, sizeof ts, tests, 0);
+  if (modes && *modes) to_slugs(ms, sizeof ms, modes, 1);
+  printf("\n%sThe same from the command line: prismark run%s%s%s%s%s%s%s\n", o(DIM), quick ? " --quick" : "",
+         *ts ? " --tests " : "", ts, *ms ? " --mode " : "", ms, isa ? "" : " --no-isa-uplift", o(RESET));
   cmd_run(n, (char **)args);
   signal(SIGINT, SIG_DFL);
   signal(SIGTERM, SIG_DFL);
@@ -1450,19 +1778,9 @@ static int confirm_start(int quick, const char *what) {
   printf("\n%s%s%s: %s.\n", o(BOLD), quick ? "Quick run" : "Full run", o(RESET), what);
   printf("For steady results, close other programs and leave the computer alone while it runs.\n"
          "Some tests are skipped if the keyboard or mouse is used during them.\n");
-  return ask_yn("Start now? [Y/n] ", 1) == 1;
+  return ask_yn("Start now? [Y/n, b: back] ", 1) == 1;
 }
 
-/* Whether the comma-separated list has id. */
-static int has_id(const char *list, const char *id) {
-  size_t n = strlen(id);
-  for (const char *p = list; *p;) {
-    size_t len = strcspn(p, ",");
-    if (len == n && !strncmp(p, id, n)) return 1;
-    p += len + (p[len] == ',');
-  }
-  return 0;
-}
 
 /* Adds each id of ids to the comma-separated list once. */
 static void add_ids(char *list, size_t n, const char *ids) {
@@ -1505,61 +1823,70 @@ static void menu_choose(const char *k1) {
   }
   if (!k1) printf("\n  %sCompiling code and Full software build need the compile-test setup.%s\n", o(DIM), o(RESET));
 
-  /* The numbers in front of the items; empty: everything. */
-  int any;
-  for (;;) {
-    if (ask("\nWhich tests? Their numbers, e.g. 6 7 (Enter: everything): ", buf, sizeof buf)) return;
-    memset(chosen, 0, sizeof chosen);
-    any = 0;
-    const char *in = buf;
-    int ok = 1;
-    while (ok && *in) {
-      in += strspn(in, ", ");
-      size_t tok = strcspn(in, ", ");
-      if (!tok) break;
-      char *end;
-      long num = strtol(in, &end, 10);
-      int matched = 0;
-      for (size_t i = 0; end == in + tok && i < NITEMS; i++)
-        if (number[i] && number[i] == num) chosen[i] = matched = 1;
-      if (!matched) {
-        printf("  %sChoose numbers from 1 to %d; '%.*s' is not one.%s\n", o(YELLOW), shown, (int)tok, in, o(RESET));
-        ok = 0;
-      }
-      any |= matched;
-      in += tok;
-    }
-    if (ok) break;
-  }
-
+  /* Three steps: which tests, quick or full, start; b goes one step back, and from the first to the menu. */
+  int any = 0, quick = 0, isa = 0;
   char tests[128] = "", modes[128] = "";
-  int isa = !any; /* everything includes the new-instruction gain */
-  for (size_t i = 0; i < NITEMS && any; i++)
-    if (chosen[i]) {
-      add_ids(tests, sizeof tests, ITEMS[i].kernels);
-      add_ids(modes, sizeof modes, ITEMS[i].mode);
-      isa |= ITEMS[i].isa;
+  for (int step = 0; step < 3;) {
+    if (step == 0) {
+      if (ask("\nWhich tests? Their numbers, e.g. 6 7 (Enter: everything, b: back): ", buf, sizeof buf) ||
+          is_back(buf))
+        return;
+      memset(chosen, 0, sizeof chosen);
+      any = 0;
+      const char *in = buf;
+      int ok = 1;
+      while (ok && *in) {
+        in += strspn(in, ", ");
+        size_t tok = strcspn(in, ", ");
+        if (!tok) break;
+        char *end;
+        long num = strtol(in, &end, 10);
+        int matched = 0;
+        for (size_t i = 0; end == in + tok && i < NITEMS; i++)
+          if (number[i] && number[i] == num) chosen[i] = matched = 1;
+        if (!matched) {
+          printf("  %sChoose numbers from 1 to %d, or b to go back; '%.*s' is not one.%s\n", o(YELLOW), shown,
+                 (int)tok, in, o(RESET));
+          ok = 0;
+        }
+        any |= matched;
+        in += tok;
+      }
+      if (!ok) continue;
+      tests[0] = modes[0] = 0;
+      isa = !any; /* everything includes the new-instruction gain */
+      for (size_t i = 0; i < NITEMS && any; i++)
+        if (chosen[i]) {
+          add_ids(tests, sizeof tests, ITEMS[i].kernels);
+          add_ids(modes, sizeof modes, ITEMS[i].mode);
+          isa |= ITEMS[i].isa;
+        }
+      step = 1;
+    } else if (step == 1) {
+      quick = ask_yn("\nQuick run, a few minutes and not for comparison? [y/N, b: back] ", 0);
+      step = quick < 0 ? 0 : 2;
+    } else {
+      printf("\n%s%s%s%s\n", o(BOLD), quick ? "Quick run" : "Full run", o(RESET), any ? " of:" : " of everything.");
+      int extra = 0;
+      for (size_t i = 0; i < NITEMS && any; i++)
+        if (chosen[i]) printf("  %s · %s\n", CATEGORIES[ITEMS[i].cat].name, ITEMS[i].name);
+        else extra |= number[i] && item_measured(i, tests, modes, isa);
+      if (extra) { /* one run measures every chosen test in every chosen mode */
+        printf("%sAlso measured, because the chosen tests share these modes:%s\n", o(DIM), o(RESET));
+        for (size_t i = 0; i < NITEMS; i++)
+          if (!chosen[i] && number[i] && item_measured(i, tests, modes, isa))
+            printf("  %s%s · %s%s\n", o(DIM), CATEGORIES[ITEMS[i].cat].name, ITEMS[i].name, o(RESET));
+      }
+      printf("For steady results, close other programs and leave the computer alone while it runs.\n"
+             "Some tests are skipped if the keyboard or mouse is used during them.\n");
+      int go = ask_yn("Start now? [Y/n, b: back] ", 1);
+      if (go < 0) step = 1;
+      else if (!go) return; /* n: back to the menu */
+      else step = 3;
     }
-
-  int quick = ask_yn("\nQuick run, a few minutes and not for comparison? [y/N] ", 0);
-  if (quick < 0) return;
-  printf("\n%s%s%s%s\n", o(BOLD), quick ? "Quick run" : "Full run", o(RESET), any ? " of:" : " of everything.");
-  int extra = 0;
-  for (size_t i = 0; i < NITEMS && any; i++)
-    if (chosen[i]) printf("  %s · %s\n", CATEGORIES[ITEMS[i].cat].name, ITEMS[i].name);
-    else extra |= number[i] && item_measured(i, tests, modes, isa);
-  if (extra) { /* one run measures every chosen test in every chosen mode */
-    printf("%sAlso measured, because the chosen tests share these modes:%s\n", o(DIM), o(RESET));
-    for (size_t i = 0; i < NITEMS; i++)
-      if (!chosen[i] && number[i] && item_measured(i, tests, modes, isa))
-        printf("  %s%s · %s%s\n", o(DIM), CATEGORIES[ITEMS[i].cat].name, ITEMS[i].name, o(RESET));
   }
-  printf("For steady results, close other programs and leave the computer alone while it runs.\n"
-         "Some tests are skipped if the keyboard or mouse is used during them.\n");
-  if (ask_yn("Start now? [Y/n] ", 1) == 1) {
-    menu_run(quick, tests, modes, k1, isa);
-    pause_for_enter();
-  }
+  menu_run(quick, tests, modes, isa);
+  pause_for_enter();
 }
 
 /* Lists the runs numbered; returns how many (v is malloc'd). */
@@ -1571,12 +1898,14 @@ static size_t menu_runs(run_entry **v) {
     printf("\nNo runs yet. Start one from the menu.\n");
     return 0;
   }
-  printf("\n%s   #  %-10s %-17s %-6s %-11s %s%s\n", o(DIM), "run", "started (UTC)", "kind", "state", "CPU", o(RESET));
+  printf("\n%s   #  %-10s %-17s %-6s %-11s %s%s\n", o(DIM), "run", "started", "kind", "state", "CPU", o(RESET));
+  int room = room_after(2 + 2 + 2 + 10 + 1 + 17 + 1 + 6 + 1 + 11 + 1);
   for (size_t i = 0; i < n; i++) {
     const pmk_brief *b = &(*v)[i].b;
-    printf("  %s%2zu%s  %-10.8s %.10s %-6.5s %-6s %-11s %.40s\n", o(BOLD), i + 1, o(RESET), b->run_id, b->started_utc,
-           strlen(b->started_utc) > 11 ? b->started_utc + 11 : "", b->quick == 1 ? "quick" : b->quick == 0 ? "full" : "?",
-           b->complete ? "complete" : "incomplete", b->model);
+    char when[32];
+    printf("  %s%2zu%s  %-10.8s %-17s %-6s %-11s %.*s\n", o(BOLD), i + 1, o(RESET), b->run_id,
+           local_time(when, sizeof when, b->started_utc), b->quick == 1 ? "quick" : b->quick == 0 ? "full" : "?",
+           b->complete ? "complete" : "incomplete", room, b->model);
   }
   return n;
 }
@@ -1585,11 +1914,11 @@ static size_t menu_runs(run_entry **v) {
 static long ask_run(const char *prompt, size_t n) {
   char buf[32];
   for (;;) {
-    if (ask(prompt, buf, sizeof buf) || !buf[0]) return -1;
+    if (ask(prompt, buf, sizeof buf) || !buf[0] || is_back(buf)) return -1;
     char *end;
     long k = strtol(buf, &end, 10);
     if (!*end && k >= 1 && (size_t)k <= n) return k - 1;
-    printf("  %sChoose a number from 1 to %zu, or press Enter to go back.%s\n", o(YELLOW), n, o(RESET));
+    printf("  %sChoose a number from 1 to %zu, or b to go back.%s\n", o(YELLOW), n, o(RESET));
   }
 }
 
@@ -1597,7 +1926,7 @@ static void menu_past(void) {
   for (;;) {
     run_entry *v = NULL;
     size_t n = menu_runs(&v);
-    long k = n ? ask_run("\nShow which run? (number, Enter: back) ", n) : -1;
+    long k = n ? ask_run("\nShow which run? (number, b: back) ", n) : -1;
     if (k < 0) {
       free(v);
       return;
@@ -1622,11 +1951,14 @@ static void menu_compare(void) {
   if (nr) {
     printf("\n%s   #  %-28s %-16s %s%s\n", o(DIM), "reference system", "kind", "system", o(RESET));
     for (size_t i = 0; i < nr; i++)
-      printf("  %s%2zu%s  %-28s %-16s %.40s\n", o(BOLD), n + i + 1, o(RESET), refs.v[i].id, refs.v[i].kind,
-             refs.v[i].name);
+      printf("  %s%2zu%s  %-28s %-16s %.*s\n", o(BOLD), n + i + 1, o(RESET), refs.v[i].id, refs.v[i].kind,
+             room_after(2 + 2 + 2 + 28 + 1 + 16 + 1), refs.v[i].name);
   }
-  long a = ask_run("\nCompare which run? (number, Enter: back) ", n);
-  long b = a < 0 ? -1 : ask_run("With which run or reference system? (number) ", n + nr);
+  long a, b;
+  do { /* back from the second question asks the first again */
+    a = ask_run("\nCompare which run? (number, b: back) ", n);
+    b = a < 0 ? -1 : ask_run("With which run or reference system? (number, b: back) ", n + nr);
+  } while (a >= 0 && b < 0);
   if (a >= 0 && b >= 0) {
     char *args[] = {"prismark", "compare", v[a].path, (size_t)b < n ? v[b].path : refs.v[b - n].path, NULL};
     printf("\n");
@@ -1668,19 +2000,19 @@ static int cmd_menu(void) {
     for (;;) {
       if (ask("Choice: ", buf, sizeof buf)) return 0;
       c = tolower((unsigned char)buf[0]);
-      if ((c >= '1' && c <= '6' && !buf[1]) || c == 'q' || !c) break;
-      printf("  %sChoose 1 to 6, or q.%s\n", o(YELLOW), o(RESET));
+      if ((c >= '1' && c <= '6' && !buf[1]) || (c == 'q' && (!buf[1] || !strcmp(buf, "quit")))) break;
+      if (c) printf("  %sChoose 1 to 6, or q to quit.%s\n", o(YELLOW), o(RESET));
     }
     switch (c) {
       case '1':
         if (confirm_start(0, "every test, about 30 minutes")) {
-          menu_run(0, NULL, NULL, have_k1 ? k1 : NULL, 1);
+          menu_run(0, NULL, NULL, 1);
           pause_for_enter();
         }
         break;
       case '2':
         if (confirm_start(1, "every test, a few minutes")) {
-          menu_run(1, NULL, NULL, have_k1 ? k1 : NULL, 1);
+          menu_run(1, NULL, NULL, 1);
           pause_for_enter();
         }
         break;
@@ -1728,6 +2060,7 @@ int main(int argc, char **argv) {
   if (!strcmp(cmd, "compare")) return cmd_compare(argc, argv);
   if (!strcmp(cmd, "references") || !strcmp(cmd, "refs")) return cmd_references(argc, argv);
   if (!strcmp(cmd, "checksums")) return cmd_checksums(argc, argv);
+  if (!strcmp(cmd, "completion")) return cmd_completion(argc, argv);
   if (!strcmp(cmd, "info") || !strcmp(cmd, "profiles")) {
     if (argc > 2 && is_help(argv[2])) return help_cmd(stdout, cmd), 0;
     char *out = NULL;

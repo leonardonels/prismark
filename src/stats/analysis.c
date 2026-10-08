@@ -225,7 +225,7 @@ char *analysis_text(pmk_ctx *c, const char *run_id, const char *note) {
   for (int t = 0; t < c->m.ntypes; t++) {
     const pmk_calib *cal = &c->calib[t];
     if (!cal->valid) continue;
-    buf_printf(&b, "\nWake-up test (K9), started from rest: core %s (CPU %d)\n  calibration: %.3f cycles/add (%s",
+    buf_printf(&b, "\nWake-up test, started from rest: core %s (CPU %d)\n  calibration: %.3f cycles/add (%s",
                c->m.type_names[t],
                cal->cpu, cal->cycles_per_iter / c->k->k9_adds_per_iter, cal->method);
     if (isfinite(cal->cycles_spread_rel)) buf_printf(&b, ", spread %.2f%%", cal->cycles_spread_rel * 100);
@@ -244,7 +244,7 @@ char *analysis_text(pmk_ctx *c, const char *run_id, const char *note) {
   for (size_t i = 0; i < a->npd; i++) {
     const pd_row *p = &a->pd[i];
     if (i == 0)
-      buf_printf(&b, "\nTimer punctuality (K10): period %g ms, CPU %d\n  %-8s  %10s  %10s  %10s  %10s  %8s  %s\n",
+      buf_printf(&b, "\nTimer punctuality: period %g ms, CPU %d\n  %-8s  %10s  %10s  %10s  %10s  %8s  %s\n",
                  p->r->period_ms, p->r->cpu, "", "p50", "p99", "p99.9", "max", "n", "overruns");
     buf_printf(&b, "  %-8s  %10s  %10s  %10s  %10s  %8zu  %llu%s\n", p->r->condition, fmt_ns(x, sizeof x, p->p50),
                fmt_ns(y, sizeof y, p->p99), fmt_ns(z, sizeof z, p->p999), fmt_ns(u, sizeof u, p->max), p->r->n,

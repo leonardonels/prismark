@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-#define PMK_ABI_VERSION 6
+#define PMK_ABI_VERSION 7
 
 /* Return codes. */
 enum {
@@ -100,6 +100,8 @@ typedef struct pmk_event {
   const char *message; /* human-readable */
   uint32_t step, steps;/* position within the phase; steps may be 0 if unknown */
   double temp_c;       /* CPU temperature, NaN if unavailable */
+  double remaining_s;  /* estimated seconds left in the run, NaN before the modes start (ABI 7; check
+                          struct_size before reading) */
 } pmk_event;
 
 typedef void (*pmk_progress_fn)(const pmk_event *ev, void *user);

@@ -206,10 +206,13 @@ static void describe(pmk_buf *t, const char *which, const doc *d) {
                ph ? ", PLACEHOLDER: example values, not a measurement" : "");
     return;
   }
+  /* The run id and the power source tell apart two runs of the same processor. */
   const char *when = jv_str(jv_get(d->root, "started_utc"), "");
-  buf_printf(t, "  %s: %s  (%s run, %.10s%s)\n", which, jv_str(jv_path(d->root, "machine.cpu.model"), "?"),
+  const jv *ac = jv_path(d->root, "state.start.ac_online");
+  buf_printf(t, "  %s: %s  (%s run, %.10s%s%s, run %.8s)\n", which, jv_str(jv_path(d->root, "machine.cpu.model"), "?"),
              jv_bool(jv_path(d->root, "config.quick"), 0) ? "quick" : "full", when,
-             jv_bool(jv_get(d->root, "complete"), 1) ? "" : ", incomplete");
+             ac && ac->t == JV_BOOL ? (jv_bool(ac, 1) ? ", plugged in" : ", on battery") : "",
+             jv_bool(jv_get(d->root, "complete"), 1) ? "" : ", incomplete", jv_str(jv_get(d->root, "run_id"), "?"));
 }
 
 static const char *fmt(char *out, size_t n, double v) {
@@ -237,7 +240,7 @@ int pmk_compare_headline(const char *a_json, const char *b_json, char **report_t
   describe(&t, "B", &B);
   buf_printf(&t, "\n  %-44s %-12s %10s %10s   %s\n", "", "unit", "A", "B", "A against B");
   const char *group = NULL;
-  int shown = 0, no_interval = 0, fewer = 0, better = 0, worse = 0, only[2] = {0, 0};
+  int shown = 0, no_interval = 0, fewer = 0, better = 0, worse = 0, any_points = 0, only[2] = {0, 0};
   pmk_buf missing = {0};
   for (size_t i = 0; i < NMETRICS; i++) {
     const struct metric *m = &METRICS[i];
@@ -255,12 +258,18 @@ int pmk_compare_headline(const char *a_json, const char *b_json, char **report_t
     int intervals = isfinite(a->lo) && isfinite(a->hi) && isfinite(b->lo) && isfinite(b->hi);
     int overlap = intervals && a->lo <= b->hi && b->lo <= a->hi;
     char x[32], y[32], verdict[48];
+    /* A percentage is compared by its difference in points: 47 % against 86 % is 38 points, not "1.80x". */
+    int points = !strcmp(m->unit, "%");
+    any_points |= points;
+    double d = m->higher_better ? a->est - b->est : b->est - a->est;
     if (overlap) snprintf(verdict, sizeof verdict, "same");
-    else if (r >= 1) snprintf(verdict, sizeof verdict, "%.2fx better", r), better++;
-    else snprintf(verdict, sizeof verdict, "%.2fx worse", 1 / r), worse++;
-    char mark[8] = "";
-    if (!intervals) strcat(mark, "+"), no_interval = 1;
-    if (a->fewer_threads || b->fewer_threads) strcat(mark, "#"), fewer = 1;
+    else if (points) snprintf(verdict, sizeof verdict, "%.1f pts %s", fabs(d), d >= 0 ? "better" : "worse");
+    else if (r >= 1) snprintf(verdict, sizeof verdict, "%.2fx better", r);
+    else snprintf(verdict, sizeof verdict, "%.2fx worse", 1 / r);
+    if (!overlap) (points ? d >= 0 : r >= 1) ? better++ : worse++;
+    char mark[48] = "";
+    if (!intervals) strcat(mark, ", may be noise"), no_interval = 1;
+    if (a->fewer_threads || b->fewer_threads) strcat(mark, ", fewer threads"), fewer = 1;
     buf_printf(&t, "  %-44s %-12s %10s %10s   %s%s\n", m->name, m->unit, fmt(x, sizeof x, a->est),
                fmt(y, sizeof y, b->est), verdict, mark);
     shown++;
@@ -280,8 +289,12 @@ int pmk_compare_headline(const char *a_json, const char *b_json, char **report_t
   }
   free(miss);
   buf_printf(&t, "\"better\" and \"worse\" follow each unit's direction: a shorter time or a higher speed is better.\n");
-  if (no_interval) buf_printf(&t, "+ no 95 %% range on one side: the difference may be noise.\n");
-  if (fewer) buf_printf(&t, "# measured on fewer threads than the machine has (--max-threads).\n");
+  if (any_points) buf_printf(&t, "Percentages are compared by their difference in points.\n");
+  if (no_interval) buf_printf(&t, "\"may be noise\": one side has no 95 %% range, so the difference may not be real.\n");
+  if (fewer) buf_printf(&t, "\"fewer threads\": measured on fewer threads than the machine has (--max-threads).\n");
+  const char *ida = A.reference ? NULL : jv_str(jv_get(A.root, "run_id"), NULL);
+  const char *idb = B.reference ? NULL : jv_str(jv_get(B.root, "run_id"), NULL);
+  if (ida && idb && !strcmp(ida, idb)) buf_printf(&t, "Note: A and B are the same run.\n");
   int qa = !A.reference && jv_bool(jv_path(A.root, "config.quick"), 0);
   int qb = !B.reference && jv_bool(jv_path(B.root, "config.quick"), 0);
   if (qa != qb || (qa && (A.reference || B.reference)))

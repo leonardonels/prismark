@@ -95,6 +95,12 @@ int mode_periodic_steps(const pmk_ctx *c) {
   return c->m.ncpu > 1 ? 2 : 1;
 }
 
+/* Each condition runs for cfg.periodic_seconds; building the memory ring takes about a second. */
+double mode_periodic_est(const pmk_ctx *c) {
+  int steps = mode_periodic_steps(c);
+  return steps ? steps * c->cfg.periodic_seconds + 1 : 0;
+}
+
 int mode_periodic(pmk_ctx *c) {
   if (!ctx_kernel_selected(c, "K10")) return PMK_OK; /* --kernels without K10 */
   int cpu = ctx_cpu_for_type(c, 0);

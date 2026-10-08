@@ -20,7 +20,6 @@
 
 /* K1 tasks are whole translation units (up to ~25 s): longer windows, and a measurement three times longer. */
 #define SLOW_KERNEL_WINDOW_FACTOR 5
-#define SLOW_KERNEL_MEASURE_FACTOR 3
 
 void *wl_create(pmk_ctx *c, const pmk_tk *tk, int size, const char *mode) {
   char err[256] = "";

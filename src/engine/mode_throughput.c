@@ -92,6 +92,9 @@ int mode_st_burst_steps(const pmk_ctx *c) {
   return (c->cfg.cpu >= 0 ? 1 : c->m.ntypes) * n;
 }
 
+/* About 20 jobs of tens of milliseconds, plus the input. */
+double mode_st_burst_est(const pmk_ctx *c) { return 1.5 * mode_st_burst_steps(c); }
+
 int mode_st_burst(pmk_ctx *c) {
   const pmk_tk *list[COUNT(BURST_KERNELS)];
   int n = 0;
@@ -183,6 +186,20 @@ int mode_st_sustained_steps(const pmk_ctx *c) {
   return n;
 }
 
+/* One series of a kernel: the settle, the measurement and about a second to build the input. */
+static double series_est(const pmk_ctx *c, const char *id) {
+  return c->cfg.settle_s + c->cfg.measure_s * (!strcmp(id, "K1") ? SLOW_KERNEL_MEASURE_FACTOR : 1) + 1;
+}
+
+double mode_st_sustained_est(const pmk_ctx *c) {
+  int steps = mode_st_sustained_steps(c);
+  if (!steps) return 0;
+  double s = c->cfg.warmup_s + series_est(c, "K2") * steps;
+  if (ctx_kernel_selected(c, "K1") && pmk_find_tk(c->k, "K1", NULL))
+    s += (series_est(c, "K1") - series_est(c, "K2")) * (c->cfg.cpu >= 0 ? 1 : c->m.ntypes);
+  return s;
+}
+
 int mode_st_sustained(pmk_ctx *c) {
   typedef struct job {
     const pmk_tk *tk;
@@ -243,6 +260,19 @@ int mode_mc_threaded_steps(const pmk_ctx *c) {
   /* K1x: one build per repetition at the largest n, when a snapshot is given */
   if (ctx_kernel_selected(c, "K1x") && c->cfg.k1_data && *c->cfg.k1_data) n += c->cfg.k1x_reps > 0 ? c->cfg.k1x_reps : 3;
   return n;
+}
+
+double mode_mc_threaded_est(const pmk_ctx *c) {
+  if (!mode_mc_threaded_steps(c)) return 0;
+  int steps[MAX_STEPS], nsteps = ctx_thread_steps(c, steps, MAX_STEPS);
+  double s = c->cfg.warmup_s;
+  for (int i = 0; i < COUNT(THREADED_KERNELS); i++)
+    if (ctx_kernel_selected(c, THREADED_KERNELS[i]) && pmk_find_tk(c->k, THREADED_KERNELS[i], NULL))
+      s += series_est(c, THREADED_KERNELS[i]) * nsteps;
+  /* A full build takes from about 20 s on a fast desktop to a few minutes on a small laptop. */
+  if (ctx_kernel_selected(c, "K1x") && c->cfg.k1_data && *c->cfg.k1_data)
+    s += (c->cfg.quick_inputs ? 20 : 60) * (c->cfg.k1x_reps > 0 ? c->cfg.k1x_reps : 3);
+  return s;
 }
 
 int mode_mc_threaded(pmk_ctx *c) {
@@ -412,6 +442,9 @@ int mode_mc_instances_steps(const pmk_ctx *c) {
   int steps[MAX_STEPS];
   return k7_sizes(c, sizes) * ctx_thread_steps(c, steps, MAX_STEPS);
 }
+
+/* About 20 repetitions of 2 M loads at ~100 ns each, more for the small sets. */
+double mode_mc_instances_est(const pmk_ctx *c) { return 2.0 * mode_mc_instances_steps(c); }
 
 int mode_mc_instances(pmk_ctx *c) {
   int *cpus = malloc((size_t)c->m.ncpu * sizeof *cpus);

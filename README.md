@@ -239,16 +239,24 @@ software build.
 ./build/linux-clang/prismark help             # options; `help advanced` for tuning and desktop-app options
 ```
 
-`prismark` alone never starts a run: on a terminal it opens a menu, and
-otherwise it exits with a hint. Options without a command (`prismark --quick
-…`) still start a run, as before. Runs started from the menu include the
-compile tests when the desktop app's compile-test snapshot is prepared.
+`prismark` alone never starts a run: on a terminal it opens a menu (`b` at
+any prompt goes one step back), and otherwise it exits with a hint. Options without a command (`prismark --quick
+…`) still start a run, as before. Runs from the menu and from `prismark run`
+include the compile tests when the compile-test snapshot is prepared (in the
+app or with `tools/k1x/prepare.py`); `--k1-data DIR` points to another one.
 
 `--tests` and `--mode` take the app's names (`"Opening a photo"`, `photo`), a
 short name, or the ID (`K4`, `st_burst`); `--kernels` is the same as `--tests`.
+A run refuses tests and modes that do not go together (`--tests photo --mode
+all-cores` would measure nothing; `prismark tests` shows which do), and names
+any chosen test that runs in none of the chosen modes. Number options are
+checked too.
 On a terminal the run shows one progress line (overall step, elapsed time,
-temperature, what runs now) and keeps only part headers, notices and warnings
-on screen; piped, it prints one plain line per event. Colour is used on a
+an estimate of the time left, temperature, what runs now) and keeps only part
+headers, notices and warnings on screen; piped, it prints one plain line per
+event. The line is redrawn only when the core reports progress, between
+measurements, so the display never wakes the machine during a test. Runs
+started from the menu print the equivalent `prismark run` command first. Colour is used on a
 terminal only, and `NO_COLOR` or `--no-color` turns it off. Ctrl+C stops the
 run after the current measurement and saves what was measured; a second
 Ctrl+C quits at once.
@@ -265,7 +273,7 @@ too (`-o FILE` writes elsewhere; runs as root write to the current folder):
 ```
 
 ```sh
-prismark list                                 # past runs in the results folder, newest first
+prismark list                                 # past runs in the results folder, newest first (local times)
 prismark show latest                          # a run's summary again
 prismark compare latest intel-i5-1035g1       # the headline results against a reference system
 prismark compare 6f07bd9e latest              # ... or against another run
@@ -274,6 +282,7 @@ prismark compare a.json b.json --profiles my-profiles.json
 prismark references                           # the reference systems compare accepts
 prismark profiles                             # the default profiles (Daily, Dev, Render, Realtime)
 prismark checksums -o checksums.json          # kernel output checksums, no timing
+eval "$(prismark completion bash)"            # tab completion (also zsh): commands, tests, runs, references
 ```
 
 A run is named by its file, its run ID or the first characters of it (as
@@ -281,7 +290,11 @@ A run is named by its file, its run ID or the first characters of it (as
 print it again; older result files have none, and `show` says so.
 
 `compare` shows the headline results the desktop app shows, side by side, and
-says for each whether A is better, worse or the same within the 95 % ranges.
+says for each whether A is better, worse or the same within the 95 % ranges:
+times and speeds as a ratio (`1.37x better`), percentages as a difference in
+points (`38.2 pts worse`), and "may be noise" where one side has no range.
+Each side is labelled with its run ID and power source, so two runs of the same
+processor can be told apart.
 Either side may be a reference system from [`references/`](references/README.md)
 (installed with the program) or from your own `results/references`, named by
 its file name; placeholders are labelled as such. `--detail` compares every
@@ -313,7 +326,7 @@ Both need a one-time setup, in this order:
 
    ```sh
    tools/k1x/prepare.py                       # output in ~/.local/share/prismark/k1x
-   ./build/linux-clang/prismark --k1-data ~/.local/share/prismark/k1x
+   ./build/linux-clang/prismark run               # finds the snapshot there by itself
    ```
 
 Compiling code compiles the units in a fixed shuffled order (the same on
