@@ -132,7 +132,7 @@ sudo dnf install cmake ninja-build clang19 lld19 clang19-devel llvm19-devel \
 ```sh
 cmake --preset linux-clang
 cmake --build --preset linux-clang
-ctest --preset linux-clang
+ctest --preset linux-clang     # the core, and the command line (tests/test_cli.py, needs python3)
 ```
 
 The configure output says what will be built in. Look for
@@ -261,6 +261,10 @@ terminal only, and `NO_COLOR` or `--no-color` turns it off. Ctrl+C stops the
 run after the current measurement and saves what was measured; a second
 Ctrl+C quits at once.
 
+The exit status says how a run ended: 0 done, 1 failed, 2 wrong usage, 3
+the machine was too busy to measure (another program was working; nothing was
+measured), 130 stopped with Ctrl+C (what was measured is saved).
+
 Each run writes `prismark-<run_id>.json` with every raw sample, the machine
 state at start and end, and the statistics computed from them. It goes in the
 results folder shared with the desktop app, so command-line runs appear there
@@ -280,6 +284,7 @@ prismark compare 6f07bd9e latest              # ... or against another run
 prismark compare 6f07bd9e latest --detail     # every series with 95 % CIs, and the profiles
 prismark compare a.json b.json --profiles my-profiles.json
 prismark references                           # the reference systems compare accepts
+prismark references add latest my-desktop     # save a run as your own reference system (remove NAME)
 prismark profiles                             # the default profiles (Daily, Dev, Render, Realtime)
 prismark checksums -o checksums.json          # kernel output checksums, no timing
 eval "$(prismark completion bash)"            # tab completion (also zsh): commands, tests, runs, references
@@ -297,7 +302,9 @@ Each side is labelled with its run ID and power source, so two runs of the same
 processor can be told apart.
 Either side may be a reference system from [`references/`](references/README.md)
 (installed with the program) or from your own `results/references`, named by
-its file name; placeholders are labelled as such. `--detail` compares every
+its file name; placeholders are labelled as such. `references add RUN NAME`
+(or Past runs in the menu) saves one of your runs there, and the desktop app
+shows it in its rankings. `--detail` compares every
 measured series instead, and needs two measured results. It refuses runs
 measured under different capabilities, and reports a
 profile only when every kernel it names exists in both runs.

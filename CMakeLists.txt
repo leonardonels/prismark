@@ -182,4 +182,11 @@ if(BUILD_TESTING)
     set_target_properties(test_core PROPERTIES LINKER_LANGUAGE CXX)
   endif()
   add_test(NAME core COMMAND test_core)
+  # The command line: options, messages, exit status, one short run (tests/test_cli.py, about 15 s).
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_FOUND AND NOT CMAKE_CROSSCOMPILING)
+    add_test(NAME cli COMMAND Python3::Interpreter ${PROJECT_SOURCE_DIR}/tests/test_cli.py
+             $<TARGET_FILE:prismark_cli> ${PROJECT_SOURCE_DIR})
+    set_tests_properties(cli PROPERTIES TIMEOUT 300)
+  endif()
 endif()

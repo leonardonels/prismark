@@ -702,11 +702,17 @@ static int ref_order(const void *x, const void *y) {
   return strcmp(a->id, b->id);
 }
 
+/* The user's own reference systems: <results>/references beside <results>/runs; -1 where there is none. */
+static int own_refs_dir(char *out, size_t n, int create) {
+  if (results_dir(out, n, 0) || strlen(out) < 5 || strlen(out) + 7 >= n) return -1;
+  strcpy(out + strlen(out) - 4, "references"); /* .../results/runs -> .../results/references */
+  return create ? make_dirs(out) : 0;
+}
+
 static size_t scan_refs(ref_list *l) {
   char dir[1200], exe[1100];
   l->n = 0;
-  if (results_dir(dir, sizeof dir, 0) == 0 && strlen(dir) > 5) {
-    strcpy(dir + strlen(dir) - 5, "/references"); /* .../results/runs -> .../results/references */
+  if (own_refs_dir(dir, sizeof dir, 0) == 0) {
     l->own = 1;
     each_json(dir, add_ref, l);
   }
@@ -1057,7 +1063,7 @@ static void help_main(FILE *f) {
           "  list                     past runs in the results folder\n"
           "  show RUN                 the summary of a past run\n"
           "  compare RUN RUN          compare two runs, or a run and a reference system\n"
-          "  references               the reference systems to compare with\n"
+          "  references [add|remove]  the reference systems to compare with; save a run as one\n"
           "  profiles                 the default comparison profiles (JSON)\n"
           "  checksums                kernel output checksums, no timing\n"
           "  info                     what this build can run on this machine (JSON)\n"
@@ -1083,7 +1089,9 @@ static void help_main(FILE *f) {
           "  --version\n"
           "\nMore run options (repetitions, warm-up, timings): prismark help advanced\n"
           "\nA full run takes about 30 minutes on a 4-core laptop. Ctrl+C stops it and keeps what was measured.\n"
-          "Results go to %s%s.\n",
+          "Results go to %s%s.\n"
+          "\nExit status: 0 done, 1 failed, 2 wrong usage, 3 machine too busy to measure (another program is\n"
+          "working; nothing was measured), 130 stopped with Ctrl+C (what was measured is saved).\n",
           o(BOLD), pmk_version(), o(RESET), o(BOLD), o(RESET), o(BOLD), o(RESET), o(BOLD), o(RESET), o(BOLD),
           o(RESET), o(BOLD), o(RESET), has_dir ? pretty_path(pd, sizeof pd, dir) : "the current folder",
           has_dir ? ",\nwhich the desktop app reads too (the current folder when run as root)" : "");
@@ -1135,9 +1143,16 @@ static void help_cmd(FILE *f, const char *cmd) {
                "  --profiles FILE   profiles to use instead of the defaults (implies --detail)\n"
                "  -o FILE           also write the detailed comparison as JSON\n");
   else if (!strcmp(cmd, "references"))
-    fprintf(f, "usage: prismark references [--ids]\n\nThe reference systems compare accepts: the ones that come with "
-               "Prismark\nand your own, in the references folder next to your results (see references/README.md).\n\n"
-               "  --ids   only their names, one per line (for scripts)\n");
+    fprintf(f, "usage: prismark references [--ids]\n"
+               "       prismark references add RUN NAME [--force]\n"
+               "       prismark references remove NAME\n\n"
+               "The reference systems compare accepts: the ones that come with Prismark and your own, in the\n"
+               "references folder next to your results (see references/README.md).\n\n"
+               "  --ids             only their names, one per line (for scripts)\n"
+               "  add RUN NAME      save a run as your reference system NAME (letters, digits, - _ .), e.g.\n"
+               "                      prismark references add latest my-desktop\n"
+               "                    --force replaces one of the same name\n"
+               "  remove NAME       remove one of your own\n");
   else if (!strcmp(cmd, "checksums"))
     fprintf(f, "usage: prismark checksums [--k1-data DIR] [--tests LIST] [--burst-only] [-o FILE]\n\n"
                "Runs one job of every kernel at every instruction level and prints input hashes and output\n"
@@ -1152,13 +1167,16 @@ static void help_cmd(FILE *f, const char *cmd) {
   else help_main(f);
 }
 
+/* Exit status, as help lists it. */
+enum { EXIT_FAILED = 1, EXIT_USAGE = 2, EXIT_BUSY = 3, EXIT_CANCELLED = 130 };
+
 static int is_help(const char *a) { return !strcmp(a, "-h") || !strcmp(a, "--help"); }
 
 static int bad_usage(const char *cmd, const char *fmt, const char *arg) {
   fprintf(stderr, "prismark: ");
   fprintf(stderr, fmt, arg);
   fprintf(stderr, "\nRun 'prismark help%s%s' for the options.\n", cmd ? " " : "", cmd ? cmd : "");
-  return 2;
+  return EXIT_USAGE;
 }
 
 /* ---------- commands ---------- */
@@ -1399,8 +1417,135 @@ static int cmd_compare(int argc, char **argv) {
   return rc == PMK_OK ? 0 : 1;
 }
 
+/* A reference name is its file name: letters, digits, '-', '_' and '.', not starting with '.'. */
+static int valid_ref_name(const char *name) {
+  size_t len = strlen(name);
+  if (!len || len > 80 || name[0] == '.') return 0;
+  for (const char *p = name; *p; p++)
+    if (!isalnum((unsigned char)*p) && *p != '-' && *p != '_' && *p != '.') return 0;
+  return 1;
+}
+
+/* "amd-ryzen-7-8845hs" from "AMD Ryzen 7 8845HS w/ Radeon 780M Graphics", "intel-core-i5-1035g1" from
+   "Intel(R) Core(TM) i5-1035G1 CPU @ 1.00GHz": a name to offer for a reference. */
+static void suggest_ref_name(char *out, size_t n, const char *model) {
+  static const char *const CUT[] = {" w/ ", " with ", " @ ", " CPU"};
+  static const char *const DROP[] = {"(R)", "(TM)", "(r)", "(tm)"};
+  char m[160];
+  snprintf(m, sizeof m, "%s", model);
+  for (size_t i = 0; i < sizeof CUT / sizeof *CUT; i++) {
+    char *p = strstr(m, CUT[i]);
+    if (p) *p = 0;
+  }
+  for (size_t i = 0; i < sizeof DROP / sizeof *DROP; i++)
+    for (char *p; (p = strstr(m, DROP[i]));) memmove(p, p + strlen(DROP[i]), strlen(p + strlen(DROP[i])) + 1);
+  size_t k = 0;
+  for (const char *p = m; *p && k + 1 < n && k < 48; p++) {
+    if (isalnum((unsigned char)*p)) out[k++] = (char)tolower((unsigned char)*p);
+    else if (k && out[k - 1] != '-') out[k++] = '-';
+  }
+  while (k && out[k - 1] == '-') k--;
+  out[k] = 0;
+  if (!k) snprintf(out, n, "my-computer");
+}
+
+/*
+ * Copies a measured result into the user's reference systems as NAME.json, so compare (and the desktop app's
+ * rankings) can name it. 0, or an exit status after saying what is wrong; 1 with *exists set when NAME is taken
+ * and force is off.
+ */
+static int save_reference(const char *path, const char *name, int force, int *exists) {
+  if (exists) *exists = 0;
+  if (!valid_ref_name(name)) {
+    fprintf(stderr, "prismark: '%s' cannot be a reference name: use letters, digits, '-', '_' and '.'\n", name);
+    return EXIT_USAGE;
+  }
+  char *json = read_file(path, 0);
+  if (!json) return EXIT_FAILED;
+  pmk_brief b;
+  memset(&b, 0, sizeof b);
+  b.struct_size = sizeof b;
+  if (pmk_describe(json, &b, NULL) != PMK_OK) {
+    fprintf(stderr, "prismark: %s is not a measured Prismark result\n", path);
+    free(json);
+    return EXIT_FAILED;
+  }
+  char dir[1200], dest[1400], pd[1400];
+  if (own_refs_dir(dir, sizeof dir, 1)) {
+    fprintf(stderr, "prismark: there is no references folder for your results here\n");
+    free(json);
+    return EXIT_FAILED;
+  }
+  snprintf(dest, sizeof dest, "%s/%s.json", dir, name);
+  struct stat st;
+  if (!force && stat(dest, &st) == 0) {
+    if (exists) *exists = 1;
+    else fprintf(stderr, "prismark: you already have a reference system '%s'; --force replaces it\n", name);
+    free(json);
+    return EXIT_FAILED;
+  }
+  static ref_list refs; /* a bundled one of the same name: the user's copy wins */
+  scan_refs(&refs);
+  int bundled = 0;
+  for (size_t i = 0; i < refs.n; i++) bundled |= !refs.v[i].own && !strcmp(refs.v[i].id, name);
+  int rc = write_file(dest, json) ? EXIT_FAILED : 0;
+  free(json);
+  if (rc) return rc;
+  give_back(dest);
+  printf("Saved run %.8s (%s%s) as the reference system '%s':\n  %s\n", b.run_id, b.model,
+         b.quick == 1 ? ", quick run" : "", name, pretty_path(pd, sizeof pd, dest));
+  if (bundled) printf("It replaces the reference of the same name that comes with Prismark.\n");
+  printf("%sCompare with it: prismark compare latest %s. The desktop app shows it in its rankings.%s\n", o(DIM), name,
+         o(RESET));
+  return 0;
+}
+
+static int cmd_references_add(int argc, char **argv) {
+  const char *run = NULL, *name = NULL;
+  int force = 0;
+  for (int i = 3; i < argc; i++) {
+    if (is_help(argv[i])) return help_cmd(stdout, "references"), 0;
+    if (!strcmp(argv[i], "--force")) force = 1;
+    else if (argv[i][0] == '-' && argv[i][1]) return bad_usage("references", "unexpected '%s'", argv[i]);
+    else if (!run) run = argv[i];
+    else if (!name) name = argv[i];
+    else return bad_usage("references", "unexpected '%s'", argv[i]);
+  }
+  if (!run || !name) return bad_usage("references", "%s", "references add needs a run and a name: references add RUN NAME");
+  char path[1200];
+  if (resolve_run(run, path, sizeof path)) return EXIT_FAILED;
+  return save_reference(path, name, force, NULL);
+}
+
+static int cmd_references_remove(int argc, char **argv) {
+  if (argc > 3 && is_help(argv[3])) return help_cmd(stdout, "references"), 0;
+  if (argc != 4) return bad_usage("references", "%s", "references remove needs one name: references remove NAME");
+  const char *name = argv[3];
+  static ref_list l;
+  scan_refs(&l);
+  const ref_entry *r = NULL;
+  for (size_t i = 0; i < l.n; i++)
+    if (!strcmp(l.v[i].id, name)) r = &l.v[i];
+  if (!r) {
+    fprintf(stderr, "prismark: no reference system '%s' (prismark references)\n", name);
+    return EXIT_FAILED;
+  }
+  if (!r->own) {
+    fprintf(stderr, "prismark: '%s' comes with Prismark and cannot be removed here; only your own can be\n", name);
+    return EXIT_FAILED;
+  }
+  if (remove(r->path)) {
+    fprintf(stderr, "prismark: %s: %s\n", r->path, strerror(errno));
+    return EXIT_FAILED;
+  }
+  printf("Removed your reference system '%s'.\n", name);
+  return 0;
+}
+
 static int cmd_references(int argc, char **argv) {
   if (argc > 2 && is_help(argv[2])) return help_cmd(stdout, "references"), 0;
+  if (argc > 2 && !strcmp(argv[2], "add")) return cmd_references_add(argc, argv);
+  if (argc > 2 && (!strcmp(argv[2], "remove") || !strcmp(argv[2], "rm"))) return cmd_references_remove(argc, argv);
   int ids = argc > 2 && !strcmp(argv[2], "--ids");
   if (argc > 2 + ids) return bad_usage("references", "unexpected '%s'", argv[2 + ids]);
   static ref_list l;
@@ -1418,7 +1563,7 @@ static int cmd_references(int argc, char **argv) {
     printf("%s%-28s%s %s%-16s%s %s%s\n", o(BOLD), l.v[i].id, o(RESET), !strcmp(l.v[i].kind, "placeholder") ? o(YELLOW) : "",
            l.v[i].kind, o(RESET), l.v[i].name, l.v[i].own ? "  (yours)" : "");
   printf("\n%sCompare a run with one: prismark compare latest %s. Placeholders hold example values, not\n"
-         "measurements. Add your own in the references folder next to your results (see references/README.md).%s\n",
+         "measurements. Save a run of yours as one: prismark references add RUN NAME.%s\n",
          o(DIM), l.v[0].id, o(RESET));
   return 0;
 }
@@ -1693,7 +1838,9 @@ static int cmd_run(int argc, char **argv) {
   }
   pmk_free(json);
   pmk_free(summary);
-  return rc == PMK_OK ? 0 : 1;
+  if (rc == PMK_ERR_CANCELLED) return EXIT_CANCELLED;
+  if (rc == PMK_ERR_BUSY) return EXIT_BUSY;
+  return rc == PMK_OK ? 0 : EXIT_FAILED;
 }
 
 /* ---------- menu ---------- */
@@ -1934,6 +2081,30 @@ static void menu_past(void) {
     char *args[] = {"prismark", "show", v[k].path, NULL};
     printf("\n");
     cmd_show(3, args);
+    char buf[96], name[96];
+    if (ask("\nEnter: back to the list, s: save it as a reference system to compare with: ", buf, sizeof buf) ||
+        tolower((unsigned char)buf[0]) != 's' || buf[1]) {
+      free(v);
+      continue;
+    }
+    suggest_ref_name(name, sizeof name, v[k].b.model);
+    for (;;) {
+      printf("Name for it (letters, digits, - _ .) [%s, b: back]: ", name);
+      if (ask("", buf, sizeof buf) || is_back(buf)) break;
+      if (buf[0]) snprintf(name, sizeof name, "%s", buf);
+      if (!valid_ref_name(name)) {
+        printf("  %sUse letters, digits, '-', '_' and '.'.%s\n", o(YELLOW), o(RESET));
+        continue;
+      }
+      int exists = 0;
+      if (save_reference(v[k].path, name, 0, &exists) == 0) break;
+      if (!exists) break;
+      int yes = ask_yn("You already have a reference system with this name. Replace it? [y/N] ", 0);
+      if (yes == 1) {
+        save_reference(v[k].path, name, 1, NULL);
+        break;
+      }
+    }
     free(v);
     pause_for_enter();
   }
