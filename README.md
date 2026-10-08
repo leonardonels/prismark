@@ -147,6 +147,81 @@ For development with any other compiler, use the `dev` preset instead
 official ones. Other presets: `windows-clang`, `macos-clang`, `android-arm64`
 (needs `ANDROID_NDK`), `ios-arm64` (static libraries for `bindings/swift`).
 
+### Install (adds Prismark to the applications menu)
+
+After building, install Prismark so the desktop app shows up among the other
+applications (Activities / app grid on GNOME, the application launcher on KDE).
+The commands are the same on Ubuntu and Fedora:
+
+```sh
+sudo cmake --install build/linux-clang --prefix /usr/local
+```
+
+This copies `prismark-gui`, the `prismark` runner and its instruction-set
+modules to `/usr/local/bin`, the launcher entry to
+`/usr/local/share/applications/prismark.desktop`, the icon to
+`/usr/local/share/icons/hicolor/scalable/apps/prismark.svg` and the
+compile-test script to `/usr/local/share/prismark`. Prismark then appears as
+**Prismark** in the applications menu (search for "Prismark"), and
+`prismark` and `prismark-gui` work from any terminal. If the entry does not
+show up at once, log out and back in.
+
+To install for your user only, without `sudo`, use `--prefix ~/.local`
+instead. The launcher then runs `~/.local/bin/prismark-gui`, which must be on
+the session `PATH`: Fedora adds it by default; Ubuntu adds it at login when the
+folder exists, so log out and back in after the first install.
+
+The install is a copy: rebuilding does not change it. To update an installed
+copy, rebuild and run the same install command again.
+
+#### Developer install (follows the latest build)
+
+> **For development only.** Use the copy install above for normal use. This
+> variant links the menu entry to your build folder, so every rebuild is what
+> the menu starts, but moving or deleting the source or build folder breaks it.
+
+```sh
+mkdir -p ~/.local/bin ~/.local/share/applications ~/.local/share/icons/hicolor/scalable/apps
+ln -sf "$PWD/build/linux-clang/prismark-gui" ~/.local/bin/prismark-gui
+ln -sf "$PWD/build/linux-clang/prismark"     ~/.local/bin/prismark
+cp apps/gui/prismark.desktop ~/.local/share/applications/
+cp apps/gui/icons/prismark-app.svg ~/.local/share/icons/hicolor/scalable/apps/prismark.svg
+```
+
+Run it from the source folder, on Ubuntu or Fedora. The app follows the link
+back to `build/linux-clang/` and uses the runner and modules built there; the
+compile-test script is found in `tools/k1x/` of the source folder. As with any
+`~/.local` install, `~/.local/bin` must be on the session `PATH` (on Ubuntu,
+log out and back in after the first time). Do not combine it with the copy
+install: whichever `prismark-gui` comes first on `PATH` wins. To remove it:
+
+```sh
+rm -f ~/.local/bin/prismark-gui ~/.local/bin/prismark \
+      ~/.local/share/applications/prismark.desktop \
+      ~/.local/share/icons/hicolor/scalable/apps/prismark.svg
+```
+
+### Uninstall
+
+The install writes the list of files it copied to
+`build/linux-clang/install_manifest.txt`. Removing them takes Prismark out of
+the applications menu and off the `PATH` (same on Ubuntu and Fedora):
+
+```sh
+sudo xargs -a build/linux-clang/install_manifest.txt rm -fv
+sudo rmdir /usr/local/share/prismark
+```
+
+For a `~/.local` install, run the first line without `sudo` and skip the
+second (that folder also holds your results). If the build folder is gone,
+delete the files listed above by hand.
+
+Your results and the compile-test snapshot are kept. To remove them too:
+
+```sh
+rm -rf ~/.local/share/prismark                 # results/ and the k1x/ snapshot
+```
+
 A portable Windows x86-64 build (desktop app, runner and DLLs in one zip) can be
 cross-compiled on Linux with llvm-mingw and Qt for Windows:
 `tools/package-windows.sh <llvm-mingw> <Qt/6.8.3/llvm-mingw_64> <Qt/6.8.3/gcc_64>`
@@ -247,6 +322,9 @@ scaling.
 ```sh
 ./build/linux-clang/prismark-gui              # or: prismark-gui --run [TEST] [--full], e.g. --run mc_k2
 ```
+
+Once [installed](#install-adds-prismark-to-the-applications-menu), it is also
+started from the applications menu like any other app.
 
 - Built automatically when Qt Widgets and Svg are found (Qt 6, or Qt 5.15;
   the packages are in [Building](#building)); `-DPRISMARK_GUI=OFF` skips it. The Inter typeface is fetched at a pinned version and compiled in.
