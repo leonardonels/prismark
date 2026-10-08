@@ -44,7 +44,8 @@ QString prepareScript() {
 CompileStatus compileStatus(const QJsonObject &info, const QString &configured) {
   CompileStatus s;
   s.k1Built = info["k1_built"].toBool();
-  for (const QString &dir : {configured, defaultSnapshotDir()})
+  /* the one set in the app, the one shipped beside the program (portable Windows package), the prepared one */
+  for (const QString &dir : {configured, QCoreApplication::applicationDirPath() + "/k1x", defaultSnapshotDir()})
     if (!dir.isEmpty() && QFileInfo(dir + "/manifest.json").isFile()) {
       s.snapshot = dir;
       break;

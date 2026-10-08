@@ -90,7 +90,7 @@ ARM64).
 | --- | --- | --- |
 | 1 | Linux core, all six modes, 3D rendering, Compression, Wake-up test, Timer punctuality | implemented; gate 1 needs repeat runs on an x86-64 and an ARM64 machine |
 | 2 | Compiling code, Full software build, Opening a photo, Reading JSON, Starting a script, Memory delay, Matrix maths, statistics in the core, analyzer | implemented; Compiling code and Full software build untested (need the Clang 19 development libraries and a snapshot) |
-| 3 | Windows PAL, CLI | cross-compiles with llvm-mingw (`tools/package-windows.sh`); not yet run on Windows |
+| 3 | Windows PAL, CLI | portable package cross-built with llvm-mingw (`tools/package-windows.sh`), compile tests included; run under Wine (both compile tests, the app, the commands), not yet on Windows itself |
 | 4 | Android (JNI bridge), GUI | JNI bridge and Kotlin wrapper written, untested; desktop app (Qt) working on Linux |
 | 5 | macOS / iOS PAL, Swift wrapper | written, not yet compiled or run on Apple platforms |
 
@@ -225,13 +225,22 @@ rm -rf ~/.local/share/prismark                 # results/ and the k1x/ snapshot
 Windows is shipped as a portable zip, not an installer: unzip it and start
 `prismark-gui.exe`. The folder holds everything the app and `prismark.exe`
 need (Qt, its plugins and the C++ runtime), so nothing has to be installed;
-it needs 64-bit Windows 10 or later. Every push builds it in CI
-(`windows-portable`, downloadable from the run). It is cross-compiled on Linux
-with llvm-mingw and Qt for Windows:
-`tools/package-windows.sh <llvm-mingw> <Qt/6.8.3/llvm-mingw_64> <Qt/6.8.3/gcc_64>`
-(the script lists where to get them), which refuses to zip a folder in which a
-DLL any binary needs is missing. It leaves out Compiling code and Full
-software build.
+it needs 64-bit Windows 10 or later. The compile tests come with it: Clang is
+built into `prismark.exe` for Compiling code, and Full software build uses the
+snapshot in `k1x\` and Clang 19, CMake and Ninja in `tools\`. Every push
+builds it in CI (`windows-portable`, downloadable from the run). It is
+cross-compiled on Linux with llvm-mingw and Qt for Windows:
+
+```sh
+tools/build-llvm-windows.sh <llvm-mingw> build/llvm-19-windows    # once: Clang and LLVM 19 libraries for Windows
+K1_LLVM=build/llvm-19-windows K1X_SNAPSHOT=~/.local/share/prismark/k1x \
+  tools/package-windows.sh <llvm-mingw> <Qt/6.8.3/llvm-mingw_64> <Qt/6.8.3/gcc_64>
+```
+
+The scripts list where to get llvm-mingw and Qt; the Windows build tools are
+downloaded at pinned versions and checked. Packaging refuses to zip a folder
+in which a DLL any binary needs is missing. `PRISMARK_COMPILE_TESTS=0` builds
+the package without the compile tests.
 
 ## Running
 
@@ -326,7 +335,8 @@ build" (K1x) on Linux, Windows and macOS (it starts other programs, which
 iPadOS does not allow). Phones do not offer either, and they are not shown
 there at all.
 
-Both need a one-time setup, in this order:
+The portable Windows package brings both ready to run, snapshot and tools
+included. Everywhere else they need a one-time setup, in this order:
 
 1. **Install the packages** for your distribution from [Building](#building)
    (the Clang 19 development libraries, `lld` and `python3` among them).

@@ -510,15 +510,47 @@ int pal_scratch_dir(char *out, size_t n, int *ram_backed) {
   return 0;
 }
 
+/* A path with '\\' separators: cmd and robocopy read a '/' in a path as the start of an option. */
+static const char *backslashes(char *out, size_t n, const char *path) {
+  snprintf(out, n, "%s", path);
+  for (char *p = out; *p; p++)
+    if (*p == '/') *p = '\\';
+  return out;
+}
+
+/* Copies the directory tree src into dst (created with its parents), file by file; 0 on success. */
 int pal_copy_tree(const char *src, const char *dst) {
-  const char *argv[] = {"robocopy", src, dst, "/E", "/NFL", "/NDL", "/NJH", "/NJS", "/NP", NULL};
-  int rc = pal_run(argv, NULL, NULL, NULL);
-  return rc >= 0 && rc < 8 ? 0 : -1; /* robocopy: below 8 means success */
+  char s[MAX_PATH * 4], d[MAX_PATH * 4], pat[MAX_PATH * 4 + 4];
+  backslashes(s, sizeof s, src);
+  backslashes(d, sizeof d, dst);
+  for (char *p = d + 1; *p; p++) /* the parents first: CreateDirectory makes one level */
+    if (*p == '\\' && p[-1] != ':') {
+      *p = 0;
+      CreateDirectoryA(d, NULL);
+      *p = '\\';
+    }
+  if (!CreateDirectoryA(d, NULL) && GetLastError() != ERROR_ALREADY_EXISTS) return -1;
+  snprintf(pat, sizeof pat, "%s\\*", s);
+  WIN32_FIND_DATAA fd;
+  HANDLE h = FindFirstFileA(pat, &fd);
+  if (h == INVALID_HANDLE_VALUE) return -1;
+  int rc = 0;
+  do {
+    if (!strcmp(fd.cFileName, ".") || !strcmp(fd.cFileName, "..")) continue;
+    char from[MAX_PATH * 4], to[MAX_PATH * 4];
+    snprintf(from, sizeof from, "%s\\%s", s, fd.cFileName);
+    snprintf(to, sizeof to, "%s\\%s", d, fd.cFileName);
+    if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) rc = pal_copy_tree(from, to);
+    else if (!CopyFileA(from, to, FALSE)) rc = -1;
+  } while (rc == 0 && FindNextFileA(h, &fd));
+  FindClose(h);
+  return rc;
 }
 
 int pal_remove_tree(const char *path) {
   if (!path || strlen(path) < 4) return -1;
-  const char *argv[] = {"cmd", "/c", "rmdir", "/s", "/q", path, NULL};
+  char p[MAX_PATH * 4];
+  const char *argv[] = {"cmd", "/c", "rmdir", "/s", "/q", backslashes(p, sizeof p, path), NULL};
   pal_run(argv, NULL, NULL, NULL);
-  return GetFileAttributesA(path) == INVALID_FILE_ATTRIBUTES ? 0 : -1;
+  return GetFileAttributesA(p) == INVALID_FILE_ATTRIBUTES ? 0 : -1;
 }

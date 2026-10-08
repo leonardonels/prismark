@@ -149,6 +149,16 @@ target_link_libraries(prismark_cli PRIVATE prismark Threads::Threads)
 if(PRISMARK_HAVE_K1)
   set_target_properties(prismark_cli PROPERTIES LINKER_LANGUAGE CXX)
 endif()
+if(WIN32)
+  # Compiling code runs Clang in this process, and large units recurse deeper than the 1 MB stack Windows gives
+  # by default (the clang program itself compiles on a thread with more). 8 MB, as Linux gives; threads the
+  # runner starts get the same.
+  if(MINGW)
+    target_link_options(prismark_cli PRIVATE -Wl,--stack,8388608)
+  else()
+    target_link_options(prismark_cli PRIVATE -Wl,/STACK:8388608)
+  endif()
+endif()
 
 install(TARGETS prismark_cli)
 # Reference systems for "prismark compare RUN REFERENCE": installed beside the program, and read from the source
