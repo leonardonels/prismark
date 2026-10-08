@@ -115,9 +115,11 @@ add_library(prismark
   src/engine/mode_throughput.c
   src/engine/k1x.c
   src/engine/checksums.c
+  src/engine/describe.c
   src/stats/analysis.c
   src/stats/analysis_tp.c
   src/stats/compare.c
+  src/stats/headline.c
   pal/common/isa.c
   ${PRISMARK_PAL_SOURCES})
 string(REPLACE "\\" "\\\\" _sources_esc "${PRISMARK_SOURCES_JSON}")
@@ -149,6 +151,11 @@ if(PRISMARK_HAVE_K1)
 endif()
 
 install(TARGETS prismark_cli)
+# Reference systems for "prismark compare RUN REFERENCE": installed beside the program, and read from the source
+# tree when it runs from the build folder.
+file(GLOB _cli_references ${PROJECT_SOURCE_DIR}/references/*.json)
+install(FILES ${_cli_references} DESTINATION share/prismark/references)
+target_compile_definitions(prismark_cli PRIVATE PRISMARK_REFERENCES_DIR="${PROJECT_SOURCE_DIR}/references")
 if(PRISMARK_MODULE_TARGETS)
   install(TARGETS ${PRISMARK_MODULE_TARGETS} LIBRARY DESTINATION bin)
 endif()
@@ -175,4 +182,11 @@ if(BUILD_TESTING)
     set_target_properties(test_core PROPERTIES LINKER_LANGUAGE CXX)
   endif()
   add_test(NAME core COMMAND test_core)
+  # The command line: options, messages, exit status, one short run (tests/test_cli.py, about 15 s).
+  find_package(Python3 COMPONENTS Interpreter QUIET)
+  if(Python3_FOUND AND NOT CMAKE_CROSSCOMPILING)
+    add_test(NAME cli COMMAND Python3::Interpreter ${PROJECT_SOURCE_DIR}/tests/test_cli.py
+             $<TARGET_FILE:prismark_cli> ${PROJECT_SOURCE_DIR})
+    set_tests_properties(cli PROPERTIES TIMEOUT 300)
+  endif()
 endif()

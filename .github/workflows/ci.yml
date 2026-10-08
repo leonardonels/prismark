@@ -32,7 +32,7 @@ jobs:
       - name: Build
         run: cmake --build --preset linux-clang
 
-      - name: Unit tests
+      - name: Unit and command-line tests
         run: ctest --preset linux-clang
 
       - name: Kernel checksums
@@ -47,6 +47,29 @@ jobs:
         with:
           name: checksums-${{ matrix.runner }}
           path: checksums-*.json
+
+  # Windows x86-64, cross-built with the llvm-mingw that tools/package-windows.sh uses: the command line and the
+  # tier modules (no desktop app, no compile tests). Built only; nothing runs Windows binaries here.
+  windows-cross:
+    runs-on: ubuntu-24.04
+    env:
+      LLVM_MINGW: llvm-mingw-20250114-ucrt-ubuntu-20.04-x86_64
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Ninja and llvm-mingw
+        run: |
+          sudo apt-get install -y ninja-build
+          curl -sSfL "https://github.com/mstorsjo/llvm-mingw/releases/download/20250114/$LLVM_MINGW.tar.xz" | tar xJ
+
+      - name: Configure
+        run: >
+          cmake -S . -B build/windows-cross -G Ninja -DCMAKE_BUILD_TYPE=Release
+          -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/windows-cross-llvm-mingw.cmake"
+          -DLLVM_MINGW="$PWD/$LLVM_MINGW" -DPRISMARK_GUI=OFF -DPRISMARK_K1=OFF -DBUILD_TESTING=OFF
+
+      - name: Build
+        run: cmake --build build/windows-cross
 
   # Gate 2: kernel outputs identical on x86-64 and ARM64.
   checksum-gate:

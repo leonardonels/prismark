@@ -223,6 +223,18 @@ int mode_cold_burst_steps(const pmk_ctx *c) {
   return n;
 }
 
+/*
+ * Each started-from-rest repetition waits 275 ms on average. Wake-up series often need hundreds of repetitions
+ * before their time is known well enough (about 400 on a laptop), photo and script series about 20, each after
+ * a warm series of the same length without the waits.
+ */
+double mode_cold_burst_est(const pmk_ctx *c) {
+  double gap_s = (GAP_MIN_MS + GAP_MAX_MS) / 2 / 1e3;
+  int reps = c->cfg.cold_max_reps < 400 ? c->cfg.cold_max_reps : 400;
+  int ntypes = c->cfg.cpu >= 0 ? 1 : c->m.ntypes, k9 = ctx_kernel_selected(c, "K9") ? ntypes * NW : 0;
+  return k9 * (reps * gap_s + 2) + (mode_cold_burst_steps(c) - k9) * (c->cfg.min_reps * gap_s + 2);
+}
+
 int mode_cold_burst(pmk_ctx *c) {
   pal_set_timer_slack_min();
   int order[PMK_MAX_TYPES] = {0, 1, 2, 3};

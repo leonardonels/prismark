@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-#define PMK_ABI_VERSION 5
+#define PMK_ABI_VERSION 7
 
 /* Return codes. */
 enum {
@@ -100,6 +100,8 @@ typedef struct pmk_event {
   const char *message; /* human-readable */
   uint32_t step, steps;/* position within the phase; steps may be 0 if unknown */
   double temp_c;       /* CPU temperature, NaN if unavailable */
+  double remaining_s;  /* estimated seconds left in the run, NaN before the modes start (ABI 7; check
+                          struct_size before reading) */
 } pmk_event;
 
 typedef void (*pmk_progress_fn)(const pmk_event *ev, void *user);
@@ -125,6 +127,14 @@ int pmk_start(const pmk_config *cfg, pmk_progress_fn cb, void *user,
 int pmk_compare(const char *a_json, const char *b_json, const char *profiles_json, char **report_json,
                 char **report_text);
 
+/*
+ * ABI 6. The headline results the desktop app shows (3D rendering on all cores, Opening a photo, ...) read
+ * from two documents and set side by side, A against B, as text. Each document is a result (prismark/1) or a
+ * reference system (prismark-reference/1, see references/README.md), so a run can be compared with a
+ * reference that holds only typed-in values. PMK_ERR_INVALID when a document is neither; *report_text says why.
+ */
+int pmk_compare_headline(const char *a_json, const char *b_json, char **report_text);
+
 /* The default profiles as a JSON document, editable and passable to pmk_compare. Free with pmk_free. */
 char *pmk_default_profiles(void);
 
@@ -146,6 +156,31 @@ int pmk_checksums_ex(const char *k1_data, const char *kernels, int burst_only, c
  * Cheap (no measurement); front-ends call it before offering tests.
  */
 int pmk_info(char **info_json);
+
+/*
+ * ABI 6. The name the desktop app shows for a kernel id ("K3" -> "Compression") or a mode id ("st_burst" ->
+ * "one core, short task"); the id itself when it is neither. Static storage, not freed.
+ */
+const char *pmk_display_name(const char *id);
+
+/* ABI 6. What a front-end lists about a result document without reading its samples. */
+typedef struct pmk_brief {
+  uint32_t struct_size;   /* set to sizeof(pmk_brief) */
+  char run_id[64];
+  char started_utc[32];   /* e.g. "2026-10-08T18:48:01Z"; empty if absent */
+  char model[128];        /* CPU model */
+  char frontend[16];      /* "cli", "gui", ... */
+  int32_t quick;          /* 1 quick run, 0 full run, -1 not recorded */
+  int32_t complete;       /* 0 if cancelled or failed part-way */
+  uint32_t modes;         /* PMK_MODE_* bits of the modes with results */
+} pmk_brief;
+
+/*
+ * Reads a result document: fills *brief and, when summary_text is not NULL, sets *summary_text to the summary
+ * pmk_start returned for it (stored in documents written since ABI 6; NULL for older ones). Free it with
+ * pmk_free. PMK_ERR_INVALID when the text is not a Prismark result.
+ */
+int pmk_describe(const char *result_json, pmk_brief *brief, char **summary_text);
 
 /*
  * Reports keyboard or mouse activity (async-signal-safe). Cold burst and
