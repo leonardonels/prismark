@@ -222,10 +222,15 @@ Your results and the compile-test snapshot are kept. To remove them too:
 rm -rf ~/.local/share/prismark                 # results/ and the k1x/ snapshot
 ```
 
-A portable Windows x86-64 build (desktop app, runner and DLLs in one zip) can be
-cross-compiled on Linux with llvm-mingw and Qt for Windows:
+Windows is shipped as a portable zip, not an installer: unzip it and start
+`prismark-gui.exe`. The folder holds everything the app and `prismark.exe`
+need (Qt, its plugins and the C++ runtime), so nothing has to be installed;
+it needs 64-bit Windows 10 or later. Every push builds it in CI
+(`windows-portable`, downloadable from the run). It is cross-compiled on Linux
+with llvm-mingw and Qt for Windows:
 `tools/package-windows.sh <llvm-mingw> <Qt/6.8.3/llvm-mingw_64> <Qt/6.8.3/gcc_64>`
-(the script lists where to get them). It leaves out Compiling code and Full
+(the script lists where to get them), which refuses to zip a folder in which a
+DLL any binary needs is missing. It leaves out Compiling code and Full
 software build.
 
 ## Running

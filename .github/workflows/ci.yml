@@ -48,28 +48,43 @@ jobs:
           name: checksums-${{ matrix.runner }}
           path: checksums-*.json
 
-  # Windows x86-64, cross-built with the llvm-mingw that tools/package-windows.sh uses: the command line and the
-  # tier modules (no desktop app, no compile tests). Built only; nothing runs Windows binaries here.
-  windows-cross:
+  # Windows x86-64 portable package: the desktop app, the command line, the tier modules, Qt and the C++ runtime
+  # in one folder, zipped (tools/package-windows.sh, which fails when a DLL any binary needs is neither in the
+  # folder nor part of Windows). The compile tests are not built. Built only: nothing runs Windows binaries here.
+  windows-portable:
     runs-on: ubuntu-24.04
     env:
       LLVM_MINGW: llvm-mingw-20250114-ucrt-ubuntu-20.04-x86_64
+      QT_VERSION: "6.8.3"
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install Ninja and llvm-mingw
+      - name: Install Ninja, llvm-mingw and aqtinstall
         run: |
-          sudo apt-get install -y ninja-build
+          sudo apt-get install -y ninja-build zip
           curl -sSfL "https://github.com/mstorsjo/llvm-mingw/releases/download/20250114/$LLVM_MINGW.tar.xz" | tar xJ
+          pipx install aqtinstall
 
-      - name: Configure
-        run: >
-          cmake -S . -B build/windows-cross -G Ninja -DCMAKE_BUILD_TYPE=Release
-          -DCMAKE_TOOLCHAIN_FILE="$PWD/cmake/toolchains/windows-cross-llvm-mingw.cmake"
-          -DLLVM_MINGW="$PWD/$LLVM_MINGW" -DPRISMARK_GUI=OFF -DPRISMARK_K1=OFF -DBUILD_TESTING=OFF
+      - name: Cache Qt
+        id: qt
+        uses: actions/cache@v4
+        with:
+          path: Qt
+          key: qt-${{ env.QT_VERSION }}-win64_llvm_mingw-linux_gcc_64
 
-      - name: Build
-        run: cmake --build build/windows-cross
+      - name: Install Qt for Windows and the host Qt
+        if: steps.qt.outputs.cache-hit != 'true'
+        run: |
+          aqt install-qt windows desktop "$QT_VERSION" win64_llvm_mingw -O Qt
+          aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 -O Qt
+
+      - name: Build and package
+        run: tools/package-windows.sh "$LLVM_MINGW" "Qt/$QT_VERSION/llvm-mingw_64" "Qt/$QT_VERSION/gcc_64" dist
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prismark-windows-x86_64-portable
+          path: dist/*.zip
 
   # Gate 2: kernel outputs identical on x86-64 and ARM64.
   checksum-gate:

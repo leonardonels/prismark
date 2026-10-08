@@ -4,6 +4,8 @@
 #
 #   tools/package-windows.sh LLVM_MINGW QT_WINDOWS QT_HOST [OUT_DIR]
 #
+# The build goes to build/windows-cross, or to $PRISMARK_BUILD_DIR when set.
+#
 #   LLVM_MINGW  llvm-mingw 20250114 (LLVM 19.1.7), ucrt-ubuntu-x86_64 release
 #   QT_WINDOWS  Qt for Windows built with llvm-mingw, e.g. .../Qt/6.8.3/llvm-mingw_64
 #   QT_HOST     host Qt of the same version, for moc and rcc, e.g. .../Qt/6.8.3/gcc_64
@@ -16,13 +18,13 @@
 # libraries built for Windows. The app lists them as unavailable.
 set -euo pipefail
 
-[ $# -ge 3 ] || { sed -n 2,16p "$0"; exit 2; }
+[ $# -ge 3 ] || { sed -n 2,18p "$0"; exit 2; }
 LLVM_MINGW=$(realpath "$1")
 QT_WIN=$(realpath "$2")
 QT_HOST=$(realpath "$3")
 SRC=$(cd "$(dirname "$0")/.." && pwd)
 OUT=$(realpath -m "${4:-$SRC/build}")
-BUILD=$SRC/build/windows-cross
+BUILD=$(realpath -m "${PRISMARK_BUILD_DIR:-$SRC/build/windows-cross}")
 
 cmake -S "$SRC" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DCMAKE_TOOLCHAIN_FILE="$SRC/cmake/toolchains/windows-cross-llvm-mingw.cmake" \
@@ -45,6 +47,24 @@ cp "$QT_WIN"/plugins/iconengines/qsvgicon.dll "$STAGE"/iconengines/
 # The C++ runtime the binaries were linked against (newer than Qt's own copy, and compatible with it).
 cp "$LLVM_MINGW"/x86_64-w64-mingw32/bin/{libc++,libunwind}.dll "$STAGE"/
 cp "$SRC"/LICENSE "$STAGE"/
+# What someone who unzips it needs to know, with Windows line ends.
+sed 's/$/\r/' > "$STAGE"/README.txt <<TXT
+Prismark $VERSION for Windows x86-64, portable
+
+Unzip anywhere and start prismark-gui.exe (the desktop app). Nothing is installed and
+nothing else is needed: Qt and the C++ runtime are in this folder. Needs 64-bit
+Windows 10 or later.
+
+prismark.exe is the command line (prismark help). The desktop app starts it for
+every run, so keep both in the same folder.
+
+Results are saved in %LOCALAPPDATA%\prismark\results, shared by the app and the
+command line.
+
+Not included: "Compiling code" and "Full software build" (the compile tests). They
+need the Clang compiler libraries, which this build does not carry; the app lists
+them as unavailable.
+TXT
 mkdir -p "$STAGE"/references && cp "$SRC"/references/*.json "$STAGE"/references/   # for prismark compare
 
 # Every DLL a binary imports must be in the folder or be part of Windows.
