@@ -1577,9 +1577,11 @@ static int cmd_references(int argc, char **argv) {
   for (size_t i = 0; i < l.n; i++)
     printf("%s%-28s%s %s%-16s%s %s%s\n", o(BOLD), l.v[i].id, o(RESET), !strcmp(l.v[i].kind, "placeholder") ? o(YELLOW) : "",
            l.v[i].kind, o(RESET), l.v[i].name, l.v[i].own ? "  (yours)" : "");
-  printf("\n%sCompare a run with one: prismark compare latest %s. Placeholders hold example values, not\n"
-         "measurements. Save a run of yours as one: prismark references add RUN NAME.%s\n",
-         o(DIM), l.v[0].id, o(RESET));
+  int placeholders = 0;
+  for (size_t i = 0; i < l.n; i++) placeholders |= !strcmp(l.v[i].kind, "placeholder");
+  printf("\n%sCompare a run with one: prismark compare latest %s.%s\nSave a run of yours as one: prismark references "
+         "add RUN NAME.%s\n",
+         o(DIM), l.v[0].id, placeholders ? " Placeholders hold example values, not measurements." : "", o(RESET));
   return 0;
 }
 
