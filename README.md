@@ -424,9 +424,9 @@ started from the applications menu like any other app.
   Menu › Open result imports files; Menu › Compare runs `prismark compare`.
 - The reference systems in the rankings come from the repository's
   [`references/`](references/README.md) folder, one file per system, built into
-  the app: add a file to add a system, delete it to remove one. Today they are
-  **placeholders**, not measurements, and are labelled as such; result files from
-  real reference machines go in the same folder. Users can add their own in
+  the app: add a file to add a system, delete it to remove one. They are result
+  files from real machines; placeholders (example values typed in by hand) are
+  still accepted and labelled as such. Users can add their own in
   `results/references` of the shared results folder, without rebuilding.
 
 `apps/viewer` is the static web page for cross-device comparison (spec 7.3):

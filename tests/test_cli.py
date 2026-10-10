@@ -11,6 +11,7 @@ the build folder). Takes about 15 s: one short run, one stopped with Ctrl+C, one
 
 Copyright 2026 The Prismark Authors. Apache-2.0.
 """
+import json
 import os
 import shutil
 import signal
@@ -49,6 +50,14 @@ class Cli(unittest.TestCase):
 
     def refs_dir(self):
         return os.path.join(self.home, "data", "prismark", "results", "references")
+
+    def add_placeholder(self, name):
+        """A placeholder reference (example values) in the user's references folder."""
+        os.makedirs(self.refs_dir(), exist_ok=True)
+        with open(os.path.join(self.refs_dir(), name + ".json"), "w") as f:
+            json.dump({"schema": "prismark-reference/1", "placeholder": True, "name": "Example 4 cores",
+                       "machine": {"os": "linux", "isa": "x86_64", "cpus": 4, "types": "4×P"},
+                       "results": {"mc_k2": {"value": 9.5, "uncertainty": 0.02}, "st_k2": {"value": 2.6}}}, f)
 
     # ---------- help and usage ----------
 
@@ -128,6 +137,8 @@ class Cli(unittest.TestCase):
     def test_references(self):
         out, _ = self.run_cli("references", "--ids")
         self.assertIn("intel-i5-1035g1", out.split())
+        self.assertIn("intel-i9-14900k", out.split())
+        self.add_placeholder("example-4c")
         out, _ = self.run_cli("references")
         self.assertIn("placeholder", out)
         _, err = self.run_cli("references", "remove", "intel-i5-1035g1", code=1)
@@ -148,7 +159,8 @@ class Cli(unittest.TestCase):
         self.assertIn("Percentages are compared by their difference in points", out)
         out, _ = self.run_cli("compare", a, a)
         self.assertIn("A and B are the same run", out)
-        out, _ = self.run_cli("compare", a, "mini-4c")
+        self.add_placeholder("example-4c")
+        out, _ = self.run_cli("compare", a, "example-4c")
         self.assertIn("placeholder holds example values", out)
         _, err = self.run_cli("compare", a, code=2)
         self.assertIn("compare needs two runs", err)

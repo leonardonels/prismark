@@ -19,10 +19,10 @@ Users can add their own references without rebuilding: the app also reads
 
 **A real result.** A `prismark-*.json` written by a run on a reference
 machine. Copy it here as it is: the app reads its values, its machine and its
-instruction sets from it. This is what references should eventually be.
+instruction sets from it. Every system shipped here is one.
 
 **A placeholder.** Example values, typed in by hand, for a ranking to compare
-against until real results exist. The app tags them PLACEHOLDER and shows a
+against when no real result exists (none are shipped). The app tags them PLACEHOLDER and shows a
 banner while any are loaded. The format:
 
 ```json
