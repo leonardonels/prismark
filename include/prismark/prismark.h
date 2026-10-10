@@ -56,7 +56,7 @@ typedef struct pmk_config {
   double max_background_load;/* preflight abort threshold, fraction of all CPUs */
   const char *frontend;      /* "cli", "gui", ... recorded with the result */
   const char *ui_state;      /* e.g. "none", "frozen" */
-  int32_t cold_max_reps;     /* maximum repetitions per cold-burst series (default 1000) */
+  int32_t cold_max_reps;     /* maximum repetitions per cold-burst series (default 300; each waits 50-500 ms) */
   /* ABI 2 */
   double window_ms;          /* perf(t) window for sustained runs (default 1000) */
   double sustained_min_s;    /* unused since ABI 5 (was: the steady-state search's minimum); see measure_s */

@@ -10,6 +10,7 @@
  */
 #include <math.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "ctx.h"
 #include "stats.h"
@@ -124,6 +125,7 @@ static int run_type(pmk_ctx *c, int type) {
 
   calibrate(c, type, cpu);
   const pmk_calib *cal = &c->calib[type];
+  int by_time = strcmp(cal->method, "perf") || !(info && info->max_khz > 0);
   ctx_emit(c, PMK_EV_INFO, "cold_burst", "K9", 0, 0, "core %s (CPU %d): %.2f cycles/iteration (%s), %.0f MHz",
            c->m.type_names[type], cpu, cal->cycles_per_iter, cal->method, cal->implied_mhz);
 
@@ -145,7 +147,10 @@ static int run_type(pmk_ctx *c, int type) {
       r->cpu = cpu;
       r->warm = warm;
       r->w_ms = w_ms;
-      r->w_cycles = (uint64_t)llround(w_ms * khz);
+      /* Without measured cycles or a known maximum clock, the task is sized by time at the warm clock instead
+         (the assumed cycles per add can be wrong, and the clock is unknown). */
+      r->w_cycles = by_time ? (uint64_t)llround(w_ms * 1e6 / cal->ns_per_iter * cal->cycles_per_iter)
+                            : (uint64_t)llround(w_ms * khz);
       r->iters = iters_for(c, type, r->w_cycles);
       rc = warm ? measure_warm(c, r) : measure_cold(c, r);
     }

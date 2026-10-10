@@ -1119,7 +1119,7 @@ static void help_advanced(FILE *f) {
           "  --seed N                 experiment seed (default: random, recorded)\n"
           "  --min-reps N             minimum repetitions per series (default 20)\n"
           "  --max-reps N             maximum repetitions per warm series (default 100)\n"
-          "  --cold-max-reps N        maximum repetitions per started-from-rest series (default 1000)\n"
+          "  --cold-max-reps N        maximum repetitions per started-from-rest series (default 300)\n"
           "  --warmup S               full load before each warmed-up mode, not scored (default 60)\n"
           "  --settle S               before each warmed-up series, not scored (default 5)\n"
           "  --measure S              measured per warmed-up series; Compiling code three times (default 20)\n"
