@@ -21,6 +21,12 @@ Users can add their own references without rebuilding: the app also reads
 machine. Copy it here as it is: the app reads its values, its machine and its
 instruction sets from it. Every system shipped here is one.
 
+Several runs of one machine can be merged into one file that keeps, for each
+test, the run where it scored best: `tools/merge-best.py OUT RUN RUN...`. It
+also recomputes the scaling and the ratios from the merged samples. The
+`intel-i9-14900k` reference is the best of two runs (`merged_from` lists
+their run IDs).
+
 **A placeholder.** Example values, typed in by hand, for a ranking to compare
 against when no real result exists (none are shipped). The app tags them PLACEHOLDER and shows a
 banner while any are loaded. The format:
