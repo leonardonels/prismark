@@ -2218,30 +2218,37 @@ static int cmd_menu(void) {
   }
 }
 
-#ifdef _WIN32
-/* The portable package carries the compile tests' build tools (cmake, ninja, clang-19) in tools\bin beside the
+/* The portable packages carry the compile tests' build tools (cmake, ninja, clang-19) in tools/bin beside the
    program: first in PATH, for this process and every one it starts. */
 static void use_bundled_tools(void) {
   char exe[1100], tools[1200];
   if (exe_dir(exe, sizeof exe)) return;
+#ifdef _WIN32
   snprintf(tools, sizeof tools, "%s\\tools\\bin", exe);
   DWORD attr = GetFileAttributesA(tools);
   if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) return;
+#else
+  struct stat st;
+  snprintf(tools, sizeof tools, "%s/tools/bin", exe);
+  if (stat(tools, &st) || !S_ISDIR(st.st_mode)) return;
+#endif
   const char *path = getenv("PATH");
   size_t len = strlen(tools) + (path ? strlen(path) : 0) + 2;
   char *p = malloc(len);
   if (!p) return;
+#ifdef _WIN32
   snprintf(p, len, "%s%s%s", tools, path && *path ? ";" : "", path ? path : "");
   SetEnvironmentVariableA("PATH", p);
   _putenv_s("PATH", p); /* getenv in this process sees it too */
+#else
+  snprintf(p, len, "%s%s%s", tools, path && *path ? ":" : "", path ? path : "");
+  setenv("PATH", p, 1);
+#endif
   free(p);
 }
-#endif
 
 int main(int argc, char **argv) {
-#ifdef _WIN32
   use_bundled_tools();
-#endif
   int no_color = 0;
   for (int i = 1; i < argc; i++) no_color |= !strcmp(argv[i], "--no-color") || !strcmp(argv[i], "--no-colour");
   term_init(no_color);

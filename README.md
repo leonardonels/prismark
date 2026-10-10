@@ -242,6 +242,21 @@ downloaded at pinned versions and checked. Packaging refuses to zip a folder
 in which a DLL any binary needs is missing. `PRISMARK_COMPILE_TESTS=0` builds
 the package without the compile tests.
 
+Linux has a portable package too, a `.tar.gz` built the same way: unpack it
+and start `./prismark-gui`, with nothing to install, so it also runs from a
+live USB session. It carries Qt, every library a desktop distribution may
+lack, and the compile tests' snapshot and tools (Clang 19, CMake, Ninja).
+Build it on the oldest distribution it should run on (Ubuntu 22.04 covers
+22.04 and later), with Clang 19 from apt.llvm.org and the official Qt 6:
+
+```sh
+aqt install-qt linux desktop 6.8.3 linux_gcc_64 -O Qt
+K1X_SNAPSHOT=~/.local/share/prismark/k1x tools/package-linux.sh Qt/6.8.3/gcc_64
+```
+
+It refuses to pack a folder in which a program or plugin would take a
+library from the system that is not on every desktop.
+
 ## Running
 
 ```sh

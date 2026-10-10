@@ -23,12 +23,10 @@
 
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
-#ifdef Q_OS_WIN
-  /* The portable package carries the compile tests' build tools (cmake, ninja, clang-19) in tools\bin: first in
+  /* The portable packages carry the compile tests' build tools (cmake, ninja, clang-19) in tools/bin: first in
      PATH, so the checks before a run find them and the runner inherits them. */
   const QString tools = QDir::toNativeSeparators(QCoreApplication::applicationDirPath() + "/tools/bin");
-  if (QFileInfo(tools).isDir()) qputenv("PATH", (tools + ";").toLocal8Bit() + qgetenv("PATH"));
-#endif
+  if (QFileInfo(tools).isDir()) qputenv("PATH", (tools + QDir::listSeparator()).toLocal8Bit() + qgetenv("PATH"));
   QApplication::setOrganizationName("Prismark");
   QApplication::setApplicationName("Prismark");
   QApplication::setApplicationVersion(PMK_VERSION);
