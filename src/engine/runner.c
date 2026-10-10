@@ -69,7 +69,7 @@ void pmk_config_init(pmk_config *cfg) {
   cfg->cpu = -1;
   cfg->min_reps = 20;
   cfg->max_reps = 100;
-  cfg->cold_max_reps = 1000;
+  cfg->cold_max_reps = 300;
   cfg->periodic_period_ms = 1.0;
   cfg->periodic_seconds = 60.0;
   cfg->max_background_load = 0.05;
@@ -484,6 +484,10 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
       jw_obj_begin(w, "mhz_by_domain");
       for (int i = 0; i < r->nclock_dom; i++) samples_json(w, r->clock_dom[i], r->mhz_dom[i].v, r->mhz_dom[i].n, 1);
       jw_obj_end(w);
+      jw_arr_begin(w, "idle_domains");
+      for (int i = 0; i < r->nclock_dom; i++)
+        if (r->clock_idle[i]) jw_str(w, NULL, r->clock_dom[i]);
+      jw_arr_end(w);
     }
     samples_json(w, "power_w", r->power.v, r->power.n, 0);
     samples_json(w, "job_ns", r->job_ns.v, r->job_ns.n, 1);
@@ -605,7 +609,7 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   if (!c->cfg.modes) c->cfg.modes = PMK_MODE_ALL;
   if (!c->cfg.frontend) c->cfg.frontend = "unknown";
   if (!c->cfg.ui_state) c->cfg.ui_state = "unknown";
-  if (c->cfg.cold_max_reps <= 0) c->cfg.cold_max_reps = 1000;
+  if (c->cfg.cold_max_reps <= 0) c->cfg.cold_max_reps = 300;
   if (cfg_in->struct_size < offsetof(pmk_config, input_watch) + sizeof(const char *)) c->cfg.input_watch = NULL;
   if (cfg_in->struct_size < offsetof(pmk_config, window_ms) + sizeof(double)) { /* ABI 1 caller */
     pmk_config d;

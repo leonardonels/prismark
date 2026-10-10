@@ -46,9 +46,11 @@ typedef struct pmk_result {
   double window_ms;
   pmk_dvec temps;      /* CPU temperature at the end of each window */
   pmk_dvec mhz;        /* average clock of the series' CPUs at the end of each window, 0 if unknown */
-  /* The same per clock domain (core type, last-level cache domain) the series' CPUs use, on machines with several. */
+  /* The same per clock domain (core type, last-level cache domain), on machines with several: every domain of the
+     machine, those the series does not run on marked idle (their clock is the average of all their CPUs). */
   int nclock_dom;
   char clock_dom[PMK_MAX_CLOCK_DOMAINS][16]; /* "P", "E", "CCX1", "P CCX0" */
+  int clock_idle[PMK_MAX_CLOCK_DOMAINS];
   pmk_dvec mhz_dom[PMK_MAX_CLOCK_DOMAINS];
   pmk_dvec power;      /* package power over each window in W, NaN if unknown */
   int clamped;         /* measured windows below the platform-clamp threshold (see wl_sustained) */

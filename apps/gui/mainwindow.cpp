@@ -793,16 +793,17 @@ void MainWindow::refreshContext() {
       if (std::isfinite(x.perf)) perf.pts.push_back({double(x.n), x.perf, NAN, NAN});
       if (std::isfinite(x.mhz)) ghz.pts.push_back({double(x.n), x.mhz / 1000, NAN, NAN});
       for (const auto &d : x.mhzBy) {
-        if (!std::isfinite(d.second)) continue;
-        auto it = std::find_if(clocks.begin(), clocks.end(), [&](const ChartLine &l) { return l.name == d.first; });
+        if (!std::isfinite(d.mhz)) continue;
+        auto it = std::find_if(clocks.begin(), clocks.end(), [&](const ChartLine &l) { return l.name == d.domain; });
         if (it == clocks.end()) {
           ChartLine l = ghz;
-          l.name = d.first;
+          l.name = d.domain;
           l.pts.clear();
           clocks.push_back(l);
           it = clocks.end() - 1;
         }
-        it->pts.push_back({double(x.n), d.second / 1000, NAN, NAN});
+        it->pts.push_back({double(x.n), d.mhz / 1000, NAN, NAN});
+        if (d.idle) it->muted.insert(double(x.n)); /* not running the test: greyed out */
       }
     }
     std::sort(clocks.begin(), clocks.end(), [](const ChartLine &a, const ChartLine &b) {

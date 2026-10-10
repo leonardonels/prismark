@@ -197,6 +197,16 @@ int pal_init(pmk_machine *m) {
   m->caps.pinning = 1;
   m->caps.perf_counters = 0; /* QueryThreadCycleTime counts reference cycles, not core cycles */
   m->caps.timer_slack = g_high_res_timer;
+  /* The runner has no window, so Windows 11 would treat it as a background process: EcoQoS (low clocks, E-cores)
+     and timer resolution requests ignored. Opt out, as a foreground program runs. */
+  PROCESS_POWER_THROTTLING_STATE pt = {PROCESS_POWER_THROTTLING_CURRENT_VERSION,
+                                       PROCESS_POWER_THROTTLING_EXECUTION_SPEED |
+                                           PROCESS_POWER_THROTTLING_IGNORE_TIMER_RESOLUTION,
+                                       0};
+  typedef BOOL(WINAPI * set_process_information)(HANDLE, PROCESS_INFORMATION_CLASS, LPVOID, DWORD);
+  set_process_information spi =
+      (set_process_information)(void *)GetProcAddress(GetModuleHandleW(L"kernel32.dll"), "SetProcessInformation");
+  if (spi) spi(GetCurrentProcess(), ProcessPowerThrottling, &pt, sizeof pt); /* Windows 8 and later */
   find_power(&m->caps);
   clock_open();
   return 0;

@@ -10,6 +10,7 @@
 #include <array>
 
 #include <QAbstractButton>
+#include <QSet>
 #include <QString>
 #include <QStringList>
 #include <QVector>
@@ -64,6 +65,7 @@ struct ChartLine {
   bool overlay = false;
   QString unit;
   int color = -1; /* seriesColor index; -1: the line's position */
+  QSet<double> muted; /* x of points drawn greyed out (an idle core type's clock), with the segments touching them */
 };
 
 class ChartView : public QWidget {

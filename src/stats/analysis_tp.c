@@ -343,6 +343,10 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
         jw_obj_begin(w, "mhz_by_domain");
         for (int i = 0; i < r->nclock_dom; i++) jw_num(w, r->clock_dom[i], steady_median(r, &r->mhz_dom[i]));
         jw_obj_end(w);
+        jw_arr_begin(w, "idle_domains");
+        for (int i = 0; i < r->nclock_dom; i++)
+          if (r->clock_idle[i]) jw_str(w, NULL, r->clock_dom[i]);
+        jw_arr_end(w);
       }
       jw_num(w, "power_w", steady_median(r, &r->power));
     } else {
