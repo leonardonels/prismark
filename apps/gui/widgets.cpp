@@ -353,9 +353,17 @@ void ChartView::paintEvent(QPaintEvent *) {
       p.setBrush(a);
       p.drawPath(area);
     }
-    p.setPen(QPen(c, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
     p.setBrush(Qt::NoBrush);
-    p.drawPath(path);
+    if (l.muted.isEmpty()) {
+      p.setPen(QPen(c, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
+      p.drawPath(path);
+    } else { /* segments touching a muted point: thin, dashed, grey */
+      for (int k = 1; k < l.pts.size(); k++) {
+        bool grey = l.muted.contains(l.pts[k - 1][0]) || l.muted.contains(l.pts[k][0]);
+        p.setPen(grey ? QPen(t.faint, 1.5, Qt::DashLine, Qt::RoundCap) : QPen(c, 2, Qt::SolidLine, Qt::RoundCap));
+        p.drawLine(QPointF(fx(l.pts[k - 1][0]), fy(l.pts[k - 1][1])), QPointF(fx(l.pts[k][0]), fy(l.pts[k][1])));
+      }
+    }
     for (const auto &pt : l.pts) {
       if (std::isfinite(pt[2]) && std::isfinite(pt[3])) {
         p.setPen(QPen(c, 1.2));
@@ -364,7 +372,7 @@ void ChartView::paintEvent(QPaintEvent *) {
         p.setClipping(false);
       }
       p.setPen(QPen(t.card, 1.5));
-      p.setBrush(c);
+      p.setBrush(l.muted.contains(pt[0]) ? t.faint : c);
       p.drawEllipse(QPointF(fx(pt[0]), fy(pt[1])), 3.2, 3.2);
     }
     p.setPen(Qt::NoPen);
@@ -384,8 +392,9 @@ void ChartView::paintEvent(QPaintEvent *) {
         double v = lines_[i].pts[k][1];
         if (!std::isfinite(v)) continue;
         QString s = formatValue(v) + (lines_[i].unit.isEmpty() ? QString() : " " + lines_[i].unit);
-        byX[lines[i].pts[k][0]].push_back({fx(lines[i].pts[k][0]), fy(lines[i].pts[k][1]) - 7, s,
-                                           seriesColor(lines[i].color >= 0 ? lines[i].color : i), i});
+        QColor c = lines[i].muted.contains(lines[i].pts[k][0]) ? t.faint
+                                                               : seriesColor(lines[i].color >= 0 ? lines[i].color : i);
+        byX[lines[i].pts[k][0]].push_back({fx(lines[i].pts[k][0]), fy(lines[i].pts[k][1]) - 7, s, c, i});
       }
     QMap<int, double> lastRight; /* per line: where its previous label ended; closer points go unlabelled */
     for (auto it = byX.begin(); it != byX.end(); ++it) {

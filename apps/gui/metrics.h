@@ -74,7 +74,8 @@ struct RunSummary {
     int n;
     double perf, mhz, watts;
     QString unit;
-    QVector<QPair<QString, double>> mhzBy; /* clock per domain (core type, CCX), when the threads spanned several */
+    struct Clock { QString domain; double mhz; bool idle; };
+    QVector<Clock> mhzBy; /* clock per domain (core type, CCX) on machines with several; idle: no thread ran there */
   };
   QVector<ColdPt> cold;
   QVector<ScalePt> scaling;

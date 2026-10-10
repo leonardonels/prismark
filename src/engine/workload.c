@@ -181,11 +181,12 @@ static void *threaded_main(void *arg) {
 }
 
 /*
- * Clock domains of a series: CPUs of one core type in one last-level cache domain run at one clock (a CCX on AMD,
- * a core type on hybrid processors). dom[i] is thread i's domain; the names of the domains the threads use go to r.
- * r->nclock_dom stays 0 on machines with a single domain.
+ * Clock domains: CPUs of one core type in one last-level cache domain run at one clock (a CCX on AMD, a core type
+ * on hybrid processors). On machines with several, every series records the clock of each, so a chart can follow
+ * a domain across thread counts: cpu_dom[j] is machine CPU j's domain and dom[i] thread i's, and the domains no
+ * thread runs on are marked idle in r. r->nclock_dom stays 0 on machines with a single domain.
  */
-static void clock_domains(const pmk_ctx *c, const sus_spec *s, pmk_result *r, int *dom) {
+static void clock_domains(const pmk_ctx *c, const sus_spec *s, pmk_result *r, int *cpu_dom, int *dom) {
   const pmk_machine *m = &c->m;
   int key[PMK_MAX_CLOCK_DOMAINS], n = 0, many_llc[PMK_MAX_TYPES] = {0}, llc_of_type[PMK_MAX_TYPES];
   for (int t = 0; t < PMK_MAX_TYPES; t++) llc_of_type[t] = -1;
@@ -194,13 +195,8 @@ static void clock_domains(const pmk_ctx *c, const sus_spec *s, pmk_result *r, in
     if (llc_of_type[t] < 0) llc_of_type[t] = m->cpus[i].llc;
     else if (llc_of_type[t] != m->cpus[i].llc) many_llc[t] = 1;
   }
-  int machine_domains = m->ntypes > 1;
-  for (int t = 0; t < PMK_MAX_TYPES; t++) machine_domains |= many_llc[t];
-  for (int i = 0; i < s->nthreads; i++) {
-    const pmk_cpu *cpu = &m->cpus[i % m->ncpu];
-    if (s->cpus)
-      for (int j = 0; j < m->ncpu; j++)
-        if (m->cpus[j].id == s->cpus[i]) cpu = &m->cpus[j];
+  for (int j = 0; j < m->ncpu; j++) {
+    const pmk_cpu *cpu = &m->cpus[j];
     int k = cpu->type * 4096 + (many_llc[cpu->type] ? cpu->llc : 0), d = 0;
     while (d < n && key[d] != k) d++;
     if (d == n && n < PMK_MAX_CLOCK_DOMAINS) {
@@ -211,7 +207,7 @@ static void clock_domains(const pmk_ctx *c, const sus_spec *s, pmk_result *r, in
                  strstr(m->model, "AMD") ? "CCX" : "L3 ", cpu->llc);
       else snprintf(r->clock_dom[d], sizeof r->clock_dom[d], "%s", type);
     }
-    dom[i] = d < n ? d : n - 1;
+    cpu_dom[j] = d < n ? d : n - 1;
   }
   /* In the order of the domains' keys: by core type, then by cache domain. */
   for (int a = 0; a < n; a++)
@@ -223,9 +219,18 @@ static void clock_domains(const pmk_ctx *c, const sus_spec *s, pmk_result *r, in
         memcpy(name, r->clock_dom[a], sizeof name);
         memcpy(r->clock_dom[a], r->clock_dom[b], sizeof name);
         memcpy(r->clock_dom[b], name, sizeof name);
-        for (int i = 0; i < s->nthreads; i++) dom[i] = dom[i] == a ? b : dom[i] == b ? a : dom[i];
+        for (int j = 0; j < m->ncpu; j++) cpu_dom[j] = cpu_dom[j] == a ? b : cpu_dom[j] == b ? a : cpu_dom[j];
       }
-  r->nclock_dom = machine_domains ? n : 0;
+  for (int d = 0; d < n; d++) r->clock_idle[d] = 1;
+  for (int i = 0; i < s->nthreads; i++) {
+    int j = i % m->ncpu;
+    if (s->cpus)
+      for (int k = 0; k < m->ncpu; k++)
+        if (m->cpus[k].id == s->cpus[i]) j = k;
+    dom[i] = cpu_dom[j];
+    r->clock_idle[dom[i]] = 0;
+  }
+  r->nclock_dom = n > 1 ? n : 0;
 }
 
 int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
@@ -286,9 +291,10 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
     /* Monitor: a fixed number of windows. It records the temperature, clock, package power and the core of
        worker 0 per window;
        the throughput of each window is read after the run, once every task has been credited. */
-    int *cpu_of = calloc(total_w, sizeof *cpu_of), *dom = calloc((size_t)s->nthreads, sizeof *dom);
-    if (!cpu_of || !dom) rc = PMK_ERR_NOMEM;
-    else clock_domains(c, s, r, dom);
+    int *cpu_of = calloc(total_w, sizeof *cpu_of), *dom = calloc((size_t)s->nthreads, sizeof *dom),
+        *cpu_dom = calloc((size_t)c->m.ncpu, sizeof *cpu_dom);
+    if (!cpu_of || !dom || !cpu_dom) rc = PMK_ERR_NOMEM;
+    else clock_domains(c, s, r, cpu_dom, dom);
     uint64_t last_event = t0_mono;
     pal_power pw;
     pal_power_start(&pw);
@@ -305,6 +311,12 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
       if (dvec_push(&r->temps, pal_cpu_temp_c()) || dvec_push(&r->mhz, nk ? khz / nk / 1000 : 0) ||
           dvec_push(&r->power, pal_power_read(&pw)))
         rc = PMK_ERR_NOMEM;
+      /* An idle domain's clock: the average of all its CPUs. */
+      for (int j = 0; j < c->m.ncpu && r->nclock_dom; j++)
+        if (r->clock_idle[cpu_dom[j]]) {
+          int k = pal_cpu_cur_khz(c->m.cpus[j].id);
+          if (k > 0) dkhz[cpu_dom[j]] += k, dn[cpu_dom[j]]++;
+        }
       for (int d = 0; d < r->nclock_dom; d++)
         if (dvec_push(&r->mhz_dom[d], dn[d] ? dkhz[d] / dn[d] / 1000 : 0)) rc = PMK_ERR_NOMEM;
       if (ctx_cancelled()) rc = PMK_ERR_CANCELLED;
@@ -327,6 +339,7 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
     }
     free(cpu_of);
     free(dom);
+    free(cpu_dom);
     r->elapsed_s = (double)r->n * win_s;
   }
 

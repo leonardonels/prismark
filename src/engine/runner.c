@@ -484,6 +484,10 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
       jw_obj_begin(w, "mhz_by_domain");
       for (int i = 0; i < r->nclock_dom; i++) samples_json(w, r->clock_dom[i], r->mhz_dom[i].v, r->mhz_dom[i].n, 1);
       jw_obj_end(w);
+      jw_arr_begin(w, "idle_domains");
+      for (int i = 0; i < r->nclock_dom; i++)
+        if (r->clock_idle[i]) jw_str(w, NULL, r->clock_dom[i]);
+      jw_arr_end(w);
     }
     samples_json(w, "power_w", r->power.v, r->power.n, 0);
     samples_json(w, "job_ns", r->job_ns.v, r->job_ns.n, 1);
