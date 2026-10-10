@@ -126,7 +126,7 @@ missing=0
 while read -r bin; do
   case $bin in "$STAGE"/tools/*) dir=$STAGE/tools/bin ;; *) dir=$STAGE ;; esac
   while read -r dll; do
-    if [ ! -e "$dir/$dll" ] && ! [[ ${dll,,} =~ ^(api-ms-win-|kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|ws2_32|winmm|powrprof|bcrypt|bcryptprimitives|comdlg32|imm32|dwmapi|uxtheme|version|netapi32|userenv|shlwapi|setupapi|cfgmgr32|d3d11|d3d12|dxgi|dcomp|d3d9|opengl32|authz|mpr|wtsapi32|crypt32|secur32|ntdll|dwrite|winspool|shcore|comctl32|rpcrt4|iphlpapi|propsys|runtimeobject|msvcrt|psapi|dbghelp) ]]; then
+    if [ ! -e "$dir/$dll" ] && ! [[ ${dll,,} =~ ^(api-ms-win-|kernel32|user32|gdi32|advapi32|shell32|ole32|oleaut32|ws2_32|winmm|powrprof|pdh|bcrypt|bcryptprimitives|comdlg32|imm32|dwmapi|uxtheme|version|netapi32|userenv|shlwapi|setupapi|cfgmgr32|d3d11|d3d12|dxgi|dcomp|d3d9|opengl32|authz|mpr|wtsapi32|crypt32|secur32|ntdll|dwrite|winspool|shcore|comctl32|rpcrt4|iphlpapi|propsys|runtimeobject|msvcrt|psapi|dbghelp) ]]; then
       echo "missing: $dll (needed by ${bin#"$STAGE"/})"; missing=1
     fi
   done < <("$OBJDUMP" -p "$bin" | sed -n 's/^ *DLL Name: //p' | sort -u)

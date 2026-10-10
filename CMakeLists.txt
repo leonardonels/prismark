@@ -95,7 +95,7 @@ elseif(PRISMARK_PAL STREQUAL "darwin")
   endif()
 else()
   set(PRISMARK_PAL_SOURCES pal/windows/pal_windows.c)
-  set(PRISMARK_PAL_LIBS powrprof bcrypt winmm user32)
+  set(PRISMARK_PAL_LIBS powrprof bcrypt winmm user32 pdh setupapi)
 endif()
 
 # ---- core library: engine, analysis, PAL ----

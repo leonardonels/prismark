@@ -10,8 +10,10 @@
  *   state        power plan (AC values of the active scheme): processor
  *                minimum and maximum state, idle disable. Read only: the
  *                machine is measured as it is configured.
- *   telemetry    no temperature or package power without a kernel driver;
- *                both are reported as unavailable.
+ *   telemetry    package power from the Energy Meter Interface (EMI), the
+ *                in-box RAPL front end; its device may admit administrators
+ *                only. Clock from the "% Processor Performance" counter.
+ *                No temperature without a kernel driver.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
@@ -21,7 +23,11 @@
 #include <bcrypt.h>
 #include <malloc.h>
 #include <math.h>
+#include <pdh.h>
+#include <pdhmsg.h>
 #include <powrprof.h>
+#include <setupapi.h>
+#include <winioctl.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -38,6 +44,19 @@ static _Thread_local HANDLE t_timer;
 static int g_high_res_timer;
 static GROUP_AFFINITY *g_cpu_affinity; /* per CPU index in pmk_machine.cpus order */
 static int g_ncpu;
+
+
+/* Power and clock telemetry (below). */
+static HANDLE g_emi = INVALID_HANDLE_VALUE;
+static int g_emi_channel, g_emi_channels; /* the package channel and the device's channel count */
+static SRWLOCK g_clock_lock = SRWLOCK_INIT;
+static PDH_HQUERY g_clock_query;
+static PDH_HCOUNTER g_clock_perf, g_clock_nominal;
+static uint64_t g_clock_ns; /* last collection */
+static int *g_clock_khz;    /* per CPU id */
+static int g_clock_n;
+static void find_power(pmk_caps *c);
+static void clock_open(void);
 
 /* ---------- machine description ---------- */
 
@@ -111,6 +130,26 @@ static int read_topology(pmk_machine *m) {
     off += e->Size;
   }
   free(buf);
+  /* Last-level cache domains: the CPUs each L3 (or, without one, L2) serves. */
+  for (int level = 3; level >= 2; level--) {
+    len = 0;
+    GetLogicalProcessorInformationEx(RelationCache, NULL, &len);
+    buf = malloc(len);
+    int domains = 0;
+    if (buf && GetLogicalProcessorInformationEx(RelationCache, (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)buf, &len))
+      for (DWORD off = 0; off < len;) {
+        PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX e = (PSYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX)(buf + off);
+        if (e->Cache.Level == level && e->Cache.Type != CacheInstruction) {
+          for (int i = 0; i < m->ncpu; i++)
+            if (g_cpu_affinity[i].Group == e->Cache.GroupMask.Group && (g_cpu_affinity[i].Mask & e->Cache.GroupMask.Mask))
+              m->cpus[i].llc = domains;
+          domains++;
+        }
+        off += e->Size;
+      }
+    free(buf);
+    if (domains) break;
+  }
   /* Rank efficiency classes, highest (fastest) first. */
   int rank[256], ntypes = 0;
   for (int cls = 255; cls >= 0; cls--)
@@ -158,10 +197,19 @@ int pal_init(pmk_machine *m) {
   m->caps.pinning = 1;
   m->caps.perf_counters = 0; /* QueryThreadCycleTime counts reference cycles, not core cycles */
   m->caps.timer_slack = g_high_res_timer;
+  find_power(&m->caps);
+  clock_open();
   return 0;
 }
 
 void pal_fini(pmk_machine *m) {
+  if (g_emi != INVALID_HANDLE_VALUE) CloseHandle(g_emi);
+  g_emi = INVALID_HANDLE_VALUE;
+  if (g_clock_query) PdhCloseQuery(g_clock_query);
+  g_clock_query = NULL;
+  free(g_clock_khz);
+  g_clock_khz = NULL;
+  g_clock_n = 0;
   free(m->cpus);
   m->cpus = NULL;
   free(g_cpu_affinity);
@@ -236,22 +284,68 @@ int pal_current_cpu(void) {
   return pn.Group * 64 + pn.Number;
 }
 
-/* PROCESSOR_POWER_INFORMATION is documented for CallNtPowerInformation but not declared in the SDK headers. */
-typedef struct pmk_proc_power {
-  ULONG Number, MaxMhz, CurrentMhz, MhzLimit, MaxIdleState, CurrentIdleState;
-} pmk_proc_power;
+/*
+ * The clock: CallNtPowerInformation reports CurrentMhz capped at the base clock on current CPUs, so it is not used.
+ * "% Processor Performance" (what Task Manager shows) is the delivered clock against the nominal one, averaged
+ * between two collections; times "Processor Frequency" (the nominal clock, per core type) it is the clock.
+ */
+static void clock_open(void) {
+  if (PdhOpenQueryW(NULL, 0, &g_clock_query)) return;
+  if (PdhAddEnglishCounterW(g_clock_query, L"\\Processor Information(*)\\% Processor Performance", 0, &g_clock_perf) ||
+      PdhAddEnglishCounterW(g_clock_query, L"\\Processor Information(*)\\Processor Frequency", 0, &g_clock_nominal) ||
+      PdhCollectQueryData(g_clock_query)) {
+    PdhCloseQuery(g_clock_query);
+    g_clock_query = NULL;
+    return;
+  }
+  g_clock_ns = pal_now_ns();
+}
+
+/* The counter's values by CPU id (instances are "group,number"); NULL on error. Free with free(). */
+static double *counter_by_cpu(PDH_HCOUNTER h, int *n) {
+  DWORD size = 0, count = 0;
+  if (PdhGetFormattedCounterArrayW(h, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, &size, &count, NULL) != (PDH_STATUS)PDH_MORE_DATA)
+    return NULL;
+  PDH_FMT_COUNTERVALUE_ITEM_W *items = malloc(size);
+  double *v = NULL;
+  if (items && PdhGetFormattedCounterArrayW(h, PDH_FMT_DOUBLE | PDH_FMT_NOCAP100, &size, &count, items) == 0) {
+    int max = -1;
+    for (DWORD i = 0; i < count; i++) {
+      int g, k;
+      if (swscanf(items[i].szName, L"%d,%d", &g, &k) == 2 && g * 64 + k > max) max = g * 64 + k;
+    }
+    v = max >= 0 ? calloc((size_t)max + 1, sizeof *v) : NULL;
+    for (DWORD i = 0; v && i < count; i++) {
+      int g, k;
+      if (swscanf(items[i].szName, L"%d,%d", &g, &k) == 2 && items[i].FmtValue.CStatus == 0)
+        v[g * 64 + k] = items[i].FmtValue.doubleValue;
+    }
+    *n = max + 1;
+  }
+  free(items);
+  return v;
+}
 
 int pal_cpu_cur_khz(int cpu) {
-  SYSTEM_INFO si;
-  GetSystemInfo(&si);
-  DWORD n = si.dwNumberOfProcessors;
-  if (cpu < 0 || (DWORD)cpu >= n) return 0;
-  pmk_proc_power *p = calloc(n, sizeof *p);
-  if (!p) return 0;
-  int khz = 0;
-  if (CallNtPowerInformation(ProcessorInformation, NULL, 0, p, (ULONG)(n * sizeof *p)) == 0)
-    khz = (int)p[cpu].CurrentMhz * 1000;
-  free(p);
+  if (!g_clock_query || cpu < 0) return 0;
+  AcquireSRWLockExclusive(&g_clock_lock);
+  uint64_t now = pal_now_ns();
+  if (now - g_clock_ns >= 20000000 && PdhCollectQueryData(g_clock_query) == 0) { /* one collection per window */
+    g_clock_ns = now;
+    int np = 0, nn = 0;
+    double *perf = counter_by_cpu(g_clock_perf, &np), *nominal = counter_by_cpu(g_clock_nominal, &nn);
+    free(g_clock_khz);
+    g_clock_khz = NULL;
+    g_clock_n = 0;
+    if (perf && nominal && (g_clock_khz = calloc((size_t)np, sizeof *g_clock_khz))) {
+      g_clock_n = np;
+      for (int i = 0; i < np && i < nn; i++) g_clock_khz[i] = (int)(perf[i] / 100 * nominal[i] * 1000);
+    }
+    free(perf);
+    free(nominal);
+  }
+  int khz = cpu < g_clock_n ? g_clock_khz[cpu] : 0;
+  ReleaseSRWLockExclusive(&g_clock_lock);
   return khz;
 }
 
@@ -290,19 +384,134 @@ double pal_background_load(double seconds) {
   return total ? (double)(total - idle) / (double)total : NAN;
 }
 
-double pal_idle_power_w(double seconds) {
-  (void)seconds;
-  return NAN; /* package power needs a kernel driver (spec 12) */
+/*
+ * Package power from the Energy Meter Interface: Windows publishes the RAPL energy counters (and on some machines
+ * other meters) as devices of the GUID_DEVICE_ENERGY_METER interface. Its structures (emi.h, Windows 10 1809+)
+ * are declared here because not every SDK has the header. Energy is in picowatt-hours, time in 100 ns units.
+ */
+static const GUID PMK_ENERGY_METER = {0x45bd8344, 0x7ed6, 0x49cf, {0xa4, 0x40, 0xc2, 0x76, 0xc9, 0x33, 0xb0, 0x53}};
+#define PMK_EMI_GET_VERSION CTL_CODE(FILE_DEVICE_UNKNOWN, 0, METHOD_BUFFERED, FILE_READ_ACCESS)
+#define PMK_EMI_GET_METADATA_SIZE CTL_CODE(FILE_DEVICE_UNKNOWN, 1, METHOD_BUFFERED, FILE_READ_ACCESS)
+#define PMK_EMI_GET_METADATA CTL_CODE(FILE_DEVICE_UNKNOWN, 2, METHOD_BUFFERED, FILE_READ_ACCESS)
+#define PMK_EMI_GET_MEASUREMENT CTL_CODE(FILE_DEVICE_UNKNOWN, 3, METHOD_BUFFERED, FILE_READ_ACCESS)
+#define PMK_EMI_NAME_MAX 16
+
+typedef struct {
+  ULONGLONG energy_pwh, time_100ns;
+} pmk_emi_data;
+
+/* The index of the package channel of an EMI v2 device, -1 if none, with its name in out. */
+static int emi_package_channel(HANDLE h, int *count, char *out, size_t n) {
+  ULONG size = 0;
+  DWORD got;
+  if (!DeviceIoControl(h, PMK_EMI_GET_METADATA_SIZE, NULL, 0, &size, sizeof size, &got, NULL) || !size) return -1;
+  unsigned char *md = malloc(size);
+  int found = -1;
+  if (md && DeviceIoControl(h, PMK_EMI_GET_METADATA, NULL, 0, md, size, &got, NULL)) {
+    /* EMI_METADATA_V2: OEM and model names, revision, channel count, then the channels, each a unit (4 bytes),
+       a name size in bytes (2) and the name. */
+    size_t off = 2 * PMK_EMI_NAME_MAX * sizeof(WCHAR) + 2;
+    USHORT nch;
+    memcpy(&nch, md + off, 2);
+    off += 2;
+    *count = nch;
+    for (int i = 0; i < nch && off + 6 <= got; i++) {
+      USHORT len;
+      memcpy(&len, md + off + 4, 2);
+      if (off + 6 + len > got) break;
+      char name[64] = "";
+      WideCharToMultiByte(CP_UTF8, 0, (const WCHAR *)(void *)(md + off + 6), len / 2, name, sizeof name - 1, NULL, NULL);
+      size_t nl = strlen(name);
+      /* RAPL_Package0_PKG on Intel and AMD; the first package channel wins. */
+      if (found < 0 && nl >= 4 && !_stricmp(name + nl - 4, "_PKG")) {
+        found = i;
+        snprintf(out, n, "%s", name);
+      }
+      off += 6 + len;
+    }
+  }
+  free(md);
+  return found;
+}
+
+static void find_power(pmk_caps *c) {
+  c->power[0] = c->power_note[0] = 0;
+  HDEVINFO set = SetupDiGetClassDevsW(&PMK_ENERGY_METER, NULL, NULL, DIGCF_PRESENT | DIGCF_DEVICEINTERFACE);
+  if (set == INVALID_HANDLE_VALUE) return;
+  int devices = 0, denied = 0;
+  SP_DEVICE_INTERFACE_DATA ifd = {0};
+  ifd.cbSize = sizeof ifd;
+  for (DWORD i = 0; g_emi == INVALID_HANDLE_VALUE && SetupDiEnumDeviceInterfaces(set, NULL, &PMK_ENERGY_METER, i, &ifd); i++) {
+    DWORD size = 0;
+    SetupDiGetDeviceInterfaceDetailW(set, &ifd, NULL, 0, &size, NULL);
+    SP_DEVICE_INTERFACE_DETAIL_DATA_W *d = malloc(size);
+    if (!d) break;
+    d->cbSize = sizeof *d;
+    if (SetupDiGetDeviceInterfaceDetailW(set, &ifd, d, size, NULL, NULL)) {
+      devices++;
+      HANDLE h = CreateFileW(d->DevicePath, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE, NULL, OPEN_EXISTING, 0, NULL);
+      if (h == INVALID_HANDLE_VALUE) {
+        denied |= GetLastError() == ERROR_ACCESS_DENIED;
+      } else {
+        USHORT version = 0;
+        DWORD got;
+        char name[64];
+        int count = 0, ch = -1;
+        if (DeviceIoControl(h, PMK_EMI_GET_VERSION, NULL, 0, &version, sizeof version, &got, NULL) && version >= 2)
+          ch = emi_package_channel(h, &count, name, sizeof name);
+        if (ch >= 0) {
+          g_emi = h;
+          g_emi_channel = ch;
+          g_emi_channels = count;
+          snprintf(c->power, sizeof c->power, "emi:%s", name);
+        } else {
+          CloseHandle(h);
+        }
+      }
+    }
+    free(d);
+  }
+  SetupDiDestroyDeviceInfoList(set);
+  if (g_emi == INVALID_HANDLE_VALUE)
+    snprintf(c->power_note, sizeof c->power_note, "%s",
+             denied ? "emi-needs-admin" : devices ? "emi-no-package" : "no-energy-meter");
+}
+
+/* The package channel's energy in microjoules and its time in ns; -1 on error. */
+static long long emi_read(uint64_t *ns) {
+  if (g_emi == INVALID_HANDLE_VALUE) return -1;
+  pmk_emi_data data[32];
+  int n = g_emi_channels < 32 ? g_emi_channels : 32;
+  DWORD got;
+  if (g_emi_channel >= n ||
+      !DeviceIoControl(g_emi, PMK_EMI_GET_MEASUREMENT, NULL, 0, data, (DWORD)(n * sizeof *data), &got, NULL) ||
+      got < (g_emi_channel + 1) * sizeof *data)
+    return -1;
+  *ns = data[g_emi_channel].time_100ns * 100;
+  return (long long)((double)data[g_emi_channel].energy_pwh * 3.6e-3); /* 1 pWh = 3.6e-3 uJ */
 }
 
 void pal_power_start(pal_power *p) {
-  p->uj = -1;
-  p->ns = pal_now_ns();
+  p->ns = 0;
+  p->uj = emi_read(&p->ns);
 }
 
 double pal_power_read(pal_power *p) {
-  (void)p;
-  return NAN;
+  uint64_t t = 0;
+  long long e = emi_read(&t);
+  double w = NAN;
+  if (e >= 0 && p->uj >= 0 && t > p->ns && e >= p->uj) w = (double)(e - p->uj) / ((double)(t - p->ns) / 1e3);
+  p->uj = e;
+  p->ns = t;
+  return w;
+}
+
+double pal_idle_power_w(double seconds) {
+  if (g_emi == INVALID_HANDLE_VALUE) return NAN;
+  pal_power m;
+  pal_power_start(&m);
+  pal_sleep_ns((uint64_t)(seconds * 1e9));
+  return pal_power_read(&m);
 }
 
 /* ---------- power plan ---------- */
@@ -322,7 +531,6 @@ static const GUID PMK_IDLE_DISABLE = {0x5d76a2ca, 0xe8c0, 0x402f, {0xa1, 0x33, 0
 
 void pal_state_json(pmk_jw *w, const char *key, const pmk_machine *m, int measure_power) {
   (void)m;
-  (void)measure_power;
   jw_obj_begin(w, key);
   GUID *scheme = NULL;
   char name[160] = "";
@@ -343,7 +551,7 @@ void pal_state_json(pmk_jw *w, const char *key, const pmk_machine *m, int measur
   jw_obj_begin(w, "temp_c");
   jw_null(w, "cpu");
   jw_obj_end(w);
-  jw_null(w, "idle_power_w");
+  jw_num(w, "idle_power_w", measure_power ? pal_idle_power_w(2.0) : NAN);
   jw_obj_end(w);
 }
 

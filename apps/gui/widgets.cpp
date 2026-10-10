@@ -285,8 +285,10 @@ void ChartView::paintEvent(QPaintEvent *) {
   double overlayTop = base ? y0 + (y1 - y0) * 0.85 : 100;
   for (ChartLine &l : lines) {
     if (!l.overlay) continue;
-    double peak = 0;
-    for (const auto &pt : l.pts) peak = std::max(peak, pt[1]);
+    double peak = 0; /* overlays with one unit (the clocks of several core types) share a scale */
+    for (const ChartLine &o : lines_)
+      if (o.overlay && (&o == &lines_[&l - lines.data()] || (!l.unit.isEmpty() && o.unit == l.unit)))
+        for (const auto &pt : o.pts) peak = std::max(peak, pt[1]);
     if (peak > 0)
       for (auto &pt : l.pts)
         for (int k = 1; k < 4; k++) pt[k] = y0 + pt[k] / peak * (overlayTop - y0);

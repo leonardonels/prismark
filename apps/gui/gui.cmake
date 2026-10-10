@@ -60,6 +60,9 @@ if(PRISMARK_DESKTOP AND NOT PRISMARK_GUI STREQUAL "OFF")
     target_compile_definitions(prismark-gui PRIVATE PMK_VERSION="${PROJECT_VERSION}"
       PMK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
     target_link_libraries(prismark-gui PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Svg)
+    if(WIN32)
+      target_link_libraries(prismark-gui PRIVATE shell32) # ShellExecuteEx: restart as administrator
+    endif()
     if(TARGET Qt${QT_VERSION_MAJOR}::DBus AND UNIX AND NOT APPLE)
       target_link_libraries(prismark-gui PRIVATE Qt${QT_VERSION_MAJOR}::DBus)
       target_compile_definitions(prismark-gui PRIVATE PMK_HAVE_DBUS)

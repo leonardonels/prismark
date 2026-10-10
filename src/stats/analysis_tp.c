@@ -339,6 +339,11 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
       jw_int(w, "clamped_windows", r->clamped);
       jw_num(w, "clamped_lowest_mhz", r->lowest_mhz);
       jw_num(w, "mhz", steady_median(r, &r->mhz));
+      if (r->nclock_dom) {
+        jw_obj_begin(w, "mhz_by_domain");
+        for (int i = 0; i < r->nclock_dom; i++) jw_num(w, r->clock_dom[i], steady_median(r, &r->mhz_dom[i]));
+        jw_obj_end(w);
+      }
       jw_num(w, "power_w", steady_median(r, &r->power));
     } else {
       jw_str(w, "unit", r->unit);

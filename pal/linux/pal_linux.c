@@ -299,6 +299,28 @@ static void read_topology(pmk_cpu *cpu) {
   }
 }
 
+/* Numbers the last-level cache domains in order of their first CPU (cpu->llc). */
+static void read_llc_domains(pmk_machine *m) {
+  int *first = malloc((size_t)m->ncpu * sizeof *first), n = 0;
+  if (!first) return;
+  for (int i = 0; i < m->ncpu; i++) {
+    char p[300], list[4096];
+    int top = -1, key = -1;
+    for (int k = 0; k < 10; k++) { /* the highest-level cache of this CPU */
+      snprintf(p, sizeof p, SYS_CPU "/cpu%d/cache/index%d/level", m->cpus[i].id, k);
+      long long level = sysfs_read_ll(p, -1);
+      if (level < 0) break;
+      snprintf(p, sizeof p, SYS_CPU "/cpu%d/cache/index%d/shared_cpu_list", m->cpus[i].id, k);
+      if (level >= top && !sysfs_read(p, list, sizeof list)) top = (int)level, key = atoi(list);
+    }
+    int d = 0;
+    while (d < n && first[d] != key) d++;
+    if (d == n) first[n++] = key;
+    m->cpus[i].llc = d;
+  }
+  free(first);
+}
+
 int pal_init(pmk_machine *m) {
   memset(m, 0, sizeof *m);
   struct utsname u;
@@ -334,6 +356,7 @@ int pal_init(pmk_machine *m) {
   }
   read_model(m);
   classify_types(m);
+  read_llc_domains(m);
 
   for (int i = 0; i < 10; i++) {
     char v[64];

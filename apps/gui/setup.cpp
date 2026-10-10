@@ -56,10 +56,8 @@ CompileStatus compileStatus(const QJsonObject &info, const QString &configured) 
       s.missingBuild << t;
     }
   }
-  if (!haveLld()) {
-    s.missingPrepare << "lld";
-    s.missingBuild << "lld";
-  }
+  /* Preparing links target feature checks; the measured build only compiles, so running it needs no linker. */
+  if (!haveLld()) s.missingPrepare << "lld";
   if (!have("python3")) s.missingPrepare << "python3";
   if (prepareScript().isEmpty()) s.missingPrepare << "prepare.py";
   return s;

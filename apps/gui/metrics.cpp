@@ -373,8 +373,11 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
       std::sort(x.begin(), x.end());
       return x.size() % 2 ? x[x.size() / 2] : (x[x.size() / 2 - 1] + x[x.size() / 2]) / 2;
     };
+    QVector<QPair<QString, double>> by;
+    QJsonObject dom = r["mhz_by_domain"].toObject();
+    for (auto it = dom.begin(); it != dom.end(); ++it) by.push_back({it.key(), median(it.value().toArray())});
     s.load.push_back({r["kernel"].toString(), p["threads"].toInt(), median(r["samples"].toArray()),
-                      median(r["mhz"].toArray()), median(r["power_w"].toArray()), r["unit"].toString()});
+                      median(r["mhz"].toArray()), median(r["power_w"].toArray()), r["unit"].toString(), by});
   }
   for (const QJsonValue &v : an["ratios"].toArray()) {
     QJsonObject r = v.toObject();
