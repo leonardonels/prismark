@@ -273,6 +273,7 @@ int result_push(pmk_result *r, double sample, double wake, int cpu) {
 void result_free(pmk_result *r) {
   dvec_free(&r->temps);
   dvec_free(&r->mhz);
+  for (int i = 0; i < r->nclock_dom; i++) dvec_free(&r->mhz_dom[i]);
   dvec_free(&r->power);
   dvec_free(&r->job_ns);
   free(r->samples);
@@ -397,6 +398,7 @@ static void machine_json(pmk_jw *w, const pmk_machine *m) {
     jw_int(w, "id", m->cpus[i].id);
     jw_str(w, "type", m->type_names[m->cpus[i].type]);
     jw_int(w, "max_mhz", m->cpus[i].max_khz / 1000);
+    jw_int(w, "llc", m->cpus[i].llc);
     jw_obj_end(w);
   }
   jw_arr_end(w);
@@ -478,6 +480,11 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
   if (r->windowed) {
     samples_json(w, "temp_c", r->temps.v, r->temps.n, 0);
     samples_json(w, "mhz", r->mhz.v, r->mhz.n, 1);
+    if (r->nclock_dom) {
+      jw_obj_begin(w, "mhz_by_domain");
+      for (int i = 0; i < r->nclock_dom; i++) samples_json(w, r->clock_dom[i], r->mhz_dom[i].v, r->mhz_dom[i].n, 1);
+      jw_obj_end(w);
+    }
     samples_json(w, "power_w", r->power.v, r->power.n, 0);
     samples_json(w, "job_ns", r->job_ns.v, r->job_ns.n, 1);
     jw_obj_begin(w, "steady");

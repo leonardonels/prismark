@@ -69,7 +69,13 @@ struct RunSummary {
   struct Ratio { QString name, kernel, variant; int n; Value v; };
   /* Medians over the measured windows of an all-cores series: result (in unit), clock (MHz) and package power (W);
      NaN if unknown. */
-  struct LoadPt { QString kernel; int n; double perf, mhz, watts; QString unit; };
+  struct LoadPt {
+    QString kernel;
+    int n;
+    double perf, mhz, watts;
+    QString unit;
+    QVector<QPair<QString, double>> mhzBy; /* clock per domain (core type, CCX), when the threads spanned several */
+  };
   QVector<ColdPt> cold;
   QVector<ScalePt> scaling;
   QVector<LoadPt> load;

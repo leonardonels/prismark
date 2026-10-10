@@ -31,21 +31,14 @@ static int tool_ok(const char *tool) {
   return pal_run(argv, NULL, NULL, NULL) == 0;
 }
 
-/*
- * The object files of every stride-th unit in largest-first order (the manifest order): quick runs build every
- * PMK_K1_QUICK_STRIDE-th (the units K1 compiles in a quick run), full runs every PMK_K1X_FULL_STRIDE-th. CMake
- * names the object of an absolute source path CMakeFiles/<target>.dir<path>.o. Returns a NULL-terminated argv
- * tail, or NULL; *fraction is the share of the whole snapshot's compile cost (cost_us) these units carry.
- */
-static char **unit_targets(const char *data, const char *root, size_t stride, int *count, double *fraction) {
-  char path[1400], err[160];
-  snprintf(path, sizeof path, "%s/manifest.json", data);
+/* A whole file as a NUL-terminated string (malloc'd), or NULL. */
+static char *read_text(const char *path) {
   FILE *f = fopen(path, "rb");
   if (!f) return NULL;
   fseek(f, 0, SEEK_END);
   long len = ftell(f);
   fseek(f, 0, SEEK_SET);
-  char *text = malloc((size_t)len + 1);
+  char *text = len >= 0 ? malloc((size_t)len + 1) : NULL;
   if (!text || fread(text, 1, (size_t)len, f) != (size_t)len) {
     fclose(f);
     free(text);
@@ -53,9 +46,43 @@ static char **unit_targets(const char *data, const char *root, size_t stride, in
   }
   fclose(f);
   text[len] = 0;
+  return text;
+}
+
+/* A path for comparing: '/' as separator, and on Windows (case-insensitive file names) lower case. */
+static void norm_path(char *out, size_t n, const char *a, const char *b) {
+  snprintf(out, n, "%s%s", a, b ? b : "");
+  for (char *p = out; *p; p++) {
+    if (*p == '\\') *p = '/';
+#ifdef _WIN32
+    if (*p >= 'A' && *p <= 'Z') *p = (char)(*p - 'A' + 'a');
+#endif
+  }
+}
+
+/*
+ * The object files of every stride-th unit in largest-first order (the manifest order): quick runs build every
+ * PMK_K1_QUICK_STRIDE-th (the units K1 compiles in a quick run), full runs every PMK_K1X_FULL_STRIDE-th. The
+ * object of each source is taken from the compile_commands.json the configure step wrote ("output"), so it is
+ * right whatever CMake names it on this platform (on Windows "C:" becomes "C_", and long paths are hashed);
+ * without that file, the name CMake gives an absolute source path on Linux and macOS,
+ * CMakeFiles/<target>.dir<path>.o. Returns a NULL-terminated argv tail, or NULL; *fraction is the share of the
+ * whole snapshot's compile cost (cost_us) these units carry.
+ */
+static char **unit_targets(const char *data, const char *root, const char *out_dir, size_t stride, int *count,
+                           double *fraction) {
+  char path[1400], err[160];
+  snprintf(path, sizeof path, "%s/manifest.json", data);
+  char *text = read_text(path);
+  if (!text) return NULL;
   jdoc *d = jdoc_parse(text, err, sizeof err);
   free(text);
   if (!d) return NULL;
+  snprintf(path, sizeof path, "%s/compile_commands.json", out_dir);
+  text = read_text(path);
+  jdoc *cc = text ? jdoc_parse(text, err, sizeof err) : NULL;
+  free(text);
+  const jv *cmds = cc ? jdoc_root(cc) : NULL;
   const jv *units = jv_get(jdoc_root(d), "units");
   const char *vroot = jv_str(jv_get(jdoc_root(d), "root"), "/k1x");
   size_t n = jv_len(units), k = 0;
@@ -73,9 +100,31 @@ static char **unit_targets(const char *data, const char *root, size_t stride, in
     size_t vl = strlen(vroot);
     if (strncmp(file, vroot, vl)) continue;
     char obj[1600];
-    snprintf(obj, sizeof obj, "CMakeFiles/%s.dir%s%s.o", target, root, file + vl);
+    if (cmds) {
+      char want[1600], got[1600];
+      const char *found = NULL;
+      norm_path(want, sizeof want, root, file + vl);
+      for (size_t j = 0; j < jv_len(cmds) && !found; j++) {
+        norm_path(got, sizeof got, jv_str(jv_get(&cmds->items[j], "file"), ""), NULL);
+        if (!strcmp(got, want)) found = jv_str(jv_get(&cmds->items[j], "output"), NULL);
+      }
+      if (!found) { /* a unit the project does not build: the snapshot and this code disagree */
+        for (size_t q = 0; q < k; q++) free(out[q]);
+        free(out);
+        out = NULL;
+        break;
+      }
+      /* "output" is relative to the build directory, or (newer CMake) absolute: ninja knows it relative */
+      char od[1300];
+      norm_path(od, sizeof od, out_dir, "/");
+      norm_path(got, sizeof got, found, NULL);
+      snprintf(obj, sizeof obj, "%s", !strncmp(got, od, strlen(od)) ? found + strlen(od) : found);
+    } else {
+      snprintf(obj, sizeof obj, "CMakeFiles/%s.dir%s%s.o", target, root, file + vl);
+    }
     out[k++] = strdup(obj);
   }
+  jdoc_free(cc);
   jdoc_free(d);
   *count = (int)k;
   return out;
@@ -98,6 +147,10 @@ int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order) {
     return PMK_OK;
   }
 
+  /* '/' throughout: CMake reads a backslash in -DK1X_ROOT as an escape (C:\users starts "\u"); the Windows file
+     helpers turn it back where cmd needs it */
+  for (char *p = dir; *p; p++)
+    if (*p == '\\') *p = '/';
   size_t len = strlen(dir);
   snprintf(dir + len, sizeof dir - len, "/prismark-k1x-%016llx", (unsigned long long)c->seed);
   snprintf(root, sizeof root, "%s/snap/root", dir);
@@ -115,7 +168,11 @@ int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order) {
   ctx_emit(c, PMK_EV_PHASE, "mc_threaded", "K1x", 0, 0, "copying the snapshot to %s", dir);
   int rc = PMK_OK;
 #ifdef _WIN32
-  const char *mkdir_argv[] = {"cmd", "/c", "mkdir", dir, NULL};
+  char wdir[1024]; /* cmd reads a '/' in a path as the start of an option */
+  snprintf(wdir, sizeof wdir, "%s", dir);
+  for (char *p = wdir; *p; p++)
+    if (*p == '/') *p = '\\';
+  const char *mkdir_argv[] = {"cmd", "/c", "mkdir", wdir, NULL};
 #else
   const char *mkdir_argv[] = {"mkdir", "-p", dir, NULL};
 #endif
@@ -128,7 +185,7 @@ int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order) {
     snprintf(rootdef, sizeof rootdef, "-DK1X_ROOT=%s", root);
     snprintf(tc, sizeof tc, "-DCMAKE_TOOLCHAIN_FILE=%s/toolchain.cmake", src);
     const char *configure[] = {"cmake", "-G", "Ninja", "-S", src, "-B", out, rootdef, tc, "-DCMAKE_BUILD_TYPE=Release",
-                               NULL};
+                               "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON", NULL};
     ctx_emit(c, PMK_EV_PHASE, "mc_threaded", "K1x", 0, 0, "configuring (not timed)");
     if (pal_run(configure, NULL, log, ctx_cancelled)) why = "cmake configure failed (see the log)";
   }
@@ -146,10 +203,10 @@ int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order) {
   int reps = c->cfg.k1x_reps > 0 ? c->cfg.k1x_reps : 3;
   int nquick = 0;
   double fraction = 0;
-  char **quick = unit_targets(data, root, c->cfg.quick_inputs ? PMK_K1_QUICK_STRIDE : PMK_K1X_FULL_STRIDE, &nquick,
+  char **quick = unit_targets(data, root, out, c->cfg.quick_inputs ? PMK_K1_QUICK_STRIDE : PMK_K1X_FULL_STRIDE, &nquick,
                               &fraction);
   if (!quick) {
-    ctx_unavailable(c, "K1x", NULL, "mc_threaded", "cannot read the snapshot manifest");
+    ctx_unavailable(c, "K1x", NULL, "mc_threaded", "cannot read the snapshot manifest, or find its units in the build");
     free(cpus);
     pal_remove_tree(dir);
     return PMK_OK;

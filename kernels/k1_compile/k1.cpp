@@ -8,7 +8,8 @@
  * contents are shared read-only. Units are ordered largest first (LPT).
  *
  * The object files are deterministic for a given Clang version and target,
- * so the checksum is identical on every host.
+ * so the checksum is identical on every host (Linux, Windows; whoever packaged
+ * the Clang 19.1.7 it is built with: the version text is left out of them).
  *
  * Snapshot layout (tools/k1x/prepare.py):
  *   manifest.json   {"schema": "prismark-k1x/1", "root": "/k1x",
@@ -216,6 +217,10 @@ static uint64_t k1_task(const void *p, void *sp, size_t i) {
      1 GB after a few minutes on one thread, against 375 MB for the largest unit compiled alone). */
   inv->getFrontendOpts().DisableFree = false;
   inv->getCodeGenOpts().DisableFree = false;
+  /* No "clang version ..." in the object (-fno-ident): it names whoever packaged Clang ("Ubuntu clang version
+     19.1.7 (++2025...)", "clang version 19.1.7 (https://github.com/llvm/...)"), and the checksum is of the code
+     compiled, which is identical across them. */
+  inv->getCodeGenOpts().EmitVersionIdentMetadata = false;
 
   clang::CompilerInstance ci;
   ci.setInvocation(std::move(inv));

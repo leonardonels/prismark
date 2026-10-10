@@ -42,6 +42,14 @@
 #include <QVBoxLayout>
 #include <algorithm>
 
+#ifdef Q_OS_WIN
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <shellapi.h>
+#endif
+
 #include "inputwatch.h"
 #include "setup.h"
 #include "theme.h"
@@ -158,6 +166,26 @@ int stallMinutes(const QString &phase, const QString &kernel) {
   return 8;
 }
 
+/* The runner found an energy meter (package power) that only administrators may read. */
+bool powerNeedsAdmin(const QJsonObject &info) {
+  return info["machine"].toObject()["capabilities"].toObject()["power_note"].toString() == "emi-needs-admin";
+}
+
+/* Starts this app again with administrator rights (Windows asks the user first); true if it started. */
+bool restartAsAdmin() {
+#ifdef Q_OS_WIN
+  std::wstring exe = QDir::toNativeSeparators(QCoreApplication::applicationFilePath()).toStdWString();
+  SHELLEXECUTEINFOW sei = {};
+  sei.cbSize = sizeof sei;
+  sei.lpVerb = L"runas";
+  sei.lpFile = exe.c_str();
+  sei.nShow = SW_SHOWNORMAL;
+  return ShellExecuteExW(&sei); /* false also when the user declines */
+#else
+  return false;
+#endif
+}
+
 }  // namespace
 
 MainWindow::MainWindow() {
@@ -209,6 +237,10 @@ QWidget *MainWindow::buildMenuButton() {
   m->addSeparator();
   m->addAction(tr("Prepare compile tests…"), this, &MainWindow::prepareCompileTests);
   m->addAction(tr("Use another compile-test snapshot…"), this, &MainWindow::chooseSnapshot);
+  QAction *admin = m->addAction(tr("Restart as administrator to measure power"), this, [this] {
+    if (!proc_ && restartAsAdmin()) qApp->quit();
+  });
+  connect(m, &QMenu::aboutToShow, admin, [this, admin] { admin->setVisible(powerNeedsAdmin(info_)); });
   m->addSeparator();
   QAction *dark = m->addAction(tr("Dark theme"));
   dark->setCheckable(true);
@@ -752,21 +784,47 @@ void MainWindow::refreshContext() {
     ghz.unit = tr("GHz");
     ghz.color = 2;
     perf.overlay = ghz.overlay = true;
+    /* On hybrid and multi-CCX processors, one clock per core type or CCX ("P" first, then by name). */
+    QVector<ChartLine> clocks;
     for (const auto &x : r->load) {
       if (x.kernel != arg) continue;
       perf.unit = x.unit == "Msamples/s" ? tr("M/s") : x.unit;
       if (std::isfinite(x.watts)) watts.pts.push_back({double(x.n), x.watts, NAN, NAN});
       if (std::isfinite(x.perf)) perf.pts.push_back({double(x.n), x.perf, NAN, NAN});
       if (std::isfinite(x.mhz)) ghz.pts.push_back({double(x.n), x.mhz / 1000, NAN, NAN});
+      for (const auto &d : x.mhzBy) {
+        if (!std::isfinite(d.second)) continue;
+        auto it = std::find_if(clocks.begin(), clocks.end(), [&](const ChartLine &l) { return l.name == d.first; });
+        if (it == clocks.end()) {
+          ChartLine l = ghz;
+          l.name = d.first;
+          l.pts.clear();
+          clocks.push_back(l);
+          it = clocks.end() - 1;
+        }
+        it->pts.push_back({double(x.n), d.second / 1000, NAN, NAN});
+      }
+    }
+    std::sort(clocks.begin(), clocks.end(), [](const ChartLine &a, const ChartLine &b) {
+      return a.name.startsWith('P') != b.name.startsWith('P') ? a.name.startsWith('P') : a.name < b.name;
+    });
+    for (int i = 0; i < clocks.size(); i++) {
+      clocks[i].name = tr("clock %1").arg(clocks[i].name);
+      clocks[i].color = 2 + i;
     }
     for (ChartLine *l : {&watts, &perf, &ghz}) std::sort(l->pts.begin(), l->pts.end(), byN);
+    for (ChartLine &l : clocks) std::sort(l.pts.begin(), l.pts.end(), byN);
+    QVector<ChartLine> clockLines;
+    for (const ChartLine &l : clocks)
+      if (l.pts.size() >= 2) clockLines.push_back(l);
+    if (clockLines.isEmpty() && ghz.pts.size() >= 2) clockLines.push_back(ghz);
 
     if (watts.pts.size() >= 2) {
       /* Power on the axis, result and clock labelled: a result that stops growing while the power stays flat is the
          power limit; one that falls with the power and the clock is the platform holding the processor back. */
       QVector<ChartLine> lines{watts};
-      for (ChartLine *o : {&perf, &ghz})
-        if (o->pts.size() >= 2) lines.push_back(*o);
+      if (perf.pts.size() >= 2) lines.push_back(perf);
+      lines += clockLines;
       show(tr("Result, power and clock with more threads"),
            tr("For %1: the power drawn by the processor (axis, in watts), with the result and the clock labelled at "
               "each thread count. More threads should give more result for more power until the power limit; from "
@@ -788,9 +846,8 @@ void MainWindow::refreshContext() {
       if (s.kernel == arg) l.pts.push_back({double(s.n), s.s.v, s.s.lo, s.s.hi});
     std::sort(l.pts.begin(), l.pts.end(), byN);
     if (l.pts.size() < 2) return;
-    ghz.overlay = true;
     QVector<ChartLine> lines{l};
-    if (ghz.pts.size() >= 2) lines.push_back(ghz);
+    lines += clockLines;
     show(tr("Speed-up with more threads"),
          tr("For %1: how many times faster than a single thread. The dashed line is perfect scaling (8 threads = 8× "
             "faster); real programs fall below it as threads wait for each other, for memory, or for power.")
@@ -1153,7 +1210,7 @@ bool MainWindow::confirmCompileTests(bool needK1, bool needK1x, bool all, QStrin
     };
     auto row = [&](bool ok, const QString &what) { mark(ok ? theme().good : theme().bad, ok ? "✓" : "✗", what); };
     /* Prerequisites first, then the install commands, then the snapshot: it is the last step and the user starts it. */
-    row(st.missingBuild.isEmpty(), st.missingBuild.isEmpty() ? tr("Build tools for Full build (clang 19, lld, cmake, ninja)")
+    row(st.missingBuild.isEmpty(), st.missingBuild.isEmpty() ? tr("Build tools for Full build (clang 19, cmake, ninja)")
                                                              : tr("Missing tools: %1").arg(st.missingBuild.join(", ")));
     row(st.k1Built, st.k1Built ? tr("“Compiling code” is built into this Prismark")
                                : tr("“Compiling code” is not built into this Prismark (needs the Clang 19 libraries)"));
@@ -1252,6 +1309,26 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
     return false;
   };
   bool needK1 = runsKernel("K1"), needK1x = runsKernel("K1x");
+  /* Power is measured only with administrator rights here: offer them once per run until told not to. */
+  if (powerNeedsAdmin(info_) && !QSettings().value("power_admin_no_ask", false).toBool()) {
+    QMessageBox box(QMessageBox::Question, tr("Prismark"),
+                    tr("This computer reports the processor's power draw only to administrators. Restart Prismark "
+                       "as administrator to record it with the results?"),
+                    QMessageBox::NoButton, this);
+    QPushButton *restart = box.addButton(tr("Restart as administrator"), QMessageBox::AcceptRole);
+    QPushButton *without = box.addButton(tr("Run without power"), QMessageBox::RejectRole);
+    box.addButton(QMessageBox::Cancel);
+    auto *noAsk = new QCheckBox(tr("Do not ask again (the menu can still restart as administrator)"));
+    box.setCheckBox(noAsk);
+    box.setDefaultButton(restart);
+    box.exec();
+    if (noAsk->isChecked()) QSettings().setValue("power_admin_no_ask", true);
+    if (box.clickedButton() == restart) {
+      if (restartAsAdmin()) qApp->quit();
+      return;
+    }
+    if (box.clickedButton() != without) return;
+  }
   if ((needK1 || needK1x) && !confirmCompileTests(needK1, needK1x, all, args)) return;
 
   procOut_ = QDir(resultsDir()).filePath(QStringLiteral("prismark-%1.json").arg(QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss")));

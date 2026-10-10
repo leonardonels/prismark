@@ -26,6 +26,7 @@ typedef struct pmk_cpu {
   int min_khz; /* hardware minimum; 0 if unknown */
   int core;    /* physical core; SMT siblings share it. -1 if unknown */
   int smt;     /* 0 for the first hardware thread of its core */
+  int llc;     /* last-level cache domain, numbered from 0 (a CCX on AMD); 0 when unknown */
 } pmk_cpu;
 
 typedef struct pmk_caps {

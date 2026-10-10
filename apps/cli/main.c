@@ -152,6 +152,10 @@ static const char *pretty_path(char *out, size_t n, const char *path) {
   size_t hl = home ? strlen(home) : 0;
   if (hl > 1 && !strncmp(path, home, hl) && (path[hl] == '/' || !path[hl])) snprintf(out, n, "~%s", path + hl);
   else snprintf(out, n, "%s", path);
+#ifdef _WIN32
+  for (char *p = out; *p; p++) /* paths are joined with '/', which Windows takes; it shows backslashes */
+    if (*p == '/') *p = '\\';
+#endif
   return out;
 }
 
@@ -470,9 +474,21 @@ static int results_dir(char *out, size_t n, int create) {
   return create ? make_dirs(out) : 0;
 }
 
-/* The desktop app's compile-test snapshot (<user data>/prismark/k1x), if prepared. */
+static int exe_dir(char *out, size_t n);
+
+/*
+ * The compile-test snapshot: the one shipped beside the program (k1x/, in the portable Windows package), else the
+ * one the desktop app or tools/k1x/prepare.py prepared (<user data>/prismark/k1x).
+ */
 static int k1_snapshot(char *out, size_t n) {
-  char dir[1100];
+  char dir[1100], exe[1100];
+  struct stat st;
+  if (exe_dir(exe, sizeof exe) == 0) {
+    char manifest[1300];
+    snprintf(out, n, "%s/k1x", exe);
+    snprintf(manifest, sizeof manifest, "%s/manifest.json", out);
+    if (stat(manifest, &st) == 0) return 0;
+  }
   if (results_dir(dir, sizeof dir, 0)) return -1;
   size_t len = strlen(dir);
   if (len < 13) return -1;
@@ -480,7 +496,6 @@ static int k1_snapshot(char *out, size_t n) {
   snprintf(out, n, "%s/k1x", dir);
   char manifest[1200];
   snprintf(manifest, sizeof manifest, "%s/manifest.json", out);
-  struct stat st;
   return stat(manifest, &st) == 0 ? 0 : -1;
 }
 
@@ -2201,7 +2216,30 @@ static int cmd_menu(void) {
   }
 }
 
+#ifdef _WIN32
+/* The portable package carries the compile tests' build tools (cmake, ninja, clang-19) in tools\bin beside the
+   program: first in PATH, for this process and every one it starts. */
+static void use_bundled_tools(void) {
+  char exe[1100], tools[1200];
+  if (exe_dir(exe, sizeof exe)) return;
+  snprintf(tools, sizeof tools, "%s\\tools\\bin", exe);
+  DWORD attr = GetFileAttributesA(tools);
+  if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) return;
+  const char *path = getenv("PATH");
+  size_t len = strlen(tools) + (path ? strlen(path) : 0) + 2;
+  char *p = malloc(len);
+  if (!p) return;
+  snprintf(p, len, "%s%s%s", tools, path && *path ? ";" : "", path ? path : "");
+  SetEnvironmentVariableA("PATH", p);
+  _putenv_s("PATH", p); /* getenv in this process sees it too */
+  free(p);
+}
+#endif
+
 int main(int argc, char **argv) {
+#ifdef _WIN32
+  use_bundled_tools();
+#endif
   int no_color = 0;
   for (int i = 1; i < argc; i++) no_color |= !strcmp(argv[i], "--no-color") || !strcmp(argv[i], "--no-colour");
   term_init(no_color);
