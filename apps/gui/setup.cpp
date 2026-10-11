@@ -2,6 +2,7 @@
 #include "setup.h"
 
 #include <QCoreApplication>
+#include <QDebug>
 #include <QDir>
 #include <QFileInfo>
 #include <QHBoxLayout>
@@ -10,7 +11,14 @@
 #include <QPushButton>
 #include <QRegularExpression>
 #include <QStandardPaths>
+#include <QDirIterator>
 #include <QVBoxLayout>
+
+#if defined(Q_OS_UNIX) && !defined(Q_OS_ANDROID)
+#include <pwd.h>
+#include <unistd.h>
+#define PMK_ELEVATION 1
+#endif
 
 #include "theme.h"
 #include "widgets.h"
@@ -25,9 +33,75 @@ bool haveLld() {
 }
 }  // namespace
 
+namespace {
+/* The user who started the app as root through sudo or pkexec (the same rule as the command line's). */
+struct ElevatedUser {
+  bool ok = false;
+  unsigned uid = 0, gid = 0;
+  QString home;
+};
+
+ElevatedUser elevatedUser() {
+  ElevatedUser u;
+#ifdef PMK_ELEVATION
+  if (geteuid() != 0) return u;
+  QByteArray pk = qgetenv("PKEXEC_UID"), su = qgetenv("SUDO_UID"), sg = qgetenv("SUDO_GID");
+  if (pk.isEmpty() && su.isEmpty()) return u;
+  struct passwd *pw = getpwuid((uid_t)(pk.isEmpty() ? su : pk).toUInt());
+  if (!pw || pw->pw_uid == 0 || !pw->pw_dir || !*pw->pw_dir) return u;
+  u.ok = true;
+  u.uid = pw->pw_uid;
+  u.gid = pk.isEmpty() && !sg.isEmpty() ? sg.toUInt() : pw->pw_gid;
+  u.home = QString::fromLocal8Bit(pw->pw_dir);
+#endif
+  return u;
+}
+
+void chownTo(const ElevatedUser &u, const QString &path) {
+#ifdef PMK_ELEVATION
+  if (chown(QFile::encodeName(path).constData(), (uid_t)u.uid, (gid_t)u.gid))
+    qWarning().noquote() << "could not give" << path << "to the user who started Prismark";
+#else
+  (void)u;
+  (void)path;
+#endif
+}
+}  // namespace
+
+void makeUserDir(const QString &dir) {
+  ElevatedUser u = elevatedUser();
+  if (!u.ok) {
+    QDir().mkpath(dir);
+    return;
+  }
+  QStringList missing; /* from the deepest up */
+  for (QString d = QDir::cleanPath(QFileInfo(dir).absoluteFilePath()); !QFileInfo::exists(d); d = QFileInfo(d).path())
+    missing.prepend(d);
+  for (const QString &d : missing)
+    if (QDir().mkdir(d)) chownTo(u, d);
+}
+
+void giveToUser(const QString &path) {
+  ElevatedUser u = elevatedUser();
+  if (!u.ok) return;
+  chownTo(u, path);
+  if (QFileInfo(path).isDir() && !QFileInfo(path).isSymLink())
+    for (QDirIterator it(path, QDir::AllEntries | QDir::NoDotAndDotDot | QDir::Hidden | QDir::System,
+                         QDirIterator::Subdirectories);
+         it.hasNext();)
+      chownTo(u, it.next());
+}
+
 QString dataDir() {
-  QString d = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/prismark";
-  QDir().mkpath(d);
+  ElevatedUser u = elevatedUser();
+  QString base = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation);
+#if defined(Q_OS_MACOS)
+  if (u.ok) base = u.home + "/Library/Application Support";
+#else
+  if (u.ok) base = u.home + "/.local/share"; /* XDG_DATA_HOME, if set, is root's */
+#endif
+  QString d = base + "/prismark";
+  makeUserDir(d);
   return d;
 }
 
@@ -171,6 +245,7 @@ void PrepareDialog::onOutput() {
 
 void PrepareDialog::onFinished(int code) {
   done_ = code == 0;
+  giveToUser(defaultSnapshotDir());
   ring_->setProgress(done_ ? 7 : 0, 7, done_ ? QStringLiteral("✓") : QStringLiteral("✗"));
   step_->setText(done_ ? tr("Ready. Compile and Full build can now run.") : tr("Preparation failed; see the log."));
   button_->setText(done_ ? tr("Done") : tr("Close"));

@@ -34,6 +34,7 @@
 #define fileno _fileno
 #else
 #include <dirent.h>
+#include <pwd.h>
 #include <pthread.h>
 #include <sys/ioctl.h>
 #include <unistd.h>
@@ -427,6 +428,23 @@ static const char *mode_title(char *out, size_t n, const char *id) {
 /* ---------- results folder ---------- */
 
 /* Creates every missing directory of path; 0 on success. */
+#ifndef _WIN32
+/* Running as root through sudo or pkexec: the user who asked for it (uid, group, home), so that what the run saves
+   goes to their folders and belongs to them. 0 if so, -1 when not elevated or the user is unknown. */
+static int elevated_user(uid_t *uid, gid_t *gid, char *home, size_t n) {
+  if (geteuid() != 0) return -1;
+  const char *pk = getenv("PKEXEC_UID"), *su = getenv("SUDO_UID"), *sg = getenv("SUDO_GID");
+  if (!pk && !su) return -1;
+  struct passwd *pw = getpwuid((uid_t)atol(pk ? pk : su));
+  if (!pw || pw->pw_uid == 0 || !pw->pw_dir || !*pw->pw_dir) return -1;
+  if (uid) *uid = pw->pw_uid;
+  if (gid) *gid = !pk && sg ? (gid_t)atol(sg) : pw->pw_gid;
+  if (home) snprintf(home, n, "%s", pw->pw_dir);
+  return 0;
+}
+#endif
+
+/* Creates path and its missing parents; under sudo or pkexec the folders it creates belong to the user. */
 static int make_dirs(char *path) {
   for (char *p = path + 1;; p++) {
     char ch = *p;
@@ -436,7 +454,10 @@ static int make_dirs(char *path) {
     int ok = CreateDirectoryA(path, NULL) || GetLastError() == ERROR_ALREADY_EXISTS;
 #else
     struct stat st;
-    int ok = mkdir(path, 0755) == 0 || (stat(path, &st) == 0 && S_ISDIR(st.st_mode));
+    int made = mkdir(path, 0755) == 0, ok = made || (stat(path, &st) == 0 && S_ISDIR(st.st_mode));
+    uid_t u;
+    gid_t g;
+    if (made && elevated_user(&u, &g, NULL, 0) == 0 && chown(path, u, g)) perror(path);
 #endif
     *p = ch;
     if (!ok) return -1;
@@ -446,8 +467,8 @@ static int make_dirs(char *path) {
 
 /*
  * The results folder shared with the desktop app: <user data>/prismark/results/runs, where <user data> is
- * what Qt calls GenericDataLocation. -1 where there is none (Android) or when running as root through sudo or
- * pkexec, whose folders would belong to root: the result then goes to the current folder.
+ * what Qt calls GenericDataLocation. -1 where there is none (Android). Running as root through sudo or pkexec, it
+ * is the folder of the user who asked for the run (the files saved there are handed back to them).
  */
 static int results_dir(char *out, size_t n, int create) {
 #if defined(_WIN32)
@@ -459,13 +480,14 @@ static int results_dir(char *out, size_t n, int create) {
   (void)n;
   return -1;
 #else
-  if (geteuid() == 0 && (getenv("SUDO_UID") || getenv("PKEXEC_UID"))) return -1;
-  const char *home = getenv("HOME");
+  char user_home[1024];
+  int elevated = elevated_user(NULL, NULL, user_home, sizeof user_home) == 0;
+  const char *home = elevated ? user_home : getenv("HOME");
 #if defined(__APPLE__)
   if (!home || !*home) return -1;
   snprintf(out, n, "%s/Library/Application Support/prismark/results/runs", home);
 #else
-  const char *xdg = getenv("XDG_DATA_HOME");
+  const char *xdg = elevated ? NULL : getenv("XDG_DATA_HOME"); /* root's environment, not the user's */
   if (xdg && *xdg) snprintf(out, n, "%s/prismark/results/runs", xdg);
   else if (home && *home) snprintf(out, n, "%s/.local/share/prismark/results/runs", home);
   else return -1;
@@ -499,24 +521,12 @@ static int k1_snapshot(char *out, size_t n) {
   return stat(manifest, &st) == 0 ? 0 : -1;
 }
 
-/* When elevated through sudo or pkexec, hand the result file back to the user who asked for the run. */
+/* When elevated through sudo or pkexec, hand a saved file back to the user who asked for the run. */
 static void give_back(const char *path) {
 #ifndef _WIN32
-  if (geteuid() != 0) return;
-  const char *uid = getenv("PKEXEC_UID"), *suid = getenv("SUDO_UID"), *sgid = getenv("SUDO_GID");
-  long u = uid ? atol(uid) : suid ? atol(suid) : -1;
-  if (u < 0) return;
-  long g = sgid ? atol(sgid) : -1;
-  if (g < 0) { /* pkexec gives only the uid: use the group of the directory the file is in */
-    char dir[1024];
-    snprintf(dir, sizeof dir, "%s", path);
-    char *slash = strrchr(dir, '/');
-    if (slash) *slash = 0;
-    else snprintf(dir, sizeof dir, ".");
-    struct stat st;
-    if (stat(dir, &st) == 0) g = (long)st.st_gid;
-  }
-  if (chown(path, (uid_t)u, (gid_t)g)) perror(path);
+  uid_t u;
+  gid_t g;
+  if (elevated_user(&u, &g, NULL, 0) == 0 && chown(path, u, g)) perror(path);
 #else
   (void)path;
 #endif

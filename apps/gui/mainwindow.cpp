@@ -530,13 +530,13 @@ QWidget *MainWindow::buildMeasuringWindow() {
 
 QString MainWindow::resultsDir() const {
   QString d = dataDir() + "/results/runs"; /* shared with the command line, which saves here too */
-  QDir().mkpath(d);
+  makeUserDir(d);
   return d;
 }
 
 QString MainWindow::referencesDir() const {
   QString d = dataDir() + "/results/references";
-  QDir().mkpath(d);
+  makeUserDir(d);
   return d;
 }
 
@@ -1560,7 +1560,7 @@ void MainWindow::openResult() {
     QString dest = QDir(resultsDir()).filePath(name.startsWith("prismark-") ? name : "prismark-" + name);
     if (QFileInfo(f).absoluteFilePath() != QFileInfo(dest).absoluteFilePath()) { /* keep a copy with the saved runs */
       QFile::remove(dest);
-      QFile::copy(f, dest);
+      if (QFile::copy(f, dest)) giveToUser(dest);
     }
     if (loadFile(dest, false)) last = runs_.last().id;
     else QMessageBox::warning(this, tr("Prismark"), tr("%1 is not a Prismark result file.").arg(f));
@@ -1735,6 +1735,7 @@ void MainWindow::saveAsReference() {
       QMessageBox::warning(this, tr("Prismark"), tr("Could not save %1.").arg(dest));
       return;
     }
+    giveToUser(dest);
     loadFile(dest, true);
     selected_ = QStringLiteral("reference-") + name; /* show the new reference */
     refresh();
