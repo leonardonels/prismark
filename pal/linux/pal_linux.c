@@ -103,6 +103,10 @@ static void find_power(pmk_caps *c) {
     snprintf(p, sizeof p, "/sys/class/hwmon/hwmon%d/name", h);
     if (sysfs_read(p, name, sizeof name)) continue;
     if (!strcmp(name, "amdgpu")) {
+      /* Only an APU's PPT is the CPU's: a discrete Radeon reports its own board power under the same label. The
+       * northbridge voltage (in1, "vddnb") is the amdgpu driver's APU-only sensor. */
+      snprintf(p, sizeof p, "/sys/class/hwmon/hwmon%d/in1_label", h);
+      if (sysfs_read(p, label, sizeof label) || strcmp(label, "vddnb")) continue;
       snprintf(p, sizeof p, "/sys/class/hwmon/hwmon%d/power1_label", h);
       if (sysfs_read(p, label, sizeof label) || strcmp(label, "PPT")) continue;
       snprintf(g_ppt, sizeof g_ppt, "/sys/class/hwmon/hwmon%d/power1_input", h);

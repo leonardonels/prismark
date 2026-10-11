@@ -108,12 +108,29 @@ libraries that build "Compiling code" in, and Qt for the desktop app.
 
 ### Ubuntu (x86-64 or arm64)
 
-Clang 19 comes from apt.llvm.org:
+Clang 19 comes from apt.llvm.org. Ubuntu 24.04 and later have everything else
+in their own packages:
 
 ```sh
 wget https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 19     # clang-19, clang++-19, lld-19
 sudo apt install cmake ninja-build libclang-19-dev llvm-19-dev \
                  qt6-base-dev qt6-svg-dev
+```
+
+Ubuntu 22.04 ships CMake 3.22, older than the 3.25 the build requires, and
+names the Qt SVG package differently. Take CMake from Kitware's apt
+repository, which replaces the system `cmake` package:
+
+```sh
+wget https://apt.llvm.org/llvm.sh && sudo bash llvm.sh 19
+wget -qO- https://apt.kitware.com/keys/kitware-archive-latest.asc | gpg --dearmor |
+  sudo tee /usr/share/keyrings/kitware-archive-keyring.gpg >/dev/null
+echo 'deb [signed-by=/usr/share/keyrings/kitware-archive-keyring.gpg] https://apt.kitware.com/ubuntu/ jammy main' |
+  sudo tee /etc/apt/sources.list.d/kitware.list >/dev/null
+sudo apt update
+sudo apt install cmake ninja-build libclang-19-dev llvm-19-dev \
+                 qt6-base-dev libqt6svg6-dev
+cmake --version     # must say 3.25 or later
 ```
 
 ### Fedora
@@ -342,6 +359,17 @@ Prismark measures the machine as it is configured and changes nothing on it:
 no power settings, no frequency limits, no idle states. It needs no root
 rights. What it finds (governor, power mode, idle states, temperatures) is
 recorded with the result.
+
+On Linux, the power of an Intel or AMD processor is read from its RAPL energy
+counter, which only root may read since Linux 5.10. Without it no power is
+recorded, and the summary says `power none rapl-needs-root`. To measure power,
+run `prismark` with `sudo`, or let every user read the counter until the next
+restart (this also exposes it to other programs, which it is restricted to
+keep from):
+
+```sh
+sudo chmod o+r /sys/class/powercap/intel-rapl:0/energy_uj
+```
 
 ### Compile tests setup
 
