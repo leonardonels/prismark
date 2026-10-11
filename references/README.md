@@ -21,6 +21,11 @@ Users can add their own references without rebuilding: the app also reads
 machine. Copy it here as it is: the app reads its values, its machine and its
 instruction sets from it. Every system shipped here is one.
 
+A result file may get a `"name"` at the top level, shown in the rankings and by
+the command line in place of the processor's model. Use it when the model says
+little, as with an engineering sample ("Genuine Intel(R) CPU 0000"); the
+measured model stays in `machine.cpu.model`.
+
 Several runs of one machine can be merged into one file that keeps, for each
 test, the run where it scored best: `tools/merge-best.py OUT RUN RUN...`. It
 also recomputes the scaling and the ratios from the merged samples. The

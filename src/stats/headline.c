@@ -209,7 +209,9 @@ static void describe(pmk_buf *t, const char *which, const doc *d) {
   /* The run id and the power source tell apart two runs of the same processor. */
   const char *when = jv_str(jv_get(d->root, "started_utc"), "");
   const jv *ac = jv_path(d->root, "state.start.ac_online");
-  buf_printf(t, "  %s: %s  (%s run, %.10s%s%s, run %.8s)\n", which, jv_str(jv_path(d->root, "machine.cpu.model"), "?"),
+  const char *name = jv_str(jv_get(d->root, "name"), NULL); /* a display name given to the file, else the CPU */
+  buf_printf(t, "  %s: %s  (%s run, %.10s%s%s, run %.8s)\n", which,
+             name && *name ? name : jv_str(jv_path(d->root, "machine.cpu.model"), "?"),
              jv_bool(jv_path(d->root, "config.quick"), 0) ? "quick" : "full", when,
              ac && ac->t == JV_BOOL ? (jv_bool(ac, 1) ? ", plugged in" : ", on battery") : "",
              jv_bool(jv_get(d->root, "complete"), 1) ? "" : ", incomplete", jv_str(jv_get(d->root, "run_id"), "?"));
