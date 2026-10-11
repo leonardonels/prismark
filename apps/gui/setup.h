@@ -25,7 +25,13 @@ struct CompileStatus {
   bool canRunK1x() const { return !snapshot.isEmpty() && missingBuild.isEmpty(); }
 };
 
-QString dataDir();                 /* ~/.local/share/prismark and platform equivalents */
+/* ~/.local/share/prismark and platform equivalents. Started as root through sudo or pkexec, the folder of the user
+   who did, so runs land with theirs; what is saved there is handed back to them (makeUserDir, giveToUser). */
+QString dataDir();
+/* Creates dir and its missing parents; under sudo or pkexec the ones created belong to the user. */
+void makeUserDir(const QString &dir);
+/* Under sudo or pkexec, gives a saved file (or a folder, with everything in it) to the user; else nothing. */
+void giveToUser(const QString &path);
 QString defaultSnapshotDir();
 QString prepareScript();           /* tools/k1x/prepare.py, installed or in the source tree; empty if absent */
 CompileStatus compileStatus(const QJsonObject &info, const QString &configuredSnapshot);

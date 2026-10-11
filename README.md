@@ -371,6 +371,10 @@ keep from):
 sudo chmod o+r /sys/class/powercap/intel-rapl:0/energy_uj
 ```
 
+A run started with `sudo` (or `pkexec`), from the command line or the desktop
+app, still saves to the results folder of the user who started it, and the
+files and folders it creates there belong to that user.
+
 ### Compile tests setup
 
 "Compiling code" (K1) runs on Linux, Windows, macOS and iPadOS; "Full software
