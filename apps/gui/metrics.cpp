@@ -321,7 +321,8 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
   s.id = doc["run_id"].toString();
   s.file = file;
   s.machine = doc["machine"].toObject();
-  s.name = s.machine["cpu"].toObject()["model"].toString();
+  /* a display name given to the file (references/README.md), else the CPU model */
+  s.name = doc["name"].toString(s.machine["cpu"].toObject()["model"].toString());
   if (s.name.isEmpty()) s.name = "Unknown CPU";
   QDateTime t = QDateTime::fromString(doc["started_utc"].toString(), Qt::ISODate);
   if (t.isValid()) s.date = t.toLocalTime().toString("yyyy-MM-dd HH:mm");

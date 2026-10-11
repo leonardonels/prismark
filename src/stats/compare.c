@@ -423,7 +423,9 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
   pmk_rng rng;
   pmk_rng_seed(&rng, 0xc0a1e5ce);
   pmk_jw w = {0};
-  const char *ma = jv_str(jv_path(A.root, "machine.cpu.model"), "?"), *mb = jv_str(jv_path(Bn.root, "machine.cpu.model"), "?");
+  /* a display name given to the file, else the CPU model */
+  const char *ma = jv_str(jv_get(A.root, "name"), jv_str(jv_path(A.root, "machine.cpu.model"), "?"));
+  const char *mb = jv_str(jv_get(Bn.root, "name"), jv_str(jv_path(Bn.root, "machine.cpu.model"), "?"));
   jw_obj_begin(&w, NULL);
   jw_str(&w, "schema", "prismark-compare/1");
   jw_obj_begin(&w, "a");

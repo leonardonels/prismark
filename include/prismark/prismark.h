@@ -168,7 +168,7 @@ typedef struct pmk_brief {
   uint32_t struct_size;   /* set to sizeof(pmk_brief) */
   char run_id[64];
   char started_utc[32];   /* e.g. "2026-10-08T18:48:01Z"; empty if absent */
-  char model[128];        /* CPU model */
+  char model[128];        /* CPU model, or the file's display name ("name") when it has one */
   char frontend[16];      /* "cli", "gui", ... */
   int32_t quick;          /* 1 quick run, 0 full run, -1 not recorded */
   int32_t complete;       /* 0 if cancelled or failed part-way */

@@ -61,7 +61,10 @@ int pmk_describe(const char *result_json, pmk_brief *brief, char **summary_text)
   }
   copy(brief->run_id, sizeof brief->run_id, jv_str(jv_get(root, "run_id"), ""));
   copy(brief->started_utc, sizeof brief->started_utc, jv_str(jv_get(root, "started_utc"), ""));
-  copy(brief->model, sizeof brief->model, jv_str(jv_path(root, "machine.cpu.model"), ""));
+  /* A display name given to the file (a reference whose chip reports no useful model, as an engineering sample
+     does) is shown in place of the CPU model; the measured model stays in machine.cpu.model. */
+  const char *name = jv_str(jv_get(root, "name"), "");
+  copy(brief->model, sizeof brief->model, *name ? name : jv_str(jv_path(root, "machine.cpu.model"), ""));
   copy(brief->frontend, sizeof brief->frontend, jv_str(jv_path(root, "frontend.kind"), ""));
   const jv *quick = jv_path(root, "config.quick");
   brief->quick = quick ? jv_bool(quick, 0) : -1;

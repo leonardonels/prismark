@@ -166,7 +166,7 @@ function summarize(doc, source) {
   return {
     schema: SUMMARY_SCHEMA,
     id: doc.run_id,
-    name: m.cpu?.model || 'Unknown CPU',
+    name: doc.name || m.cpu?.model || 'Unknown CPU', // a display name given to the file, else the CPU
     source,
     placeholder: false,
     date: doc.started_utc ? doc.started_utc.slice(0, 10) : null,
