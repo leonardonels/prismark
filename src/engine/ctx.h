@@ -43,6 +43,7 @@ typedef struct pmk_result {
   const char *size;    /* "burst" or "full" */
   const char *purpose; /* "warmup" for a mode's warm-up, "stress" for a stress-test part, else NULL */
   const char *part;    /* stress test: "one_core", "all_cores" or "memory" */
+  const char *isa;     /* the vector instructions a kernel picked at run time (pmk_tk.isa), or NULL */
   int stopped;         /* stress test: ended before its time (see stop_reason) */
   const char *stop_reason; /* stress test: "time", "user" (pmk_cancel, a run without a set length), "error", "temperature" */
   uint64_t errors;     /* jobs whose checksum differed from the known-good one (or, if unknown, the first job's) */

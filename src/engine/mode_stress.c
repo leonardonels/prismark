@@ -2,8 +2,9 @@
  * Stress test: minutes of full load, to show how the speed holds up as the machine heats up and whether it stays
  * correct. Each part is one long sustained series with no warm-up, since the heating is what it measures:
  *
- *   one core     3D rendering (K2) on one CPU of the fastest core type
- *   all cores    3D rendering on every CPU
+ *   one core     vector maths (K12: AVX-512, AVX2 or NEON fused multiply-adds, the hottest load) on one CPU of
+ *                the fastest core type
+ *   all cores    vector maths on every CPU
  *   memory       K11 on every CPU: 2 GiB written and checked over and over
  *
  * A part runs for cfg.stress_s, or until pmk_cancel when that is 0; its windows, temperatures, clocks and power
@@ -24,8 +25,8 @@ static const struct {
   const char *name, *label, *kernel;
   int all_cpus;
 } PARTS[] = {
-    {PMK_STRESS_ONE_CORE, "one_core", "one core", "K2", 0},
-    {PMK_STRESS_ALL_CORES, "all_cores", "all cores", "K2", 1},
+    {PMK_STRESS_ONE_CORE, "one_core", "one core", "K12", 0},
+    {PMK_STRESS_ALL_CORES, "all_cores", "all cores", "K12", 1},
     {PMK_STRESS_MEMORY, "memory", "memory", "K11", 1},
 };
 #define NPARTS ((int)(sizeof PARTS / sizeof *PARTS))

@@ -66,6 +66,9 @@ typedef struct pmk_tk {
   /* Optional: the job checksum a correct machine produces for this instance, 0 if not known. Outputs are
      bit-identical on every host, so it can be known in advance; the stress test checks every job against it. */
   uint64_t (*expected)(const void *inst);
+  /* Optional: the vector instructions the instance runs with (e.g. "AVX-512"), for kernels that pick them at run
+     time; NULL when the kernel uses the build's ISA level only. */
+  const char *(*isa)(const void *inst);
 } pmk_tk;
 
 typedef struct pmk_kernels {
@@ -82,7 +85,7 @@ typedef struct pmk_kernels {
   void (*k7_build)(pmk_k7_node *nodes, size_t n, uint64_t seed);
   uint64_t (*k7_chase)(const pmk_k7_node *nodes, uint64_t start, uint64_t steps);
 
-  /* Throughput kernels (K1-K6, and K11 for the stress test). */
+  /* Throughput kernels (K1-K6, K12, and K11 for the stress test). */
   const pmk_tk *const *tk;
   size_t ntk;
 } pmk_kernels;

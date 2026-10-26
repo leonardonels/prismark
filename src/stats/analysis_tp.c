@@ -373,6 +373,7 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
     jw_str(w, "core_type", c->m.type_names[r->type]);
     jw_int(w, "cpu", r->cpu);
     jw_int(w, "n", r->nthreads ? r->nthreads : 1);
+    if (r->isa) jw_str(w, "vector_isa", r->isa);
     if (r->ws_bytes) jw_int(w, "working_set_bytes", (int64_t)r->ws_bytes);
     if (!strcmp(r->mode, "cold_burst")) jw_str(w, "start", r->warm ? "warm" : "cold");
     jw_int(w, "samples", (int64_t)r->n);
@@ -446,6 +447,7 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
     jw_obj_begin(w, NULL);
     jw_str(w, "part", r->part);
     jw_str(w, "kernel", r->kernel);
+    jw_str(w, "vector_isa", r->isa);
     jw_str(w, "unit", unit_of(r));
     jw_str(w, "core_type", c->m.type_names[r->type]);
     jw_int(w, "n", r->nthreads ? r->nthreads : 1);

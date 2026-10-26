@@ -200,6 +200,17 @@ const QVector<Metric> &metrics() {
          return v;
        }},
       /* One core */
+      {"mc_k12", "mc", "Vector maths", "Vector maths on all cores", "All cores, widest vectors (AVX / NEON)",
+       "GFLOP/s",
+       "How many double-precision operations per second every core together gets done in dense matrix maths, as "
+       "scientific, engineering and simulation software do. It uses the widest vector instructions the processor has "
+       "(AVX-512, AVX2 or NEON), so it shows the processor's full floating-point power, and it is the hottest load "
+       "in Prismark.",
+       "Matrix multiplication in double precision, in tiles shared by every core, with fused multiply-adds as wide as "
+       "the processor allows; every width gives exactly the same result. " + kSettle,
+       "Higher is better, in billions of floating-point operations per second (GFLOP/s). Each row says which vector "
+       "instructions it ran with.",
+       "scaling:K12", true, {"mc_threaded"}, "K12", throughput("K12", "mc_threaded")},
       {"st_k2", "st", "3D rendering, one core", "3D rendering on one core", "One core, after warming up", "M samples/s",
        "How fast a single core is on a long task once it has warmed up: what one core can keep up.",
        "The renderer runs alone on the fastest core. " + kSettle,
@@ -210,6 +221,13 @@ const QVector<Metric> &metrics() {
        "The built-in compiler runs alone on the fastest core. Needs a one-time setup. " + kSettle,
        "Higher is better. Measured in complete builds per hour.", "", true, {"st_sustained"}, "K1",
        throughput("K1", "st_sustained")},
+      {"st_k12", "st", "Vector maths, one core", "Vector maths on one core", "One core, widest vectors",
+       "GFLOP/s",
+       "How many double-precision operations per second a single core gets done in dense matrix maths, with the "
+       "widest vector instructions it has (AVX-512, AVX2 or NEON).",
+       "The matrix multiplication of “Vector maths on all cores”, on the fastest core alone. " + kSettle,
+       "Higher is better, in billions of floating-point operations per second (GFLOP/s).", "", true,
+       {"st_sustained"}, "K12", throughput("K12", "st_sustained")},
       {"b_k3", "st", "Compression", "Compressing a file", "Compress a small file", "ms",
        "How long one core takes to compress a small file with zstd, a common compression format. Short tasks like "
        "this are most of what everyday programs do.",
@@ -282,17 +300,18 @@ const QVector<Metric> &metrics() {
        "resp:K6", false, {"cold_burst"}, "K6", medianOf("K6", "cold_burst", "cold", 1e-6)},
       /* Stress test */
       {"s_st", "stress", "One core", "One core under stress", "One core at full load for 10 minutes or more",
-       "M samples/s",
-       "How fast one core renders after minutes of full load. A single busy core keeps its highest clock only while "
-       "the cooling and the power limits allow it.",
-       kStressHow, "Higher is better, in million light samples per second in the 10th minute.", "stress:one_core",
-       true, {"stress"}, "K2", stress("one_core")},
+       "GFLOP/s",
+       "How fast one core does vector maths after minutes of full load, and whether it stays correct. A single busy "
+       "core keeps its highest clock only while the cooling and the power limits allow it.",
+       kStressHow, "Higher is better, in GFLOP/s in the 10th minute.", "stress:one_core", true, {"stress"}, "K12",
+       stress("one_core")},
       {"s_mc", "stress", "All cores", "All cores under stress", "Every core at full load for 10 minutes or more",
-       "M samples/s",
-       "How fast every core together renders after minutes of full load, when the processor is as hot as long use "
-       "makes it. Laptops in particular slow down here as their power limits and cooling take over.",
-       kStressHow, "Higher is better, in million light samples per second in the 10th minute.", "stress:all_cores",
-       true, {"stress"}, "K2", stress("all_cores")},
+       "GFLOP/s",
+       "How fast every core together does vector maths after minutes of full load, when the processor is as hot as "
+       "long use makes it, and whether every result stays correct. Wide vector instructions are the hottest load a "
+       "processor gets; laptops in particular slow down here as their power limits and cooling take over.",
+       kStressHow, "Higher is better, in GFLOP/s in the 10th minute.", "stress:all_cores", true, {"stress"}, "K12",
+       stress("all_cores")},
       {"s_mem", "stress", "Memory", "Memory under stress", "2 GiB written and checked, on every core", "GB/s",
        "Every core writes 2 GiB of memory and checks every word on the next pass, over and over: how much data the "
        "memory moves when it is kept busy and warm, and whether any of it comes back wrong.",
@@ -330,6 +349,7 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
   s.unavailable = doc["unavailable"].toArray();
   for (const QJsonValue &v : series(doc)) {
     QJsonObject r = v.toObject();
+    if (r.contains("vector_isa")) s.vectorIsa = r["vector_isa"].toString();
     if (r["clamped_windows"].toInt() > 0) {
       s.clampedSeries++;
       double mhz = r["clamped_lowest_mhz"].toDouble(NAN);
@@ -387,6 +407,7 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
     QJsonObject r = v.toObject();
     RunSummary::Stress &x = s.stress[r["part"].toString()];
     x.unit = r["unit"].toString();
+    if (r.contains("vector_isa") && s.vectorIsa.isEmpty()) s.vectorIsa = r["vector_isa"].toString();
     x.threads = r["n"].toInt();
     x.durationS = r["duration_s"].toDouble(NAN);
     x.stopped = r["stopped"].toBool();
@@ -436,7 +457,8 @@ QString plainKernel(const QString &kernel, const QString &variant) {
       {"K1", "Compiling code"},    {"K1x", "Full software build"}, {"K2", "3D rendering"},
       {"K3", "Compression"},       {"K4", "Opening a photo"},     {"K5", "Reading JSON"},
       {"K6", "Starting a script"}, {"K7", "Memory delay"},        {"K8", "Matrix maths"},
-      {"K9", "Wake-up test"},      {"K10", "Timer punctuality"},   {"K11", "Memory bandwidth"}};
+      {"K9", "Wake-up test"},      {"K10", "Timer punctuality"},   {"K11", "Memory bandwidth"},
+      {"K12", "Vector maths"}};
   QString n = names.value(kernel, kernel);
   if (variant == "fp32") n += ", decimals";
   else if (variant == "int8") n += ", small integers";

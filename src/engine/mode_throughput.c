@@ -3,8 +3,8 @@
  *
  *   ST burst      single-core speed on short interactive tasks: K3 (small
  *                 input), K4, K5, K6; pre-warmed; one series per core type
- *   ST sustained  single-core speed at thermal steady state: K1, K2
- *   MC threaded   scaling of multithreaded software: K1, K2 (and K1x) at
+ *   ST sustained  single-core speed at thermal steady state: K1, K2, K12
+ *   MC threaded   scaling of multithreaded software: K1, K2, K12 (and K1x) at
  *                 n = 1, 2, 4, ..., all CPUs, each run sustained
  *   MC instances  memory latency under contention: K7 while n - 1 other
  *                 copies chase memory on the other CPUs
@@ -24,8 +24,8 @@
 #define BURST_WARMUP_JOBS 2
 
 static const char *const BURST_KERNELS[] = {"K3", "K4", "K5", "K6"};
-static const char *const SUSTAINED_KERNELS[] = {"K1", "K2"};
-static const char *const THREADED_KERNELS[] = {"K1", "K2"};
+static const char *const SUSTAINED_KERNELS[] = {"K1", "K2", "K12"};
+static const char *const THREADED_KERNELS[] = {"K1", "K2", "K12"};
 
 #define COUNT(a) ((int)(sizeof(a) / sizeof *(a)))
 

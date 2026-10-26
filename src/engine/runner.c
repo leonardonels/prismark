@@ -462,6 +462,7 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
     jw_str(w, "size", r->size);
     if (r->purpose) jw_str(w, "purpose", r->purpose);
     if (r->part) jw_str(w, "part", r->part);
+    if (r->isa) jw_str(w, "vector_isa", r->isa);
     if (r->nthreads) jw_int(w, !strcmp(r->mode, "mc_instances") ? "instances" : "threads", r->nthreads);
     if (r->ws_bytes) jw_int(w, "working_set_bytes", (int64_t)r->ws_bytes);
     if (r->windowed) jw_num(w, "window_ms", r->window_ms);

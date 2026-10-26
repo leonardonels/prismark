@@ -102,6 +102,7 @@ struct RunSummary {
     QVector<double> perf, mhzT, tempT, powerT;
   };
   QMap<QString, Stress> stress;
+  QString vectorIsa;            /* the vector instructions vector maths ran with ("AVX2"), if it ran */
   int clampedSeries = 0;        /* series of the run with platform-clamped windows */
   double clampedMhz = NAN;      /* the lowest clamped clock among them */
 };

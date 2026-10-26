@@ -769,6 +769,7 @@ void MainWindow::refreshRanking() {
     row.yours = !r.reference;
     row.name = r.reference ? r.name : tr("This PC · %1").arg(r.name);
     row.detail = r.reference ? QString("%1 · %2").arg(r.machine["os"].toString(), r.machine["isa"].toString()) : r.date;
+    if (m->kernels == "K12" && !r.vectorIsa.isEmpty()) row.detail += QStringLiteral(" · ") + r.vectorIsa;
     if (r.placeholder) row.tags << "placeholder";
     if (r.reference && !r.placeholder) row.tags << "reference";
     if (&r == latest && allRuns_->isChecked()) row.tags << "latest";

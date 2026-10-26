@@ -93,7 +93,7 @@ class Cli(unittest.TestCase):
     def test_tests_lists_names(self):
         out, _ = self.run_cli("tests")
         for name in ("Opening a photo", "--tests photo --mode short-task", "Timer punctuality", "from-rest",
-                     "Stress test", "--tests render --mode stress --stress one-core", "Memory under stress"):
+                     "Stress test", "--tests vector --mode stress --stress one-core", "Memory under stress"):
             self.assertIn(name, out)
 
     # ---------- checks before a run ----------

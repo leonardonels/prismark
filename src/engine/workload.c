@@ -287,6 +287,7 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   r->nthreads = s->nthreads;
   r->tau_s = NAN;
   r->input_hash = tk->input_hash(s->inst);
+  r->isa = tk->isa ? tk->isa(s->inst) : NULL;
 
   shared *sh = calloc(1, sizeof *sh);
   worker *wk = calloc((size_t)s->nthreads, sizeof *wk);
