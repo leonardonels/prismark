@@ -33,14 +33,14 @@ static const struct metric {
     {"b_k4", "One core", "Opening a photo", "ms", 0, MEDIAN, "K4", "st_burst", NULL, 1e-6},
     {"b_k5", "One core", "Reading structured data (JSON)", "ms", 0, MEDIAN, "K5", "st_burst", NULL, 1e-6},
     {"b_k6", "One core", "Starting a small script", "ms", 0, MEDIAN, "K6", "st_burst", NULL, 1e-6},
-    {"r_1ms", "Responsiveness", "Reacting from rest: a 1 ms task", "%", 1, RRESP, "K9", NULL, NULL, 1},
-    {"r_10ms", "Responsiveness", "Reacting from rest: a 10 ms task", "%", 1, RRESP, "K9", NULL, NULL, 10},
-    {"c_k4", "Responsiveness", "Opening a photo from rest", "ms", 0, MEDIAN, "K4", "cold_burst", "cold", 1e-6},
-    {"c_k6", "Responsiveness", "Starting a small script from rest", "ms", 0, MEDIAN, "K6", "cold_burst", "cold", 1e-6},
     {"m_lat1", "Memory & timing", "Memory delay", "ns", 0, K7, "K7", NULL, NULL, 0},
     {"m_latn", "Memory & timing", "Memory delay while every core uses memory", "ns", 0, K7, "K7", NULL, "all", 0},
     {"j_idle", "Memory & timing", "Timer punctuality, idle (worst 1 in 1000)", "us", 0, PERIODIC, "K10", NULL, "idle", 0},
     {"j_load", "Memory & timing", "Timer punctuality, other cores busy", "us", 0, PERIODIC, "K10", NULL, "loaded", 0},
+    {"r_1ms", "Responsiveness", "Reacting from rest: a 1 ms task", "%", 1, RRESP, "K9", NULL, NULL, 1},
+    {"r_10ms", "Responsiveness", "Reacting from rest: a 10 ms task", "%", 1, RRESP, "K9", NULL, NULL, 10},
+    {"c_k4", "Responsiveness", "Opening a photo from rest", "ms", 0, MEDIAN, "K4", "cold_burst", "cold", 1e-6},
+    {"c_k6", "Responsiveness", "Starting a small script from rest", "ms", 0, MEDIAN, "K6", "cold_burst", "cold", 1e-6},
 };
 #define NMETRICS (sizeof METRICS / sizeof *METRICS)
 

@@ -128,12 +128,12 @@ const QVector<Group> &groups() {
        "Heavy jobs that use every core at once, measured after a minute of full load has warmed the CPU up."},
       {"st", "One core",
        "How fast a single core is: short everyday tasks, and long tasks once the core has warmed up."},
-      {"resp", "Responsiveness",
-       "How quickly the computer reacts when work arrives while it is resting. Idle CPUs sleep and slow their "
-       "clock to save power, and waking up costs time."},
       {"mem", "Memory && timing",
        "How long the CPU waits for main memory, and how punctually it wakes up for tasks that run on a fixed "
        "schedule (audio, games, control loops)."},
+      {"resp", "Responsiveness",
+       "How quickly the computer reacts when work arrives while it is resting. Idle CPUs sleep and slow their "
+       "clock to save power, and waking up costs time."},
   };
   return g;
 }
@@ -208,6 +208,32 @@ const QVector<Metric> &metrics() {
        "script starts.",
        kBurstHow, "Lower is better, in milliseconds.", "", false, {"st_burst"}, "K6",
        medianOf("K6", "st_burst", "", 1e-6)},
+      /* Memory & timing */
+      {"m_lat1", "mem", "Memory delay", "Memory delay", "One read from main memory", "ns",
+       "How long the processor waits for one piece of data from main memory (RAM) when it is in none of the caches. "
+       "Programs that jump around large amounts of data, such as databases and games, wait for this often.",
+       "The processor follows a long chain of links through a block of memory larger than all its caches; each step "
+       "has to wait for the previous one to arrive.",
+       "Lower is better, in nanoseconds (billionths of a second).", "", false, {"mc_instances"}, "K7", k7(false)},
+      {"m_latn", "mem", "Memory delay, busy", "Memory delay while every core uses memory", "All cores reading at once",
+       "ns",
+       "The same wait while every other core is also reading main memory, so they all compete for it, as under heavy "
+       "multitasking.",
+       "The same chain of links, followed while every other core runs its own copy.",
+       "Lower is better, in nanoseconds. Compare with “Memory delay”: the difference is the cost of competition.", "",
+       false, {"mc_instances"}, "K7", k7(true)},
+      {"j_idle", "mem", "Timer, idle", "Timer punctuality on an idle computer", "How late a 1 ms timer fires", "µs",
+       "How late a task that asks to wake up every millisecond actually wakes up. It matters for audio, games and "
+       "machine control, where late means a glitch.",
+       "A task wakes up every millisecond for a minute (quick runs: shorter). The result is the lateness of its worst "
+       "1-in-1000 wake-ups, because an average would hide the rare long delays that cause glitches. Keep your hands "
+       "off the keyboard and mouse while it runs.",
+       "Lower is better, in microseconds (millionths of a second).", "", false, {"periodic"}, "K10", periodic("idle")},
+      {"j_load", "mem", "Timer, busy", "Timer punctuality while other cores are busy", "The same, other cores busy",
+       "µs", "The same timer while every other core is kept busy reading memory.",
+       "As on an idle computer, with every other core running a memory-heavy task.",
+       "Lower is better, in microseconds. Compare with “Timer punctuality on an idle computer”.", "", false,
+       {"periodic"}, "K10", periodic("loaded")},
       /* Responsiveness */
       {"r_1ms", "resp", "Wake-up, 1 ms task", "Reacting from rest: a 1 ms task", "A short task started from rest", "%",
        "An idle processor sleeps and slows down to save power. This shows how fast a short task runs when it arrives "
@@ -235,32 +261,6 @@ const QVector<Metric> &metrics() {
        "included.",
        kRestHow, "Lower is better, in milliseconds. Compare with “Starting a small script” under One core.",
        "resp:K6", false, {"cold_burst"}, "K6", medianOf("K6", "cold_burst", "cold", 1e-6)},
-      /* Memory & timing */
-      {"m_lat1", "mem", "Memory delay", "Memory delay", "One read from main memory", "ns",
-       "How long the processor waits for one piece of data from main memory (RAM) when it is in none of the caches. "
-       "Programs that jump around large amounts of data, such as databases and games, wait for this often.",
-       "The processor follows a long chain of links through a block of memory larger than all its caches; each step "
-       "has to wait for the previous one to arrive.",
-       "Lower is better, in nanoseconds (billionths of a second).", "", false, {"mc_instances"}, "K7", k7(false)},
-      {"m_latn", "mem", "Memory delay, busy", "Memory delay while every core uses memory", "All cores reading at once",
-       "ns",
-       "The same wait while every other core is also reading main memory, so they all compete for it, as under heavy "
-       "multitasking.",
-       "The same chain of links, followed while every other core runs its own copy.",
-       "Lower is better, in nanoseconds. Compare with “Memory delay”: the difference is the cost of competition.", "",
-       false, {"mc_instances"}, "K7", k7(true)},
-      {"j_idle", "mem", "Timer, idle", "Timer punctuality on an idle computer", "How late a 1 ms timer fires", "µs",
-       "How late a task that asks to wake up every millisecond actually wakes up. It matters for audio, games and "
-       "machine control, where late means a glitch.",
-       "A task wakes up every millisecond for a minute (quick runs: shorter). The result is the lateness of its worst "
-       "1-in-1000 wake-ups, because an average would hide the rare long delays that cause glitches. Keep your hands "
-       "off the keyboard and mouse while it runs.",
-       "Lower is better, in microseconds (millionths of a second).", "", false, {"periodic"}, "K10", periodic("idle")},
-      {"j_load", "mem", "Timer, busy", "Timer punctuality while other cores are busy", "The same, other cores busy",
-       "µs", "The same timer while every other core is kept busy reading memory.",
-       "As on an idle computer, with every other core running a memory-heavy task.",
-       "Lower is better, in microseconds. Compare with “Timer punctuality on an idle computer”.", "", false,
-       {"periodic"}, "K10", periodic("loaded")},
   };
   return m;
 }
@@ -463,12 +463,12 @@ QString plainText(QString text) {
 
 bool isSimple(const QString &metricId) {
   static const QStringList simple = {
-      "mc_k2", "mc_k1",  /* All cores: rendering, and compiling (desktop only, one-time setup); the full build is
-                            for experts */
-      "b_k4", "st_k2",   /* One core: an everyday short task, and one core after warming up */
-      "r_1ms", "c_k4",   /* Responsiveness: the penalty in %, and the photo job of One core started from rest */
-      /* None from Memory & timing or New instructions: they describe the processor's insides rather than something
-       * people do, and their effect already shows in the tests above. Those tabs appear only in Advanced. */
+      "mc_k2", "mc_k1",   /* All cores: rendering, and compiling (desktop only, one-time setup); the full build is
+                             for experts */
+      "b_k4", "st_k2",    /* One core: an everyday short task, and one core after warming up */
+      "m_lat1", "j_idle", /* Memory & timing: how long a read from main memory takes, and how punctual a timer is */
+      /* None from Responsiveness or Stress test: waking from rest depends on power settings more than on the
+       * processor, and a stress test takes ten minutes or more. Those tabs appear only in Advanced. */
   };
   return simple.contains(metricId);
 }

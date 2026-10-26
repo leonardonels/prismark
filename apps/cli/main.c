@@ -237,8 +237,8 @@ static const struct {
 } CATEGORIES[] = {
     {"All cores", "heavy jobs on every core at once, after a minute of full load"},
     {"One core", "short everyday tasks, and long tasks once the core has warmed up"},
-    {"Responsiveness", "how quickly work starts while the processor rests; hands off the keyboard"},
     {"Memory & timing", "waits for main memory, and how punctual a 1 ms timer is"},
+    {"Responsiveness", "how quickly work starts while the processor rests; hands off the keyboard"},
 };
 #define NCATEGORIES (sizeof CATEGORIES / sizeof *CATEGORIES)
 
@@ -256,11 +256,11 @@ static const struct {
     {1, "Opening a photo", "K4", "st_burst", 0},
     {1, "Reading JSON", "K5", "st_burst", 0},
     {1, "Starting a script", "K6", "st_burst", 0},
-    {2, "Wake-up test: 0.1 to 100 ms tasks from rest", "K9", "cold_burst", 0},
-    {2, "Opening a photo from rest", "K4", "cold_burst", 0},
-    {2, "Starting a script from rest", "K6", "cold_burst", 0},
-    {3, "Memory delay, alone and with every core reading", "K7", "mc_instances", 0},
-    {3, "Timer punctuality, idle and with other cores busy", "K10", "periodic", 0},
+    {2, "Memory delay, alone and with every core reading", "K7", "mc_instances", 0},
+    {2, "Timer punctuality, idle and with other cores busy", "K10", "periodic", 0},
+    {3, "Wake-up test: 0.1 to 100 ms tasks from rest", "K9", "cold_burst", 0},
+    {3, "Opening a photo from rest", "K4", "cold_burst", 0},
+    {3, "Starting a script from rest", "K6", "cold_burst", 0},
 };
 #define NITEMS (sizeof ITEMS / sizeof *ITEMS)
 
