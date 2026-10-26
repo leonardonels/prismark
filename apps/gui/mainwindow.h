@@ -89,7 +89,7 @@ class MainWindow : public QMainWindow {
   QJsonObject info_; /* `prismark info` */
   QString group_ = "mc", metric_ = "mc_k2", selected_;
 
-  Segmented *groups_ = nullptr;
+  Segmented *groups_ = nullptr, *stressTab_ = nullptr; /* the benchmark tabs, and the stress test on its own */
   Toggle *quick_ = nullptr, *allRuns_ = nullptr;
   QPushButton *runAll_ = nullptr;
   QLabel *banner_ = nullptr, *testsTitle_ = nullptr, *groupDesc_ = nullptr, *title_ = nullptr, *desc_ = nullptr,

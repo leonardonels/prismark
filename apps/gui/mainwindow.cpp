@@ -286,12 +286,22 @@ void MainWindow::buildUi() {
   groups_ = new Segmented; /* items set in refresh(): Simple shows fewer tabs */
   connect(groups_, &Segmented::changed, this, [this](int i) {
     QVector<QString> shown = visibleGroups();
+    shown.removeAll(QStringLiteral("stress"));
     if (i < 0 || i >= shown.size()) return;
     group_ = shown[i];
     metric_ = firstVisible(group_);
     refresh();
   });
   head->addWidget(groups_);
+  /* The stress test in a bubble of its own: minutes of load, run on its own, not one more benchmark tab. */
+  stressTab_ = new Segmented;
+  stressTab_->setItems({tr("Stress test")});
+  connect(stressTab_, &Segmented::changed, this, [this] {
+    group_ = QStringLiteral("stress");
+    metric_ = firstVisible(group_);
+    refresh();
+  });
+  head->addWidget(stressTab_);
   head->addStretch();
   quick_ = new Toggle(tr("Quick"));
   quick_->setToolTip(tr("On: quick runs, a few minutes, for a first look (not comparable).\n"
@@ -627,12 +637,16 @@ void MainWindow::refresh() {
   if (!shown.contains(group_)) group_ = shown.value(0);
   if (const Metric *m = findMetric(metric_); !m || !visible(*m) || m->group != group_) metric_ = firstVisible(group_);
   banner_->setVisible(std::any_of(runs_.begin(), runs_.end(), [](const RunSummary &r) { return r.placeholder; }));
+  QVector<QString> main = shown;
+  main.removeAll(QStringLiteral("stress"));
   QStringList names;
-  for (const QString &id : shown)
+  for (const QString &id : main)
     for (const Group &g : groups())
       if (g.id == id) names << QString(g.label).replace("&&", "&");
   groups_->setItems(names);
-  groups_->setCurrent(int(shown.indexOf(group_)));
+  groups_->setCurrent(int(main.indexOf(group_))); /* -1 while the stress test is shown: no tab highlighted */
+  stressTab_->setVisible(shown.contains(QStringLiteral("stress")));
+  stressTab_->setCurrent(group_ == "stress" ? 0 : -1);
   refreshTests();
   refreshRanking();
   refreshDetails();
