@@ -32,8 +32,9 @@ const bytes = (b) => (b >= 1 << 20 ? `${num(b / (1 << 20))} MiB` : `${num(b / 10
 const GROUPS = [
   { id: 'mc', label: 'Multi core' },
   { id: 'st', label: 'Single core' },
-  { id: 'resp', label: 'Responsiveness' },
   { id: 'mem', label: 'Memory & jitter' },
+  { id: 'resp', label: 'Responsiveness' },
+  { id: 'stress', label: 'Stress test' },
 ];
 
 const series = (d) => d?.analysis?.series ?? [];
@@ -61,6 +62,11 @@ function coldTime(kernel) {
     const r = series(d).find((x) => x.kernel === kernel && x.mode === 'cold_burst' && x.start === 'cold' && fast(x));
     return r ? ci(r.median, 1e-6) : null;
   };
+}
+
+/* A stress-test part's score: the speed in its 10th minute (null for a part that ran less than 10 minutes). */
+function stress(part) {
+  return (d) => ci((d?.analysis?.stress ?? []).find((x) => x.part === part)?.score);
 }
 
 function k7(nPick) {
@@ -130,6 +136,12 @@ const METRICS = [
     desc: 'Tail of the lateness of a 1 ms periodic task. Tails are never averaged.', get: periodic('idle') },
   { id: 'j_load', group: 'mem', name: 'Wake-up lateness, loaded', sub: 'K10 periodic · p99.9 with K7 load', unit: 'µs', better: 'lower',
     desc: 'The same tail with K7 loading every other CPU.', get: periodic('loaded') },
+  { id: 's_st', group: 'stress', name: 'K2 render, 1 core', sub: 'stress · 10th minute', unit: 'Msamples/s', better: 'higher',
+    desc: 'One core at full load for 10 minutes or more; speed in the 10th minute.', get: stress('one_core') },
+  { id: 's_mc', group: 'stress', name: 'K2 render, all cores', sub: 'stress · 10th minute', unit: 'Msamples/s', better: 'higher',
+    desc: 'Every CPU at full load for 10 minutes or more; speed in the 10th minute.', get: stress('all_cores') },
+  { id: 's_mem', group: 'stress', name: 'K11 memory bandwidth', sub: 'stress · 10th minute', unit: 'GB/s', better: 'higher',
+    desc: '2 GiB written and checked on every CPU; bandwidth in the 10th minute.', get: stress('memory') },
 
 ];
 

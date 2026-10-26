@@ -140,6 +140,7 @@ QString phaseTitle(const QString &phase) {
       {"st_sustained", "One core, after warming up"}, {"mc_threaded", "All cores, working together"},
       {"mc_instances", "All cores, each on its own"}, {"cold_burst", "Started from rest"},
       {"periodic", "Timer punctuality"},              {"cooldown", "Cooling down"},
+      {"stress", "Stress test"},
       {"done", "Computing the results"}};
   return names.value(phase, phase);
 }
@@ -155,6 +156,7 @@ QString phaseHint(const QString &phase, const QString &kernel) {
       {"mc_instances", "Each step takes up to a few minutes."},
       {"cold_burst", "Each step takes up to a few minutes."},
       {"periodic", "Each step takes about a minute."},
+      {"stress", "Each part runs for the length you chose; the score comes from the 10th minute."},
       {"cooldown", "Waits for the CPU to cool down: up to 2 minutes."},
       {"done", "Measuring is finished; usually a few seconds."}};
   return QObject::tr(qPrintable(hints.value(phase)));
@@ -466,10 +468,11 @@ QWidget *MainWindow::buildMeasuringWindow() {
   win->setFixedWidth(620);
   win->onClose = [this] {
     if (!proc_) return true;
-    if (QMessageBox::question(measure_, tr("Cancel the run?"),
+    if (!stressOpen_ &&
+        QMessageBox::question(measure_, tr("Cancel the run?"),
                               tr("Closing this window cancels the run. The partial result is kept.")) != QMessageBox::Yes)
       return false;
-    cancelRun();
+    cancelRun(); /* a stress test without a set length asks itself */
     return false; /* the window closes when the runner has stopped */
   };
   auto *l = new QVBoxLayout(win);
@@ -509,10 +512,10 @@ QWidget *MainWindow::buildMeasuringWindow() {
   l->addWidget(fzStatus_);
   fzWarn_ = text(QString(), 9, QFont::Normal, theme().bad);
   l->addWidget(fzWarn_);
-  auto *cancel = new QPushButton(tr("Cancel run"));
-  cancel->setCursor(Qt::PointingHandCursor);
-  connect(cancel, &QPushButton::clicked, this, &MainWindow::cancelRun);
-  l->addWidget(cancel, 0, Qt::AlignLeft);
+  fzCancel_ = new QPushButton(tr("Cancel run"));
+  fzCancel_->setCursor(Qt::PointingHandCursor);
+  connect(fzCancel_, &QPushButton::clicked, this, &MainWindow::cancelRun);
+  l->addWidget(fzCancel_, 0, Qt::AlignLeft);
 
   stallTimer_ = new QTimer(this);
   stallTimer_->setSingleShot(true);
@@ -685,7 +688,7 @@ void MainWindow::refreshTests() {
 void MainWindow::refreshRunLabels() {
   bool quick = quick_->isChecked();
   runAll_->setText(quick ? tr("▶  Run all quick") : tr("▶  Run all full"));
-  runAll_->setToolTip(advanced_ ? tr("Runs every test.")
+  runAll_->setToolTip(advanced_ ? tr("Runs every test but the stress tests, which run from their own cards.")
                                 : tr("Runs the tests of the Simple view. Switch to Advanced to run every test."));
   for (QAbstractButton *b : cards_.buttons())
     static_cast<TestCard *>(b)->setRunLabel(quick ? tr("Run quick") : tr("Run full"));
@@ -721,6 +724,12 @@ void MainWindow::refreshRanking() {
     if (row.value.unsettled && !r.quick) row.tags << "did not settle";
     if (row.value.ofThreads) row.tags << tr("%1 of %2 threads").arg(row.value.threads).arg(row.value.ofThreads);
     if (row.value.clamped) row.tags << tr("throttled");
+    if (m->group == "stress") {
+      const RunSummary::Stress x = r.stress.value(m->context.section(':', 1));
+      if (x.stopped) row.tags << tr("until stopped, %1 min").arg(std::floor(x.durationS / 60));
+      else if (std::isfinite(x.durationS)) row.tags << tr("%1 min").arg(std::round(x.durationS / 60));
+      if (x.errors) row.tags << tr("errors");
+    }
     rows.push_back(row);
   }
   bool shown = std::any_of(rows.begin(), rows.end(), [&](const RankRow &x) { return x.runId == selected_; });
@@ -884,6 +893,59 @@ void MainWindow::refreshContext() {
                                              tr("%1 s").arg(formatValue(build)), 0},
                                             {tr("Compiling the same files in memory"), compile,
                                              tr("%1 s").arg(formatValue(compile)), 2}}));
+  } else if (kind == "stress" && r->stress.contains(arg)) {
+    const RunSummary::Stress &x = r->stress[arg];
+    /* At most about 60 points: the median of each minute (of several, in a long run). */
+    int per = std::max(1, int(std::lround(60 / x.windowS))), n = int(x.perf.size());
+    per *= std::max(1, int(std::ceil(n / double(per) / 60)));
+    auto median = [&](const QVector<double> &v, int from, int to, double k) {
+      QVector<double> y;
+      for (int i = from; i < to && i < v.size(); i++)
+        if (std::isfinite(v[i]) && v[i] > 0) y.push_back(v[i] * k);
+      if (y.isEmpty()) return double(NAN);
+      std::sort(y.begin(), y.end());
+      return y.size() % 2 ? y[y.size() / 2] : (y[y.size() / 2 - 1] + y[y.size() / 2]) / 2;
+    };
+    ChartLine perf, temp, ghz, watts;
+    perf.name = tr("speed");
+    perf.color = 0;
+    temp.name = tr("temperature"), temp.overlay = true, temp.unit = QStringLiteral("°C"), temp.color = 3;
+    ghz.name = tr("clock"), ghz.overlay = true, ghz.unit = tr("GHz"), ghz.color = 2;
+    watts.name = tr("power"), watts.overlay = true, watts.unit = tr("W"), watts.color = 1;
+    for (int i = 0; i < n; i += per) {
+      double minute = (i + std::min(per, n - i)) * x.windowS / 60;
+      perf.pts.push_back({minute, median(x.perf, i, i + per, 1), NAN, NAN});
+      double c = median(x.tempT, i, i + per, 1), g = median(x.mhzT, i, i + per, 1e-3), w = median(x.powerT, i, i + per, 1);
+      if (std::isfinite(c)) temp.pts.push_back({minute, c, NAN, NAN});
+      if (std::isfinite(g)) ghz.pts.push_back({minute, g, NAN, NAN});
+      if (std::isfinite(w)) watts.pts.push_back({minute, w, NAN, NAN});
+    }
+    if (perf.pts.size() < 2) return;
+    QVector<ChartLine> lines{perf};
+    for (const ChartLine *l : {&temp, &ghz, &watts})
+      if (l->pts.size() >= 2) lines.push_back(*l);
+    QStringList facts;
+    const Value score = r->metrics.value(m->id, Value{});
+    facts << (std::isfinite(score.v) ? tr("score (10th minute) <b>%1 %2</b>").arg(formatValue(score.v), esc(x.unit))
+                                     : tr("no score: it ran less than 10 minutes"));
+    if (std::isfinite(x.last.v)) facts << tr("last minute %1 %2").arg(formatValue(x.last.v), esc(x.unit));
+    if (std::isfinite(x.holdUp.v))
+      facts << tr("held <b>%1 %</b> of its first-minute speed").arg(QString::number(x.holdUp.v * 100, 'f', 0));
+    if (std::isfinite(x.tempMax)) facts << tr("hottest %1 °C").arg(QString::number(x.tempMax, 'f', 0));
+    if (x.clamped) facts << tr("%1 windows throttled by the platform").arg(x.clamped);
+    facts << (x.errors ? tr("<b>%1 results came out wrong</b>: the machine is not stable under this load").arg(x.errors)
+                       : tr("every result correct"));
+    facts << (x.stopped ? tr("ran %1 min until stopped").arg(std::floor(x.durationS / 60))
+                        : tr("ran %1 min").arg(std::round(x.durationS / 60)));
+    show(tr("Speed, clock and temperature over the run"),
+         tr("For %1, minute by minute: the speed (axis), with the temperature and clock labelled. A line that falls "
+            "while the temperature climbs is the processor slowing down to stay within its limits.")
+             .arg(esc(who)) +
+             "<br>" + facts.join(QStringLiteral(" · ")));
+    auto *ch = new ChartView;
+    ch->setData(lines, false, tr("minutes"), 0, NAN, false);
+    ch->setYUnit(x.unit);
+    contextLayout_->addWidget(ch);
   } else if (kind == "resp") {
     for (const auto &x : r->ratios)
       if (x.name == "R_resp" && x.kernel == arg) {
@@ -1265,8 +1327,28 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
   const Metric *m = metricId.isEmpty() ? nullptr : findMetric(metricId);
   bool all = !m;
   QStringList args = {"--progress-json", "--cancel-on-stdin", "--frontend", "gui"};
+  QString stressTime; /* "10m", "30m" or "until-stopped"; a quick run takes a minute per part */
+  if (m && m->group == "stress" && !quick) {
+    QMessageBox box(QMessageBox::Question, tr("Stress test"),
+                    tr("How long should “%1” run? The score is the speed in the 10th minute, so every length from "
+                       "10 minutes on compares; longer runs show how the speed holds up.").arg(m->title),
+                    QMessageBox::Cancel, this);
+    QPushButton *ten = box.addButton(tr("10 minutes"), QMessageBox::AcceptRole);
+    QPushButton *thirty = box.addButton(tr("30 minutes"), QMessageBox::AcceptRole);
+    QPushButton *open = box.addButton(tr("Until I stop it"), QMessageBox::AcceptRole);
+    box.setDefaultButton(ten);
+    box.exec();
+    if (box.clickedButton() == ten) stressTime = "10m";
+    else if (box.clickedButton() == thirty) stressTime = "30m";
+    else if (box.clickedButton() == open) stressTime = "until-stopped";
+    else return;
+  }
   if (m) {
     args << "--mode" << m->modes.join(",") << "--kernels" << m->kernels;
+    if (m->group == "stress") {
+      args << "--stress" << m->context.section(':', 1).replace('_', '-');
+      if (!stressTime.isEmpty()) args << "--stress-time" << stressTime;
+    }
   }
   if (all && !advanced_) { /* Simple: run what the Simple view shows */
     QStringList modes, kernels;
@@ -1330,12 +1412,17 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
   warnings_ = 0;
   part_ = parts_ = runStep_ = runSteps_ = 0;
   inputDuringQuiet_ = cancelling_ = false;
+  stressOpen_ = stressTime == "until-stopped";
+  fzCancel_->setText(stressOpen_ ? tr("Stop stress test") : tr("Cancel run"));
   runStart_ = phaseStart_ = QDateTime::currentDateTime();
   ring_->setProgress(0, 0, QStringLiteral("…"));
   fzState_->setText(tr("STARTING"));
   fzPhase_->setText(tr("Starting the runner"));
-  fzMsg_->setText(QStringLiteral("%1 · %2").arg(m ? tr("%1 only").arg(m->name) : tr("All tests"),
-                                                quick ? tr("quick run") : tr("full run")));
+  fzMsg_->setText(QStringLiteral("%1 · %2").arg(m ? tr("%1 only").arg(m->title) : tr("All tests"),
+                                                quick             ? tr("quick run")
+                                                : stressOpen_     ? tr("until you stop it")
+                                                : !stressTime.isEmpty() ? tr("%1 minutes").arg(stressTime.chopped(1))
+                                                                        : tr("full run")));
   fzTime_->setText(tr("Started at %1").arg(QLocale().toString(runStart_.time(), QLocale::ShortFormat)));
   fzHands_->hide();
   fzStall_->hide();
@@ -1421,7 +1508,7 @@ void MainWindow::showPhase(int step, int steps) {
                                           QStringLiteral("%1/%2").arg(part_).arg(parts_));
   else ring_->setProgress(0, 0, QStringLiteral("…"));
 
-  fzState_->setText(cancelling_ ? tr("CANCELLING")
+  fzState_->setText(cancelling_ ? (stressOpen_ ? tr("STOPPING") : tr("CANCELLING"))
                     : done      ? tr("COMPUTING RESULTS")
                     : phase_ == "cooldown" ? tr("WAITING")
                     : phase_ == "preflight" ? tr("PREPARING")
@@ -1461,13 +1548,23 @@ void MainWindow::onStall() {
 
 void MainWindow::cancelRun() {
   if (!proc_ || cancelling_) return;
+  if (stressOpen_) { /* the normal end of a stress test without a set length: a score needs 10 minutes */
+    double mins = phase_ == "stress" ? phaseStart_.secsTo(QDateTime::currentDateTime()) / 60.0 : 0;
+    if (mins < 10 &&
+        QMessageBox::question(measure_, tr("Stop the stress test?"),
+                              tr("It has run %1 of the 10 minutes a score needs. Stopping now keeps the curve of "
+                                 "speed, clock and temperature, without a score.")
+                                  .arg(QString::number(std::floor(mins)))) != QMessageBox::Yes)
+      return;
+  }
   cancelling_ = true;
   stallTimer_->stop();
   fzStall_->hide();
   fzHands_->hide();
-  fzState_->setText(tr("CANCELLING"));
-  fzPhase_->setText(tr("Cancelling"));
-  fzMsg_->setText(tr("Stopping cleanly and saving the part measured so far."));
+  fzState_->setText(stressOpen_ ? tr("STOPPING") : tr("CANCELLING"));
+  fzPhase_->setText(stressOpen_ ? tr("Stopping the stress test") : tr("Cancelling"));
+  fzMsg_->setText(stressOpen_ ? tr("Stopping cleanly and saving the result.")
+                              : tr("Stopping cleanly and saving the part measured so far."));
   proc_->write("cancel\n"); /* the runner stops cleanly and keeps the partial result */
   proc_->closeWriteChannel();
   /* Ended by force only if the runner stops answering; every event it still sends restarts this. */
@@ -1504,6 +1601,8 @@ void MainWindow::onRunFinished(int code, QProcess::ExitStatus status) {
   if (reason.startsWith(QStringLiteral("prismark: "))) reason.remove(0, 10);
   if (code == -1) {
     QMessageBox::warning(this, tr("Prismark"), tr("Could not start the runner: %1").arg(cliPath()));
+  } else if (cancelling_ && stressOpen_ && code == 0 && status == QProcess::NormalExit) {
+    /* stopped as intended: the result is on the page */
   } else if (cancelling_) {
     QMessageBox::information(this, tr("Run cancelled"),
                              saved ? tr("The run was cancelled. The part measured so far was saved and is shown.")

@@ -111,11 +111,13 @@ class MainWindow : public QMainWindow {
   StepRing *ring_ = nullptr;
   QLabel *fzState_ = nullptr, *fzPhase_ = nullptr, *fzMsg_ = nullptr, *fzTime_ = nullptr, *fzHands_ = nullptr,
          *fzStatus_ = nullptr, *fzWarn_ = nullptr, *fzStall_ = nullptr;
+  QPushButton *fzCancel_ = nullptr;
   QProcess *proc_ = nullptr;
   InputWatch *input_ = nullptr;
   QByteArray procBuf_;
   QString procOut_, procErrTail_, phase_, kernel_;
   bool inputDuringQuiet_ = false, cancelling_ = false;
+  bool stressOpen_ = false; /* the run is a stress test without a set length: Stop is its normal end */
   int warnings_ = 0;
   int part_ = 0, parts_ = 0; /* overall position: the runner's "run" events */
   int runStep_ = 0, runSteps_ = 0; /* steps of the whole run begun and planned: its "progress" events */

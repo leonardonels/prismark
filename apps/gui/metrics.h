@@ -47,7 +47,8 @@ struct Group {
  *   read     how to read the number (unit, which direction is better)
  *   context  the chart or comparison that explains the result, shown under the ranking:
  *            "wake" (speed from rest by task length), "scaling:<kernel>" (speed-up by threads),
- *            "ratio:R_build" (build-tool overhead by threads), "resp:<kernel>" (speed from rest), or ""
+ *            "ratio:R_build" (build-tool overhead by threads), "resp:<kernel>" (speed from rest),
+ *            "stress:<part>" (speed, clock and temperature over a stress test), or ""
  */
 struct Metric {
   QString id, group, name, title, sub, unit, desc, how, read, context;
@@ -84,6 +85,19 @@ struct RunSummary {
   /* How much slower each warm-up ended than it started (speed hot / speed cold, below 1 when it throttles), by
      mode: "st_sustained" (one core) and "mc_threaded" (all cores). */
   QMap<QString, Value> hot;
+  /* A stress-test part ("one_core", "all_cores", "memory"): its figures, and its 5-second windows over time. */
+  struct Stress {
+    QString unit;
+    int threads = 0;
+    double durationS = NAN, windowS = 5;
+    bool stopped = false; /* a run without a set length, ended by its user */
+    Value first, last, holdUp; /* speed in the first and the last minute, and last / first */
+    double tempMax = NAN, mhz = NAN, watts = NAN;
+    int clamped = 0;
+    qint64 errors = 0;    /* jobs whose result differed from the first */
+    QVector<double> perf, mhzT, tempT, powerT;
+  };
+  QMap<QString, Stress> stress;
   int clampedSeries = 0;        /* series of the run with platform-clamped windows */
   double clampedMhz = NAN;      /* the lowest clamped clock among them */
 };

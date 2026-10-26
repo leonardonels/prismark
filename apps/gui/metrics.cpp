@@ -106,6 +106,17 @@ std::function<std::optional<Value>(const QJsonObject &)> periodic(QString condit
   };
 }
 
+/* A stress-test part's score: the speed in its 10th minute; none for a part that ran less than 10 minutes. */
+std::function<std::optional<Value>(const QJsonObject &)> stress(QString part) {
+  return [=](const QJsonObject &d) -> std::optional<Value> {
+    for (const QJsonValue &v : d["analysis"].toObject()["stress"].toArray()) {
+      QJsonObject r = v.toObject();
+      if (r["part"].toString() == part) return ci(r["score"]);
+    }
+    return std::nullopt;
+  };
+}
+
 /* Files from before ABI 4 may also hold series measured with changed power settings; only "as configured" counts. */
 bool asConfigured(const QJsonObject &r) { return !r.contains("cell") || r["cell"].toString() == "as_shipped"; }
 
@@ -134,6 +145,9 @@ const QVector<Group> &groups() {
       {"resp", "Responsiveness",
        "How quickly the computer reacts when work arrives while it is resting. Idle CPUs sleep and slow their "
        "clock to save power, and waking up costs time."},
+      {"stress", "Stress test",
+       "Ten minutes or more of full load, as in a long render or a game: how well the speed holds up as the "
+       "computer heats up, and whether every result stays correct. Run each test on its own; Run all leaves them out."},
   };
   return g;
 }
@@ -143,6 +157,11 @@ const QVector<Metric> &metrics() {
       "In a full run the processor first works at full load for a minute, so it is as hot (and, if it throttles, as "
       "slow) as long use makes it; then the test is measured for 20 seconds (compiling: 60). Every computer gets "
       "exactly the same warm-up and measurement. Quick runs skip the warm-up and measure a few seconds.";
+  static const QString kStressHow =
+      "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed, "
+      "clock, temperature and power are recorded every 5 seconds, and every result is checked against the first. "
+      "The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes "
+      "keeps its curve but has no score.";
   static const QString kBurstHow =
       "The task is repeated on a core that is already running, until its time is known to within about 1 %.";
   static const QString kRestHow =
@@ -261,6 +280,24 @@ const QVector<Metric> &metrics() {
        "included.",
        kRestHow, "Lower is better, in milliseconds. Compare with “Starting a small script” under One core.",
        "resp:K6", false, {"cold_burst"}, "K6", medianOf("K6", "cold_burst", "cold", 1e-6)},
+      /* Stress test */
+      {"s_st", "stress", "One core", "One core under stress", "One core at full load for 10 minutes or more",
+       "M samples/s",
+       "How fast one core renders after minutes of full load. A single busy core keeps its highest clock only while "
+       "the cooling and the power limits allow it.",
+       kStressHow, "Higher is better, in million light samples per second in the 10th minute.", "stress:one_core",
+       true, {"stress"}, "K2", stress("one_core")},
+      {"s_mc", "stress", "All cores", "All cores under stress", "Every core at full load for 10 minutes or more",
+       "M samples/s",
+       "How fast every core together renders after minutes of full load, when the processor is as hot as long use "
+       "makes it. Laptops in particular slow down here as their power limits and cooling take over.",
+       kStressHow, "Higher is better, in million light samples per second in the 10th minute.", "stress:all_cores",
+       true, {"stress"}, "K2", stress("all_cores")},
+      {"s_mem", "stress", "Memory", "Memory under stress", "2 GiB written and checked, on every core", "GB/s",
+       "Every core writes 2 GiB of memory and checks every word on the next pass, over and over: how much data the "
+       "memory moves when it is kept busy and warm, and whether any of it comes back wrong.",
+       kStressHow, "Higher is better, in gigabytes per second (read and written) in the 10th minute. Any wrong word "
+       "is reported as an error.", "stress:memory", true, {"stress"}, "K11", stress("memory")},
   };
   return m;
 }
@@ -345,6 +382,38 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
   }
   for (const QJsonValue &v : an["checksums"].toArray())
     if (!v.toObject()["consistent"].toBool()) s.checksumsOk = false;
+  /* The stress test: its figures, and its windows over time for the chart. */
+  for (const QJsonValue &v : an["stress"].toArray()) {
+    QJsonObject r = v.toObject();
+    RunSummary::Stress &x = s.stress[r["part"].toString()];
+    x.unit = r["unit"].toString();
+    x.threads = r["n"].toInt();
+    x.durationS = r["duration_s"].toDouble(NAN);
+    x.stopped = r["stopped"].toBool();
+    if (auto c = ci(r["first_minute"])) x.first = *c;
+    if (auto c = ci(r["last_minute"])) x.last = *c;
+    if (auto c = ci(r["hold_up"])) x.holdUp = *c;
+    x.tempMax = r["temp_max_c"].toDouble(NAN);
+    x.mhz = r["mhz"].toDouble(NAN);
+    x.watts = r["power_w"].toDouble(NAN);
+    x.clamped = r["clamped_windows"].toInt();
+    x.errors = qint64(r["checksum_errors"].toDouble());
+  }
+  for (const QJsonValue &v : doc["results"].toArray()) {
+    QJsonObject r = v.toObject(), p = r["params"].toObject();
+    if (r["mode"].toString() != "stress" || !s.stress.contains(p["part"].toString())) continue;
+    RunSummary::Stress &x = s.stress[p["part"].toString()];
+    x.windowS = p["window_ms"].toDouble(5000) / 1e3;
+    auto nums = [](const QJsonArray &a) {
+      QVector<double> out;
+      for (const QJsonValue &e : a) out.push_back(e.isDouble() ? e.toDouble() : NAN);
+      return out;
+    };
+    x.perf = nums(r["samples"].toArray());
+    x.mhzT = nums(r["mhz"].toArray());
+    x.tempT = nums(r["temp_c"].toArray());
+    x.powerT = nums(r["power_w"].toArray());
+  }
   return true;
 }
 
@@ -361,7 +430,7 @@ QString plainKernel(const QString &kernel, const QString &variant) {
       {"K1", "Compiling code"},    {"K1x", "Full software build"}, {"K2", "3D rendering"},
       {"K3", "Compression"},       {"K4", "Opening a photo"},     {"K5", "Reading JSON"},
       {"K6", "Starting a script"}, {"K7", "Memory delay"},        {"K8", "Matrix maths"},
-      {"K9", "Wake-up test"},      {"K10", "Timer punctuality"}};
+      {"K9", "Wake-up test"},      {"K10", "Timer punctuality"},   {"K11", "Memory bandwidth"}};
   QString n = names.value(kernel, kernel);
   if (variant == "fp32") n += ", decimals";
   else if (variant == "int8") n += ", small integers";
@@ -375,7 +444,7 @@ QString plainMode(const QString &mode) {
       {"st_burst", "one core, short task"},           {"st_sustained", "one core, after warming up"},
       {"mc_threaded", "all cores, working together"}, {"mc_instances", "all cores, each on its own"},
       {"cold_burst", "started from rest"},            {"periodic", "timer punctuality"},
-      {"all", "every test"}};
+      {"stress", "stress test"},                      {"all", "every test"}};
   return names.value(mode, mode);
 }
 
