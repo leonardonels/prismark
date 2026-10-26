@@ -39,11 +39,7 @@ const char *stress_part_name(uint32_t bit) {
   return "?";
 }
 
-/* Quick runs: a minute per part, for a first look (no score: it needs 10 minutes). */
-static double part_seconds(const pmk_ctx *c) {
-  if (c->cfg.quick_inputs) return 60;
-  return c->cfg.stress_s > 0 ? c->cfg.stress_s : PMK_STRESS_MAX_S;
-}
+static double part_seconds(const pmk_ctx *c) { return c->cfg.stress_s > 0 ? c->cfg.stress_s : PMK_STRESS_MAX_S; }
 
 static int part_selected(const pmk_ctx *c, int i) {
   return (c->cfg.stress_parts & PARTS[i].bit) && ctx_kernel_selected(c, PARTS[i].kernel) &&
@@ -58,7 +54,7 @@ int mode_stress_steps(const pmk_ctx *c) {
 
 /* NaN for a run without a set length: there is no time left to estimate. */
 double mode_stress_est(const pmk_ctx *c) {
-  if (!c->cfg.quick_inputs && !(c->cfg.stress_s > 0)) return mode_stress_steps(c) ? NAN : 0;
+  if (!(c->cfg.stress_s > 0)) return mode_stress_steps(c) ? NAN : 0;
   return (part_seconds(c) + 2) * mode_stress_steps(c);
 }
 
@@ -78,7 +74,7 @@ static int stress_part(pmk_ctx *c, int i, const int *order, uint32_t step, uint3
   }
   void *inst = wl_create(c, tk, PMK_SIZE_FULL, "stress");
   if (!inst) return PMK_OK;
-  int open_ended = !c->cfg.quick_inputs && !(c->cfg.stress_s > 0);
+  int open_ended = !(c->cfg.stress_s > 0);
   ctx_emit(c, PMK_EV_PHASE, "stress", tk->id, step, steps, "stress test, %s: %s on %d thread%s, %s", PARTS[i].label,
            pmk_display_name(tk->id), n, n == 1 ? "" : "s", open_ended ? "until stopped" : "full load");
   int rc = PMK_ERR_NOMEM;

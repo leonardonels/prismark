@@ -100,6 +100,7 @@ class MainWindow : public QMainWindow {
   bool advanced_ = false;
   Segmented *level_ = nullptr;
   QLabel *moreTests_ = nullptr;
+  QLabel *quickNote_ = nullptr; /* under the ranking: your latest quick run of the test, which is not ranked */
   QVBoxLayout *cardsLayout_ = nullptr;
   QButtonGroup cards_;
   RankingView *ranking_ = nullptr;

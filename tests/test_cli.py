@@ -113,6 +113,7 @@ class Cli(unittest.TestCase):
             (["--mode", "stress", "--stress-time", "20"], "--stress-time takes a length"),
             (["--mode", "stress", "--stress-time", "25h"], "--stress-time takes a length"),
             (["--stress-time", "10m"], "--stress-time needs --mode stress"),
+            (["--quick", "--mode", "stress"], "the stress test has no quick run"),
         ]:
             with self.subTest(args=args):
                 _, err = self.run_cli("run", *args, code=2)

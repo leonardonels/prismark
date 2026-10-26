@@ -433,9 +433,9 @@ prints the snapshot's statistics.
 ## Desktop app
 
 `prismark-gui` is the desktop front-end: launch it, pick a test group at the
-top, and press ▶ Run on a test card or "Run all tests"; each asks for a
-**quick run** (minutes, a first look, not comparable) or a **full run**
-(accurate, comparable; long). Each test is ranked on
+top, and press ▶ Run on a test card or "Run all". The Quick switch beside it
+chooses a **full run** (the default: accurate and ranked; about 30 minutes for
+all tests on a laptop) or a **quick run** (minutes, a first look). Each test is ranked on
 its own, with your latest run highlighted against reference systems; the
 details panel shows the machine state, capabilities, responsiveness curve and
 scaling.
@@ -454,8 +454,10 @@ started from the applications menu like any other app.
   measuring window remains, static except when a new phase begins (spec 7.1);
   closing it cancels the run (the partial result is kept).
 - **Quick runs** skip the warm-up, use short series, compile every 8th unit in
-  Compiling code and build once; they are recorded as such and never compared
-  with full runs.
+  Compiling code and build once. Their numbers are rough, so they are not
+  ranked: a test page shows your latest quick run under its ranking, with a
+  link to its report, until a full run replaces it. The stress test has no
+  quick run (the switch is hidden on its tab); it asks for its length instead.
 - **As configured.** The app never asks for administrator rights and never
   changes power settings: every test measures the computer as it is set up.
 - **Hands off.** Cold start and periodic measure waits and wake-ups. Keyboard

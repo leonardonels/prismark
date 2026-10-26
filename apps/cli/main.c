@@ -1846,6 +1846,10 @@ static int cmd_run(int argc, char **argv) {
       return 2;
     }
   }
+  if (quick && (cfg.modes & PMK_MODE_STRESS)) {
+    fprintf(stderr, "prismark: the stress test has no quick run; --stress-time sets its length (10m, 30m, until-stopped)\n");
+    return 2;
+  }
   if (stress_opt && !(cfg.modes & PMK_MODE_STRESS)) {
     fprintf(stderr, "prismark: %s needs --mode stress (the stress test runs only when asked for)\n", stress_opt);
     return 2;
@@ -1874,12 +1878,11 @@ static int cmd_run(int argc, char **argv) {
     if (cfg.modes & PMK_MODE_STRESS) {
       char len[16];
       fmt_duration(len, sizeof len, cfg.stress_s);
-      if (!quick && !(cfg.stress_s > 0))
+      if (!(cfg.stress_s > 0))
         fprintf(stderr, "%sStress test: runs until you stop it with Ctrl+C, which keeps the result; from 10 minutes "
                         "on it has a score (the speed in the 10th minute).%s\n", e(DIM), e(RESET));
       else
-        fprintf(stderr, "%sStress test: %s per part%s.%s\n", e(DIM), quick ? "1 minute" : len,
-                quick ? " (quick run: no score, which needs 10 minutes)" : "; the score is the speed in the 10th minute",
+        fprintf(stderr, "%sStress test: %s per part; the score is the speed in the 10th minute.%s\n", e(DIM), len,
                 e(RESET));
     }
     char pd[1200];
@@ -2103,13 +2106,14 @@ static void menu_choose(const char *k1) {
         }
       step = 1;
     } else if (step == 1) {
-      quick = ask_yn("\nQuick run, a few minutes and not for comparison? [y/N, b: back] ", 0);
+      /* a stress test has no quick run: its length is asked for instead */
+      quick = *stress ? 0 : ask_yn("\nQuick run, a few minutes and not for comparison? [y/N, b: back] ", 0);
       step = quick < 0 ? 0 : 2;
       stress_time = NULL;
-      while (step == 2 && !quick && *stress) { /* the stress test's length */
-        if (ask("Stress test length: 1) 10 minutes  2) 30 minutes  3) until you stop it (Ctrl+C)  [1, b: back] ",
+      while (step == 2 && *stress) { /* the stress test's length */
+        if (ask("\nStress test length: 1) 10 minutes  2) 30 minutes  3) until you stop it (Ctrl+C)  [1, b: back] ",
                 buf, sizeof buf) || is_back(buf)) {
-          step = 1;
+          step = 0;
           break;
         }
         if (!*buf || !strcmp(buf, "1")) stress_time = "10m";
