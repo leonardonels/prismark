@@ -99,6 +99,8 @@ struct RunSummary {
     double firstErrorS = NAN;
     int firstErrorCpu = -1;
     QMap<int, qint64> wrongByCpu;
+    struct Core { int cpu; QString type; Value perf; double mhz; qint64 wrong; };
+    QVector<Core> cores; /* core cycling: each core's speed and checks */
     QVector<double> perf, mhzT, tempT, powerT;
   };
   QMap<QString, Stress> stress;

@@ -705,7 +705,7 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
     jw_bool(&w, "stress_stop_on_error", c->cfg.stress_stop_on_error);
     jw_num(&w, "stress_max_temp_c", c->cfg.stress_max_temp_c > 0 ? c->cfg.stress_max_temp_c : NAN);
     jw_arr_begin(&w, "stress_parts");
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 4; i++)
       if (c->cfg.stress_parts & (1u << i)) jw_str(&w, NULL, stress_part_name(1u << i));
     jw_arr_end(&w);
   }

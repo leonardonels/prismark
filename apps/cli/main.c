@@ -276,6 +276,7 @@ static const struct {
     {3, "Starting a script from rest", "K6", "cold_burst", 0, NULL},
     {4, "One core under stress", "K12", "stress", 0, "one-core"},
     {4, "All cores under stress", "K12", "stress", 0, "all-cores"},
+    {4, "Each core in turn (core cycling)", "K12", "stress", 0, "each-core"},
     {4, "Memory under stress", "K11", "stress", 0, "memory"},
 };
 #define NITEMS (sizeof ITEMS / sizeof *ITEMS)
@@ -342,7 +343,10 @@ static int parse_modes(const char *s, uint32_t *out, const char **bad, size_t *b
 static const struct {
   const char *slug;
   uint32_t bit;
-} STRESS_PARTS[] = {{"one-core", PMK_STRESS_ONE_CORE}, {"all-cores", PMK_STRESS_ALL_CORES}, {"memory", PMK_STRESS_MEMORY}};
+} STRESS_PARTS[] = {{"one-core", PMK_STRESS_ONE_CORE},
+                    {"all-cores", PMK_STRESS_ALL_CORES},
+                    {"each-core", PMK_STRESS_EACH_CORE},
+                    {"memory", PMK_STRESS_MEMORY}};
 #define NSTRESS (sizeof STRESS_PARTS / sizeof *STRESS_PARTS)
 
 /* "one-core,memory" -> PMK_STRESS_* bits; -1 naming the first unknown entry. */
@@ -1142,7 +1146,7 @@ static void help_main(FILE *f) {
           "  --tests LIST             only these tests, by name or ID: compression,photo or K3,K4 (default: all)\n"
           "  --mode LIST              only these modes, by name or ID: short-task,from-rest (default: all but the\n"
           "                           stress test)\n"
-          "  --stress LIST            stress-test parts: one-core,all-cores,memory (default: all three)\n"
+          "  --stress LIST            stress-test parts: one-core,all-cores,each-core,memory (default: all)\n"
           "  --stress-time T          length of each stress-test part: 10m (default), 30m, 1h, or until-stopped\n"
           "                           (Ctrl+C ends it and keeps the result; scored from 10 minutes on)\n"
           "  --stress-on-error X      stop (default) or continue the stress test after a wrong result\n"
@@ -1690,7 +1694,7 @@ static int cmd_completion(int argc, char **argv) {
          "      COMPREPLY=($(compgen -P \"$pre\" -W \"$list\" -- \"${cur##*,}\")); return ;;\n"
          "    --stress)\n"
          "      local pre=''; [[ $cur == *,* ]] && pre=${cur%%,*},\n"
-         "      COMPREPLY=($(compgen -P \"$pre\" -W 'one-core all-cores memory' -- \"${cur##*,}\")); return ;;\n"
+         "      COMPREPLY=($(compgen -P \"$pre\" -W 'one-core all-cores each-core memory' -- \"${cur##*,}\")); return ;;\n"
          "    --stress-time) COMPREPLY=($(compgen -W '10m 30m until-stopped' -- \"$cur\")); return ;;\n"
          "    --stress-on-error) COMPREPLY=($(compgen -W 'stop continue' -- \"$cur\")); return ;;\n"
          "    -o|--output|--k1-data|--profiles|--dir) COMPREPLY=($(compgen -f -- \"$cur\")); return ;;\n"
@@ -1770,7 +1774,7 @@ static int cmd_run(int argc, char **argv) {
     else if (!strcmp(a, "--stress")) {
       NEED_ARG;
       if (parse_stress(v, &cfg.stress_parts, &bad, &badlen)) {
-        fprintf(stderr, "prismark: unknown stress-test part '%.*s' (one-core, all-cores, memory)\n", (int)badlen, bad);
+        fprintf(stderr, "prismark: unknown stress-test part '%.*s' (one-core, all-cores, each-core, memory)\n", (int)badlen, bad);
         return 2;
       }
       stress_opt = a;

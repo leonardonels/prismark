@@ -49,7 +49,8 @@ enum {
   PMK_STRESS_ONE_CORE = 1u << 0,  /* vector maths (K12) on one core of the fastest type */
   PMK_STRESS_ALL_CORES = 1u << 1, /* vector maths on every CPU */
   PMK_STRESS_MEMORY = 1u << 2,    /* K11, writing and checking 2 GiB of memory on every CPU */
-  PMK_STRESS_ALL = PMK_STRESS_ONE_CORE | PMK_STRESS_ALL_CORES | PMK_STRESS_MEMORY
+  PMK_STRESS_EACH_CORE = 1u << 3, /* vector maths on one physical core at a time, moving on every 10 s */
+  PMK_STRESS_ALL = PMK_STRESS_ONE_CORE | PMK_STRESS_ALL_CORES | PMK_STRESS_MEMORY | PMK_STRESS_EACH_CORE
 };
 
 typedef struct pmk_config {

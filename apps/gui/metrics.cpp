@@ -312,6 +312,15 @@ const QVector<Metric> &metrics() {
        "processor gets; laptops in particular slow down here as their power limits and cooling take over.",
        kStressHow, "Higher is better, in GFLOP/s in the 10th minute.", "stress:all_cores", true, {"stress"}, "K12",
        stress("all_cores")},
+      {"s_cc", "stress", "Each core in turn", "Each core in turn (core cycling)",
+       "One core at a time, every core in turn", "GFLOP/s",
+       "Vector maths on a single core at its highest boost clock, moving to the next physical core every 10 seconds "
+       "and around again. Each core reaches its own top clock only when it runs alone, so this is where a single "
+       "weak or degraded core, or a too aggressive per-core tuning (such as AMD's Curve Optimizer), shows up.",
+       kStressHow + " The score is the slowest core's speed.",
+       "Higher is better, in GFLOP/s: the slowest core's speed. The test page lists every core, and any core that "
+       "computed a wrong result.",
+       "stress:each_core", true, {"stress"}, "K12", stress("each_core")},
       {"s_mem", "stress", "Memory", "Memory under stress", "2 GiB written and checked, on every core", "GB/s",
        "Every core writes 2 GiB of memory and checks every word on the next pass, over and over: how much data the "
        "memory moves when it is kept busy and warm, and whether any of it comes back wrong.",
@@ -425,6 +434,11 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
     x.firstErrorCpu = r["first_error_cpu"].toInt(-1);
     QJsonObject byCpu = r["wrong_by_cpu"].toObject();
     for (auto it = byCpu.begin(); it != byCpu.end(); ++it) x.wrongByCpu[it.key().toInt()] = qint64(it.value().toDouble());
+    for (const QJsonValue &cv : r["cores"].toArray()) {
+      QJsonObject o = cv.toObject();
+      x.cores.push_back({o["cpu"].toInt(), o["core_type"].toString(), ci(o["perf"]).value_or(Value{}),
+                         o["mhz"].toDouble(NAN), qint64(o["wrong"].toDouble())});
+    }
   }
   for (const QJsonValue &v : doc["results"].toArray()) {
     QJsonObject r = v.toObject(), p = r["params"].toObject();

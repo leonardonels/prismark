@@ -709,6 +709,13 @@ void MainWindow::refreshTests() {
       if (!r.reference && r.metrics.contains(m.id)) (r.quick ? quick : latest) = &r;
     auto *c = new TestCard(m.id);
     QString note = quick ? tr("Quick run only · not ranked") : tr("No result yet");
+    if (m.group == "stress" && !latest) /* a stress test under 10 minutes: its verdict, without a score */
+      for (const RunSummary &r : runs_)
+        if (!r.reference && r.stress.contains(m.context.section(':', 1))) {
+          const QString v = r.stress[m.context.section(':', 1)].verdict;
+          note = (v == "failed" ? tr("Failed") : v == "too_hot" ? tr("Stopped hot") : tr("Stable")) +
+                 tr(" · under 10 min, no score");
+        }
     if (m.kernels == "K1" || m.kernels == "K1x") {
       CompileStatus st = compileStatus(info_, QSettings().value("k1_data").toString());
       if (m.kernels == "K1" ? !st.canRunK1() : !st.canRunK1x()) note = tr("Needs one-time setup · press Run");
@@ -761,6 +768,13 @@ void MainWindow::refreshRanking() {
   for (const RunSummary &r : runs_)
     if (!r.reference && r.metrics.contains(m->id)) (r.quick ? quick : latest) = &r;
   if (quick && latest && quick->date < latest->date) quick = nullptr; /* a full run since: the quick one is old news */
+  /* A stress test shorter than 10 minutes has no score, so it is not ranked either, but its verdict matters most
+     when it failed: the latest such run is offered below the ranking too. */
+  const QString part = m->group == "stress" ? m->context.section(':', 1) : QString();
+  if (!part.isEmpty())
+    for (const RunSummary &r : runs_)
+      if (!r.reference && r.stress.contains(part) && !r.metrics.contains(m->id) && (!latest || latest->date < r.date))
+        quick = &r;
   for (const RunSummary &r : runs_) {
     if (!r.metrics.contains(m->id) || r.quick) continue;
     if (!r.reference && !allRuns_->isChecked() && &r != latest) continue;
@@ -795,12 +809,24 @@ void MainWindow::refreshRanking() {
     QTimer::singleShot(0, this, [this] { refreshDetails(); });
   }
   if (quick) {
-    const Value &v = quick->metrics[m->id];
-    quickNote_->setText(
-        tr("Your quick run of %1: %2 %3, a rough first look, not ranked. <a href='%4' style='color:%5; "
-           "text-decoration:none'>%6</a>")
-            .arg(quick->date, formatValue(v.v), esc(m->unit), quick->id, theme().accent.name(),
-                 quick->id == selected_ ? tr("Shown on the right") : tr("Show its report")));
+    const QString link = QStringLiteral("<a href='%1' style='color:%2; text-decoration:none'>%3</a>")
+                             .arg(quick->id, theme().accent.name(),
+                                  quick->id == selected_ ? tr("Shown on the right") : tr("Show its report"));
+    if (!part.isEmpty() && !quick->metrics.contains(m->id)) {
+      const RunSummary::Stress x = quick->stress.value(part);
+      QString v = x.verdict == "failed"    ? QStringLiteral("<b style='color:%1'>%2</b>").arg(theme().bad.name(), tr("failed"))
+                  : x.verdict == "too_hot" ? tr("stopped at the temperature limit")
+                                           : tr("stable");
+      quickNote_->setText(tr("Your stress test of %1: %2 after %3:%4, not ranked (a score needs 10 minutes). %5")
+                              .arg(quick->date, v)
+                              .arg(int(x.durationS) / 60)
+                              .arg(int(x.durationS) % 60, 2, 10, QChar('0'))
+                              .arg(link));
+    } else {
+      const Value &v = quick->metrics[m->id];
+      quickNote_->setText(tr("Your quick run of %1: %2 %3, a rough first look, not ranked. %4")
+                              .arg(quick->date, formatValue(v.v), esc(m->unit), link));
+    }
   }
   quickNote_->setVisible(quick != nullptr);
   ranking_->setRows(rows, m->higherBetter, m->unit, selected_);
@@ -976,7 +1002,7 @@ void MainWindow::refreshContext() {
       if (std::isfinite(g)) ghz.pts.push_back({minute, g, NAN, NAN});
       if (std::isfinite(w)) watts.pts.push_back({minute, w, NAN, NAN});
     }
-    if (perf.pts.size() < 2) return;
+    if (perf.pts.size() < 2 && x.cores.isEmpty()) return;
     /* The verdict first, as a stability tool states it. */
     auto clock = [](double sec) { return QStringLiteral("%1:%2").arg(int(sec) / 60).arg(int(sec) % 60, 2, 10, QChar('0')); };
     QString verdict;
@@ -997,6 +1023,21 @@ void MainWindow::refreshContext() {
     } else {
       verdict = QStringLiteral("<span style='color:%1'><b>%2</b></span>")
                     .arg(t.good.name(), tr("Stable: %1 of full load, every result correct.").arg(clock(x.durationS)));
+    }
+    if (!x.cores.isEmpty()) { /* core cycling: each core's speed, a wrong one in red */
+      QVector<BarsView::Bar> bars;
+      for (const auto &core : x.cores)
+        bars.push_back({tr("CPU %1 (%2)").arg(core.cpu).arg(core.type), core.perf.v,
+                        core.wrong ? tr("%1 %2 · %3 wrong").arg(formatValue(core.perf.v), esc(x.unit)).arg(core.wrong)
+                                   : tr("%1 %2").arg(formatValue(core.perf.v), esc(x.unit)),
+                        core.wrong ? 1 : 0});
+      show(tr("Each core on its own"),
+           tr("For %1: the speed of every physical core at its own boost clock, in turn. Similar cores should be "
+              "within a few percent of each other; a slow one runs hotter or is held back, and a red one computed a "
+              "wrong result.").arg(esc(who)) +
+               "<br>" + verdict);
+      contextLayout_->addWidget(new BarsView(bars));
+      return;
     }
     QStringList facts;
     const Value score = r->metrics.value(m->id, Value{});
@@ -1063,6 +1104,14 @@ void MainWindow::refreshDetails() {
   if (!r->date.isEmpty()) meta << pill(r->date, t.muted, t.track);
   if (r->quick) meta << pill(tr("quick run"), t.muted, t.track);
   if (!r->complete) meta << pill(tr("incomplete"), t.bad, t.track);
+  if (!r->stress.isEmpty()) { /* the stress test's verdict, over its parts */
+    QString v = "stable";
+    for (const auto &x : r->stress)
+      if (x.verdict == "failed" || (x.verdict == "too_hot" && v != "failed")) v = x.verdict;
+    meta << (v == "failed"    ? pill(tr("stress test failed"), t.bad, t.track)
+             : v == "too_hot" ? pill(tr("stopped hot"), t.warnText, t.warnBg)
+                              : pill(tr("stress test stable"), t.good, t.track));
+  }
   detailsLayout_->addWidget(pillRow(meta));
   if (r->placeholder)
     detailsLayout_->addWidget(text(tr("Made-up example values shown for comparison until real reference machines "
@@ -1138,7 +1187,12 @@ void MainWindow::refreshDetails() {
     val->setToolTip(tip);
     tg->addWidget(val, row++, 1);
   }
-  if (!row) tg->addWidget(text(tr("No results in this run."), 9.5, QFont::Normal, t.muted), 0, 0);
+  if (!row)
+    tg->addWidget(text(r->stress.isEmpty() ? tr("No results in this run.")
+                                           : tr("A stress test shorter than 10 minutes has no score; its verdict is "
+                                                "above, and its test page shows the rest."),
+                       9.5, QFont::Normal, t.muted),
+                  0, 0);
   detailsLayout_->addWidget(tests);
   if (hiddenResults)
     detailsLayout_->addWidget(text(hiddenResults == 1 ? tr("1 more result in Advanced.") : tr("%1 more results in Advanced.").arg(hiddenResults),
