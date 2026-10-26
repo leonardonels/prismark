@@ -12,6 +12,7 @@ A test is chosen as a whole (its series, raw results and derived rows come from 
   - K9 wake-up test per core type: highest mean R_resp (with its calibration)
   - K10 timer per condition: lowest p99.9
 Scaling and the ratios are then recomputed from the merged samples, as analysis_tp.c does.
+Runs may be partial (a few tests each, as the app runs one test): the merge covers every test any run has.
 """
 import json, random, statistics, sys, uuid
 
@@ -148,7 +149,15 @@ R = {rkey(r): r for r in out["results"] if r["params"].get("purpose") != "warmup
 
 # Scaling against n = 1 (MC threaded).
 scaling = []
-for row in runs[0]["analysis"]["scaling"]:
+def union(section, keyf):
+    rows = {}
+    for d in runs:
+        for x in d["analysis"][section]:
+            rows.setdefault(keyf(x), x)
+    return list(rows.values())
+
+
+for row in union("scaling", lambda x: (x["kernel"], x["n"])):
     k, n = row["kernel"], row["n"]
     one, rn = R[(k, None, "mc_threaded", "baseline", None, "P", 1, None, None)], R[(k, None, "mc_threaded", "baseline", None, "P", n, None, None)]
     S = boot_ratio(steady(rn), steady(one)) if "steady" in rn else boot_ratio(one["samples"], rn["samples"])
@@ -174,11 +183,11 @@ def k1x_fraction(d):
             return statistics.median(k1x["samples"]) / (x["value"]["est"] * 3600e9 * inv)
 
 
-fr = [k1x_fraction(d) for d in runs]
-assert max(fr) / min(fr) < 1.001, fr
+fr = [f for f in map(k1x_fraction, runs) if f is not None]
+assert not fr or max(fr) / min(fr) < 1.001, fr
 
 ratios = []
-for x in runs[0]["analysis"]["ratios"]:
+for x in union("ratios", lambda x: (x["name"], x["kernel"], x.get("variant"), x["core_type"], x.get("n"), x.get("W_ms"))):
     name, k, v, core = x["name"], x["kernel"], x.get("variant"), x["core_type"]
     if name == "R_build":
         k1x = R[("K1x", None, "mc_threaded", "baseline", None, "P", x["n"], None, None)]
@@ -199,6 +208,8 @@ an["ratios"] = ratios
 ids = [d["run_id"] for d in runs]
 out["run_id"] = str(uuid.uuid5(uuid.NAMESPACE_URL, "prismark-merge:" + ",".join(ids)))
 out["merged_from"] = ids
+if any(d["config"].get("kernels") != runs[0]["config"].get("kernels") for d in runs):
+    out["config"]["kernels"] = ",".join(dict.fromkeys(k for d in runs for k in (d["config"].get("kernels") or "").split(",") if k)) or None
 out["summary"] = runs[0]["summary"].split("\n")[1] + "\nBest of %d runs (%s), each test from the run where it scored best.\n" % (
     len(runs), ", ".join(i[:8] for i in ids))
 

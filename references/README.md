@@ -28,9 +28,12 @@ measured model stays in `machine.cpu.model`.
 
 Several runs of one machine can be merged into one file that keeps, for each
 test, the run where it scored best: `tools/merge-best.py OUT RUN RUN...`. It
-also recomputes the scaling and the ratios from the merged samples. The
-`intel-i9-14900k` and `intel-i9-10900k-es` references are each the best of
-two runs (`merged_from` lists their run IDs).
+also recomputes the scaling and the ratios from the merged samples. The runs
+may be partial (a few tests each, as when the app runs one test): the merge
+covers every test any of them has. The `intel-i9-14900k`, `intel-i9-10900k-es`
+and `amd-ryzen5-7500f` references are each the best of two full runs;
+`intel-i9-14900k-linux` is assembled from 14 runs of a few tests each
+(`merged_from` lists their run IDs).
 
 **A placeholder.** Example values, typed in by hand, for a ranking to compare
 against when no real result exists (none are shipped). The app tags them PLACEHOLDER and shows a
