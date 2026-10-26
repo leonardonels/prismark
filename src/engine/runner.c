@@ -60,6 +60,7 @@ int ctx_interrupt(pmk_ctx *c) {
   return PMK_OK;
 }
 int ctx_cancelled(void) { return atomic_load_explicit(&g_cancel, memory_order_relaxed); }
+void ctx_uncancel(void) { atomic_store(&g_cancel, 0); }
 void pmk_free(void *p) { free(p); }
 
 void pmk_config_init(pmk_config *cfg) {
@@ -81,6 +82,8 @@ void pmk_config_init(pmk_config *cfg) {
   cfg->measure_s = 20;
   cfg->k1x_reps = 3;
   cfg->cooldown = 0;
+  cfg->stress_s = 600;
+  cfg->stress_parts = PMK_STRESS_ALL;
 }
 
 /* ---------- context helpers ---------- */
@@ -456,6 +459,7 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
   } else {
     jw_str(w, "size", r->size);
     if (r->purpose) jw_str(w, "purpose", r->purpose);
+    if (r->part) jw_str(w, "part", r->part);
     if (r->nthreads) jw_int(w, !strcmp(r->mode, "mc_instances") ? "instances" : "threads", r->nthreads);
     if (r->ws_bytes) jw_int(w, "working_set_bytes", (int64_t)r->ws_bytes);
     if (r->windowed) jw_num(w, "window_ms", r->window_ms);
@@ -505,7 +509,9 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
     hex64(hx, r->checksum);
     jw_str(w, "checksum", r->checksum_ok ? hx : NULL);
     jw_bool(w, "checksum_consistent", r->checksum_ok);
+    if (r->part) jw_int(w, "checksum_errors", (int64_t)r->errors);
   }
+  if (r->stopped) jw_bool(w, "stopped", 1);
   jw_obj_end(w);
 }
 
@@ -538,6 +544,7 @@ static const struct {
     {PMK_MODE_ST_SUSTAINED, mode_st_sustained, mode_st_sustained_steps, mode_st_sustained_est, "st_sustained", 0, {NULL}},
     {PMK_MODE_MC_THREADED, mode_mc_threaded, mode_mc_threaded_steps, mode_mc_threaded_est, "mc_threaded", 0, {NULL}},
     {PMK_MODE_MC_INSTANCES, mode_mc_instances, mode_mc_instances_steps, mode_mc_instances_est, "mc_instances", 0, {NULL}},
+    {PMK_MODE_STRESS, mode_stress, mode_stress_steps, mode_stress_est, "stress", 0, {NULL}},
 };
 
 /* Runs one mode; a quiet mode interrupted by input is discarded and recorded as skipped. */
@@ -599,6 +606,11 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
     c->cfg.settle_s = c->cfg.quick_inputs ? 0 : d.settle_s;
     c->cfg.measure_s = c->cfg.quick_inputs ? 3 : d.measure_s;
   }
+  if (cfg_in->struct_size < offsetof(pmk_config, stress_parts) + sizeof(uint32_t)) { /* before ABI 8 */
+    c->cfg.stress_s = 600;
+    c->cfg.stress_parts = PMK_STRESS_ALL;
+  }
+  if (!c->cfg.stress_parts) c->cfg.stress_parts = PMK_STRESS_ALL;
   c->cb = cb;
   c->user = user;
   c->k = &pmk_kernels_baseline;
@@ -606,8 +618,9 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
 
   int rc = PMK_OK;
   if (c->cfg.min_reps < 3 || c->cfg.max_reps < c->cfg.min_reps || c->cfg.cold_max_reps < c->cfg.min_reps || !(c->cfg.periodic_period_ms > 0) ||
-      !(c->cfg.periodic_seconds > 0) || (c->cfg.modes & ~(uint32_t)PMK_MODE_ALL) || !(c->cfg.window_ms >= 10) ||
-      !(c->cfg.measure_s > 0) || !(c->cfg.warmup_s >= 0) || !(c->cfg.settle_s >= 0))
+      !(c->cfg.periodic_seconds > 0) || (c->cfg.modes & ~(uint32_t)(PMK_MODE_ALL | PMK_MODE_STRESS)) ||
+      !(c->cfg.window_ms >= 10) || !(c->cfg.measure_s > 0) || !(c->cfg.warmup_s >= 0) || !(c->cfg.settle_s >= 0) ||
+      !(c->cfg.stress_s >= 0 && c->cfg.stress_s <= PMK_STRESS_MAX_S) || (c->cfg.stress_parts & ~(uint32_t)PMK_STRESS_ALL))
     rc = PMK_ERR_INVALID;
 
   if (rc == PMK_OK && pal_init(&c->m)) rc = PMK_ERR_SYSTEM;
@@ -666,6 +679,13 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   jw_num(&w, "warmup_s", c->cfg.warmup_s);
   jw_num(&w, "settle_s", c->cfg.settle_s);
   jw_num(&w, "measure_s", c->cfg.measure_s);
+  if (c->cfg.modes & PMK_MODE_STRESS) {
+    jw_num(&w, "stress_s", c->cfg.stress_s);
+    jw_arr_begin(&w, "stress_parts");
+    for (int i = 0; i < 3; i++)
+      if (c->cfg.stress_parts & (1u << i)) jw_str(&w, NULL, stress_part_name(1u << i));
+    jw_arr_end(&w);
+  }
   jw_int(&w, "max_threads", c->cfg.max_threads);
   jw_str(&w, "kernels", c->cfg.kernels);
   jw_str(&w, "k1_data", c->cfg.k1_data);
@@ -715,7 +735,7 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
       est[i] = MODES[modes[i]].est(c);
       c->later_est_s += est[i];
     }
-    for (int i = 0; i < nmodes && rc == PMK_OK; i++) {
+    for (int i = 0; i < nmodes && rc == PMK_OK && !c->stopped; i++) {
       if (ctx_cancelled()) {
         rc = PMK_ERR_CANCELLED;
         break;
@@ -736,6 +756,8 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   }
 
   jw_bool(&w, "complete", rc == PMK_OK);
+  /* A stress test without a set length ends when it is stopped: a normal end, the modes after it are not run. */
+  if (c->stopped) jw_bool(&w, "stopped", 1);
   if (rc != PMK_OK) jw_str(&w, "error", pmk_strerror(rc));
 
   jw_arr_end(&c->avail);

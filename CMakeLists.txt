@@ -66,6 +66,7 @@ prismark_add_kernel(k4_image SOURCES kernels/k4_image/k4.c INCLUDE ${PRISMARK_ST
 prismark_add_kernel(k5_json SOURCES kernels/k5_json/k5.c)
 prismark_add_kernel(k6_lua SOURCES kernels/k6_lua/k6.c kernels/k6_lua/lua_one.c
   INCLUDE ${PRISMARK_LUA_INCLUDE} DEFINES ${PRISMARK_LUA_DEFINES})
+prismark_add_kernel(k11_stream SOURCES kernels/k11_stream/k11.c)
 include(cmake/k1.cmake)
 prismark_kernel_tables()
 if(PRISMARK_HAVE_K1)
@@ -106,6 +107,7 @@ add_library(prismark
   src/engine/mode_cold_burst.c
   src/engine/mode_periodic.c
   src/engine/mode_throughput.c
+  src/engine/mode_stress.c
   src/engine/k1x.c
   src/engine/checksums.c
   src/engine/describe.c

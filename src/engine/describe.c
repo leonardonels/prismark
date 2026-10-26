@@ -20,12 +20,14 @@ static const struct {
     {"K4", "Opening a photo"},      {"K5", "Reading JSON"},
     {"K6", "Starting a script"},    {"K7", "Memory delay"},
     {"K8", "Matrix maths"} /* older results */, {"K9", "Wake-up test"},
-    {"K10", "Timer punctuality"},   {"st_burst", "one core, short task"},
+    {"K10", "Timer punctuality"},   {"K11", "Memory bandwidth"},
+    {"st_burst", "one core, short task"},
     {"st_sustained", "one core, after warming up"},
     {"mc_threaded", "all cores, working together"},
     {"mc_instances", "all cores, each on its own"},
     {"cold_burst", "started from rest"},
     {"periodic", "timer punctuality"},
+    {"stress", "stress test"},
 };
 
 const char *pmk_display_name(const char *id) {

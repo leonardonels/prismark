@@ -68,8 +68,8 @@ typedef struct shared {
   /* job records, written by worker 0 */
   pmk_dvec job_ns;
   atomic_size_t njobs;
-  uint64_t checksum;
-  int checksum_set, checksum_bad;
+  uint64_t checksum, checksum_bad; /* checksum_bad: jobs whose checksum differed from the first */
+  int checksum_set;
 } shared;
 
 typedef struct worker {
@@ -103,7 +103,7 @@ static void record_job(shared *sh, uint64_t ns, uint64_t sum) {
     sh->checksum = sum;
     sh->checksum_set = 1;
   } else if (sum != sh->checksum) {
-    sh->checksum_bad = 1;
+    sh->checksum_bad++;
   }
   if (dvec_push(&sh->job_ns, (double)ns)) atomic_store(&sh->failed, 1);
   atomic_fetch_add(&sh->njobs, 1);
@@ -235,8 +235,9 @@ static void clock_domains(const pmk_ctx *c, const sus_spec *s, pmk_result *r, in
 
 int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   const pmk_tk *tk = s->tk;
-  double win_ms = wl_window_ms(c, tk), win_s = win_ms / 1e3;
-  double measure_s = c->cfg.measure_s * (!strcmp(tk->id, "K1") ? SLOW_KERNEL_MEASURE_FACTOR : 1);
+  double win_ms = s->window_ms > 0 ? s->window_ms : wl_window_ms(c, tk), win_s = win_ms / 1e3;
+  double measure_s = s->measure_s > 0 ? s->measure_s
+                                      : c->cfg.measure_s * (!strcmp(tk->id, "K1") ? SLOW_KERNEL_MEASURE_FACTOR : 1);
   /* Whole windows: the warm-up ones are kept (they show how much slower the machine gets when hot) but not
      scored; the measured ones follow. */
   size_t warm_w = (size_t)ceil(s->warm_s / win_s - 1e-9), meas_w = (size_t)ceil(measure_s / win_s - 1e-9);
@@ -319,14 +320,27 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
         }
       for (int d = 0; d < r->nclock_dom; d++)
         if (dvec_push(&r->mhz_dom[d], dn[d] ? dkhz[d] / dn[d] / 1000 : 0)) rc = PMK_ERR_NOMEM;
+      if (ctx_cancelled() && s->open_ended && w + 1 > warm_w) {
+        /* The end of a run without a set length: the windows before this one are the measurement. This one is
+           left out, as the workers stopped when the cancel arrived during it. They stop before the cancel is
+           cleared, so the job cut short is not recorded either. */
+        atomic_store(&sh->stop, 1);
+        ctx_uncancel();
+        r->stopped = 1;
+        break;
+      }
       if (ctx_cancelled()) rc = PMK_ERR_CANCELLED;
       if (atomic_load(&sh->failed)) rc = PMK_ERR_NOMEM;
       if (rc == PMK_OK && pal_now_ns() - last_event > 10000000000ull) {
         last_event = pal_now_ns();
         double t = (double)(w + 1) * win_s;
-        ctx_emit(c, PMK_EV_INFO, r->mode, tk->id, 0, 0, "%d thread%s: %.0f s of %.0f (%s)", s->nthreads,
-                 s->nthreads == 1 ? "" : "s", t,
-                 (double)total_w * win_s, w + 1 <= warm_w ? "warming up, not scored" : "measuring");
+        if (s->open_ended)
+          ctx_emit(c, PMK_EV_INFO, r->mode, tk->id, 0, 0, "%d thread%s: %.0f s (until stopped)", s->nthreads,
+                   s->nthreads == 1 ? "" : "s", t);
+        else
+          ctx_emit(c, PMK_EV_INFO, r->mode, tk->id, 0, 0, "%d thread%s: %.0f s of %.0f (%s)", s->nthreads,
+                   s->nthreads == 1 ? "" : "s", t,
+                   (double)total_w * win_s, w + 1 <= warm_w ? "warming up, not scored" : "measuring");
       }
     }
     atomic_store(&sh->stop, 1);
@@ -347,7 +361,7 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
      its last 10 windows (the hot end, against the first windows for R_throttle). */
   if (s->warm_only) r->steady_from = r->n > 13 ? r->n - 10 : r->n / 2;
   else r->steady_from = r->n > warm_w ? warm_w : 0;
-  r->steady = rc == PMK_OK && r->n == total_w && !s->warm_only;
+  r->steady = rc == PMK_OK && (r->n == total_w || r->stopped) && !s->warm_only;
   /*
    * Platform clamp: a clock below the CPU's own hardware minimum (or, where that is unknown, below 15 % of its
    * maximum, under the base clock any sustained load settles at) is forced from outside the processor, e.g. by
@@ -372,8 +386,10 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   r->job_ns = sh->job_ns;
   r->checksum = sh->checksum;
   r->checksum_ok = sh->checksum_set && !sh->checksum_bad;
+  r->errors = sh->checksum_bad;
   if (rc == PMK_OK && sh->checksum_bad)
-    ctx_emit(c, PMK_EV_WARNING, r->mode, tk->id, 0, 0, "%s: jobs produced different checksums", tk->id);
+    ctx_emit(c, PMK_EV_WARNING, r->mode, tk->id, 0, 0, "%s: %llu of %zu jobs produced a different checksum", tk->id,
+             (unsigned long long)sh->checksum_bad, atomic_load(&sh->njobs));
   pal_lock_free(sh->lock);
   free(sh->work);
   free(sh);

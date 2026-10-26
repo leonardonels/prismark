@@ -15,13 +15,13 @@
 #include "jparse.h"
 #include "prismark/prismark.h"
 
-typedef enum { THROUGHPUT, K1X, MEDIAN, RRESP, K7, PERIODIC } how;
+typedef enum { THROUGHPUT, K1X, MEDIAN, RRESP, K7, PERIODIC, STRESS } how;
 
 static const struct metric {
   const char *key, *group, *name, *unit;
   int higher_better;
   how how;
-  const char *kernel, *mode, *arg; /* MEDIAN: start; K7: "all"; PERIODIC: condition */
+  const char *kernel, *mode, *arg; /* MEDIAN: start; K7: "all"; PERIODIC: condition; STRESS: part */
   double k;                        /* MEDIAN: scale; RRESP: W in ms */
 } METRICS[] = {
     {"mc_k2", "All cores", "3D rendering on all cores", "M samples/s", 1, THROUGHPUT, "K2", "mc_threaded", NULL, 0},
@@ -41,6 +41,9 @@ static const struct metric {
     {"r_10ms", "Responsiveness", "Reacting from rest: a 10 ms task", "%", 1, RRESP, "K9", NULL, NULL, 10},
     {"c_k4", "Responsiveness", "Opening a photo from rest", "ms", 0, MEDIAN, "K4", "cold_burst", "cold", 1e-6},
     {"c_k6", "Responsiveness", "Starting a small script from rest", "ms", 0, MEDIAN, "K6", "cold_burst", "cold", 1e-6},
+    {"s_st", "Stress test", "One core under stress (10th minute)", "M samples/s", 1, STRESS, "K2", NULL, "one_core", 0},
+    {"s_mc", "Stress test", "All cores under stress (10th minute)", "M samples/s", 1, STRESS, "K2", NULL, "all_cores", 0},
+    {"s_mem", "Stress test", "Memory under stress (10th minute)", "GB/s", 1, STRESS, "K11", NULL, "memory", 0},
 };
 #define NMETRICS (sizeof METRICS / sizeof *METRICS)
 
@@ -144,6 +147,12 @@ static value read_result(const jv *root, const struct metric *m) {
         const jv *p = jv_get(r, "p999_ns");
         if (is(r, "condition", m->arg) && p && p->t == JV_NUM) return (value){1, p->num / 1e3, NAN, NAN, 0};
       }
+      return none;
+    }
+    case STRESS: { /* the score; null for a part that ran less than 10 minutes */
+      const jv *st = jv_get(an, "stress");
+      for (size_t i = 0; i < jv_len(st); i++)
+        if (is(&st->items[i], "part", m->arg)) return ci(jv_get(&st->items[i], "score"), 1);
       return none;
     }
   }

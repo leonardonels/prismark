@@ -39,7 +39,17 @@ enum {
   PMK_MODE_MC_THREADED = 1u << 4,
   PMK_MODE_MC_INSTANCES = 1u << 5,
   PMK_MODE_ALL = PMK_MODE_COLD_BURST | PMK_MODE_PERIODIC | PMK_MODE_ST_BURST | PMK_MODE_ST_SUSTAINED |
-                 PMK_MODE_MC_THREADED | PMK_MODE_MC_INSTANCES
+                 PMK_MODE_MC_THREADED | PMK_MODE_MC_INSTANCES,
+  /* ABI 8. Minutes of full load, run only when asked for: not part of PMK_MODE_ALL (modes = 0). */
+  PMK_MODE_STRESS = 1u << 6
+};
+
+/* Parts of the stress test (ABI 8), a bitmask for pmk_config.stress_parts. */
+enum {
+  PMK_STRESS_ONE_CORE = 1u << 0,  /* 3D rendering on one core of the fastest type */
+  PMK_STRESS_ALL_CORES = 1u << 1, /* 3D rendering on every CPU */
+  PMK_STRESS_MEMORY = 1u << 2,    /* K11, writing and checking 2 GiB of memory on every CPU */
+  PMK_STRESS_ALL = PMK_STRESS_ONE_CORE | PMK_STRESS_ALL_CORES | PMK_STRESS_MEMORY
 };
 
 typedef struct pmk_config {
@@ -77,6 +87,11 @@ typedef struct pmk_config {
   double warmup_s;           /* full load before a sustained mode's first series, not scored (default 60; quick 0) */
   double settle_s;           /* before each series, not scored (default 5; quick 0) */
   double measure_s;          /* measured per series (default 20, K1 three times that; quick 3) */
+  /* ABI 8: the stress test (PMK_MODE_STRESS). Each part runs for stress_s; its score is the speed in the 10th
+     minute, so runs of any length from 10 minutes on compare. */
+  double stress_s;           /* seconds per part (default 600); 0 runs until pmk_cancel, which then ends the run
+                                normally (at most 24 h) */
+  uint32_t stress_parts;     /* PMK_STRESS_* bits; 0 means all */
 } pmk_config;
 
 /* Fills cfg with defaults. */

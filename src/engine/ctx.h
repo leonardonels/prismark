@@ -40,7 +40,10 @@ typedef struct pmk_result {
   uint64_t overruns;
   /* throughput kernels */
   const char *size;    /* "burst" or "full" */
-  const char *purpose; /* "warmup" for a mode's warm-up, else NULL */
+  const char *purpose; /* "warmup" for a mode's warm-up, "stress" for a stress-test part, else NULL */
+  const char *part;    /* stress test: "one_core", "all_cores" or "memory" */
+  int stopped;         /* stress test: ended by pmk_cancel (a run without a set length), not by its time */
+  uint64_t errors;     /* jobs whose checksum differed from the first job's */
   int nthreads;        /* threads (threaded) or copies (K7 instances); 0 for single-core modes */
   int windowed;        /* samples are throughput per window, not times */
   double window_ms;
@@ -110,6 +113,7 @@ typedef struct pmk_ctx {
   pmk_analysis *an;
   pmk_analysis_tp *antp;
   int oom;
+  int stopped;  /* a stress test without a set length was stopped: the run ends there, normally */
   uint32_t run_step, run_steps; /* position in the whole run: steps begun, steps planned (0 if not planned) */
   /* Time left, for progress events: the running mode's estimate, when it started and its first run step, and
      the estimates of the modes still to come. mode_t0 is 0 until the first mode starts. */
@@ -123,6 +127,8 @@ int result_push(pmk_result *r, double sample, double wake, int cpu);
 void result_free(pmk_result *r);
 
 int ctx_cancelled(void);
+/* Clears a pending cancel: a stress test without a set length takes it as its end (see pmk_config.stress_s). */
+void ctx_uncancel(void);
 /* PMK_ERR_CANCELLED, PMK_SKIP_INPUT (input during a quiet mode) or PMK_OK. Call between repetitions. */
 int ctx_interrupt(pmk_ctx *c);
 void ctx_emit(pmk_ctx *c, pmk_event_kind kind, const char *phase, const char *kernel, uint32_t step,
@@ -173,6 +179,10 @@ typedef struct sus_spec {
   const int *cpus;    /* nthreads CPUs to pin to, or NULL */
   double warm_s;      /* untimed seconds before the measurement: the mode's warm-up, or a short settle */
   int warm_only;      /* run warm_s only, measure nothing (a mode's warm-up at full load) */
+  /* Stress test: */
+  double measure_s;   /* measured seconds instead of cfg.measure_s, 0 for the default */
+  double window_ms;   /* window instead of the kernel's, 0 for the default */
+  int open_ended;     /* measure until pmk_cancel (at most measure_s), which ends the series normally */
 } sus_spec;
 
 /*
@@ -190,6 +200,7 @@ int mode_st_burst(pmk_ctx *c);
 int mode_st_sustained(pmk_ctx *c);
 int mode_mc_threaded(pmk_ctx *c);
 int mode_mc_instances(pmk_ctx *c);
+int mode_stress(pmk_ctx *c);
 /* Steps each mode will report (its PHASE events with a step number), counted before anything runs, for the
    run-wide position. Steps that turn out impossible (not enough memory, a failed build) are not run. */
 int mode_cold_burst_steps(const pmk_ctx *c);
@@ -198,6 +209,7 @@ int mode_st_burst_steps(const pmk_ctx *c);
 int mode_st_sustained_steps(const pmk_ctx *c);
 int mode_mc_threaded_steps(const pmk_ctx *c);
 int mode_mc_instances_steps(const pmk_ctx *c);
+int mode_stress_steps(const pmk_ctx *c);
 /* Rough seconds each mode takes on a typical machine, from the configuration, for the time left in a run. */
 double mode_cold_burst_est(const pmk_ctx *c);
 double mode_periodic_est(const pmk_ctx *c);
@@ -205,6 +217,16 @@ double mode_st_burst_est(const pmk_ctx *c);
 double mode_st_sustained_est(const pmk_ctx *c);
 double mode_mc_threaded_est(const pmk_ctx *c);
 double mode_mc_instances_est(const pmk_ctx *c);
+double mode_stress_est(const pmk_ctx *c);
+/* The stress test: at most this long per part, and its windows (long, so a day of windows stays small). */
+#define PMK_STRESS_MAX_S (24 * 3600.0)
+#define PMK_STRESS_WINDOW_MS 5000.0
+/* Its score: the speed in this minute of the run, so runs of 10 minutes, 30 minutes or until stopped compare. */
+#define PMK_STRESS_SCORE_FROM_S 540.0
+#define PMK_STRESS_SCORE_TO_S 600.0
+/* "one_core", "all_cores" or "memory" for one PMK_STRESS_* bit. */
+const char *stress_part_name(uint32_t bit);
+
 /* K1x: full build of the prepared snapshot at n jobs; part of MC threaded. */
 int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order);
 

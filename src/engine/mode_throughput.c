@@ -136,7 +136,7 @@ static int mode_warm_up(pmk_ctx *c, const char *mode, const int *cpus, int nthre
     r->purpose = "warmup";
     r->type = ctx_type_of_cpu(c, cpus[0]);
     r->cpu = nthreads == 1 ? cpus[0] : -1;
-    sus_spec s = {tk, inst, nthreads, cpus, c->cfg.warmup_s, 1};
+    sus_spec s = {tk, inst, nthreads, cpus, c->cfg.warmup_s, 1, 0, 0, 0};
     rc = wl_sustained(c, &s, r);
   }
   tk->destroy(inst);
@@ -152,7 +152,7 @@ static int sustained_series(pmk_ctx *c, const char *mode, const pmk_tk *tk, int 
   set_tk_fields(r, tk, c->k, wl_size_for(c, tk) == PMK_SIZE_BURST ? "burst" : "full");
   r->type = type;
   r->cpu = nthreads == 1 ? cpus[0] : -1;
-  sus_spec s = {tk, inst, nthreads, cpus, c->cfg.settle_s, 0};
+  sus_spec s = {tk, inst, nthreads, cpus, c->cfg.settle_s, 0, 0, 0, 0};
   return wl_sustained(c, &s, r);
 }
 

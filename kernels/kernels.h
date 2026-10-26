@@ -79,7 +79,7 @@ typedef struct pmk_kernels {
   void (*k7_build)(pmk_k7_node *nodes, size_t n, uint64_t seed);
   uint64_t (*k7_chase)(const pmk_k7_node *nodes, uint64_t start, uint64_t steps);
 
-  /* Throughput kernels (K1-K6). */
+  /* Throughput kernels (K1-K6, and K11 for the stress test). */
   const pmk_tk *const *tk;
   size_t ntk;
 } pmk_kernels;

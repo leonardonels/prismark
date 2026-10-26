@@ -7,7 +7,8 @@ data folder (XDG_DATA_HOME, HOME), so the user's results are never touched.
     tests/test_cli.py PATH/TO/prismark [SOURCE_DIR]
 
 The bundled reference systems come from SOURCE_DIR/references (compiled into the program for builds run from
-the build folder). Takes about 15 s: one short run, one stopped with Ctrl+C, one refused as too busy.
+the build folder). Takes about 30 s: one short run, one stopped with Ctrl+C, one refused as too busy, and a stress
+test stopped after 12 s.
 
 Copyright 2026 The Prismark Authors. Apache-2.0.
 """
@@ -91,7 +92,8 @@ class Cli(unittest.TestCase):
 
     def test_tests_lists_names(self):
         out, _ = self.run_cli("tests")
-        for name in ("Opening a photo", "--tests photo --mode short-task", "Timer punctuality", "from-rest"):
+        for name in ("Opening a photo", "--tests photo --mode short-task", "Timer punctuality", "from-rest",
+                     "Stress test", "--tests render --mode stress --stress one-core", "Memory under stress"):
             self.assertIn(name, out)
 
     # ---------- checks before a run ----------
@@ -107,6 +109,10 @@ class Cli(unittest.TestCase):
             (["--max-load", "2"], "--max-load is a fraction"),
             (["--min-reps", "50", "--max-reps", "20"], "--min-reps (50) is above"),
             (["--cpu"], "--cpu needs a value"),
+            (["--mode", "stress", "--stress", "gpu"], "unknown stress-test part 'gpu'"),
+            (["--mode", "stress", "--stress-time", "20"], "--stress-time takes a length"),
+            (["--mode", "stress", "--stress-time", "25h"], "--stress-time takes a length"),
+            (["--stress-time", "10m"], "--stress-time needs --mode stress"),
         ]:
             with self.subTest(args=args):
                 _, err = self.run_cli("run", *args, code=2)
@@ -215,6 +221,25 @@ class Cli(unittest.TestCase):
         self.assertEqual(p.returncode, 130, err)
         self.assertIn("Cancelled", err)
         self.assertTrue(os.path.exists(out))
+
+    def test_stress_until_stopped_ends_normally(self):
+        out = os.path.join(self.home, "stress.json")
+        p = subprocess.Popen([PRISMARK, "run", "--skip-preflight", "--mode", "stress", "--stress", "one-core",
+                              "--stress-time", "until-stopped", "-o", out], env=self.env, stdin=subprocess.DEVNULL,
+                             stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+        time.sleep(12)
+        p.send_signal(signal.SIGINT)
+        _, err = p.communicate(timeout=60)
+        self.assertEqual(p.returncode, 0, err)
+        self.assertIn("Stress test stopped", err)
+        with open(out) as f:
+            doc = json.load(f)
+        self.assertTrue(doc["complete"] and doc["stopped"])
+        (part,) = doc["analysis"]["stress"]
+        self.assertEqual(part["part"], "one_core")
+        self.assertTrue(part["stopped"])
+        self.assertIsNone(part["score"])  # a score needs 10 minutes
+        self.assertEqual(part["checksum_errors"], 0)
 
     def test_too_busy_exits_3(self):
         _, err = self.run_cli("run", "--quick", "--max-load", "0", "--tests", "json", "--mode", "short-task",
