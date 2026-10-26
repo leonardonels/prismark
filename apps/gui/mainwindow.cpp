@@ -920,24 +920,22 @@ void MainWindow::refreshContext() {
       std::sort(y.begin(), y.end());
       return y.size() % 2 ? y[y.size() / 2] : (y[y.size() / 2 - 1] + y[y.size() / 2]) / 2;
     };
+    /* One slim chart per quantity, on the same minutes: speed, temperature, clock, and power where measured. */
     ChartLine perf, temp, ghz, watts;
-    perf.name = tr("speed");
-    perf.color = 0;
-    temp.name = tr("temperature"), temp.overlay = true, temp.unit = QStringLiteral("°C"), temp.color = 3;
-    ghz.name = tr("clock"), ghz.overlay = true, ghz.unit = tr("GHz"), ghz.color = 2;
-    watts.name = tr("power"), watts.overlay = true, watts.unit = tr("W"), watts.color = 1;
+    perf.name = tr("speed"), perf.color = 0;
+    temp.name = tr("temperature"), temp.color = 3;
+    ghz.name = tr("clock"), ghz.color = 2;
+    watts.name = tr("power"), watts.color = 1;
     for (int i = 0; i < n; i += per) {
       double minute = (i + std::min(per, n - i)) * x.windowS / 60;
-      perf.pts.push_back({minute, median(x.perf, i, i + per, 1), NAN, NAN});
-      double c = median(x.tempT, i, i + per, 1), g = median(x.mhzT, i, i + per, 1e-3), w = median(x.powerT, i, i + per, 1);
+      double v = median(x.perf, i, i + per, 1), c = median(x.tempT, i, i + per, 1),
+             g = median(x.mhzT, i, i + per, 1e-3), w = median(x.powerT, i, i + per, 1);
+      if (std::isfinite(v)) perf.pts.push_back({minute, v, NAN, NAN});
       if (std::isfinite(c)) temp.pts.push_back({minute, c, NAN, NAN});
       if (std::isfinite(g)) ghz.pts.push_back({minute, g, NAN, NAN});
       if (std::isfinite(w)) watts.pts.push_back({minute, w, NAN, NAN});
     }
     if (perf.pts.size() < 2) return;
-    QVector<ChartLine> lines{perf};
-    for (const ChartLine *l : {&temp, &ghz, &watts})
-      if (l->pts.size() >= 2) lines.push_back(*l);
     QStringList facts;
     const Value score = r->metrics.value(m->id, Value{});
     facts << (std::isfinite(score.v) ? tr("score (10th minute) <b>%1 %2</b>").arg(formatValue(score.v), esc(x.unit))
@@ -951,15 +949,31 @@ void MainWindow::refreshContext() {
                        : tr("every result correct"));
     facts << (x.stopped ? tr("ran %1 min until stopped").arg(std::floor(x.durationS / 60))
                         : tr("ran %1 min").arg(std::round(x.durationS / 60)));
-    show(tr("Speed, clock and temperature over the run"),
-         tr("For %1, minute by minute: the speed (axis), with the temperature and clock labelled. A line that falls "
-            "while the temperature climbs is the processor slowing down to stay within its limits.")
+    show(tr("Speed, temperature and clock over the run"),
+         tr("For %1, minute by minute. A speed that falls while the temperature climbs and the clock drops is the "
+            "processor slowing down to stay within its limits.")
              .arg(esc(who)) +
              "<br>" + facts.join(QStringLiteral(" · ")));
-    auto *ch = new ChartView;
-    ch->setData(lines, false, tr("minutes"), 0, NAN, false);
-    ch->setYUnit(x.unit);
-    contextLayout_->addWidget(ch);
+    /* Each strip's axis is fitted to its values (never below 0), so a change of a few percent shows. */
+    auto strip = [&](const ChartLine &l, const QString &unit, bool last) {
+      double lo = INFINITY, hi = -INFINITY;
+      for (const auto &pt : l.pts) lo = std::min(lo, pt[1]), hi = std::max(hi, pt[1]);
+      /* four grid steps of a tidy size (1, 2, 2.5 or 5 x a power of ten) around the values */
+      double span = std::max(hi - lo, std::abs(hi) * 0.05), raw = span * 1.6 / 4, mag = std::pow(10, std::floor(std::log10(raw)));
+      double step = mag * (raw <= mag ? 1 : raw <= 2 * mag ? 2 : raw <= 2.5 * mag ? 2.5 : raw <= 5 * mag ? 5 : 10);
+      double y0 = std::max(0.0, std::floor((lo - span * 0.3) / step) * step);
+      while (y0 + 4 * step < hi) y0 += step;
+      auto *ch = new ChartView;
+      ch->setData({l}, false, last ? tr("minutes") : QString(), y0, y0 + 4 * step, false);
+      ch->setYUnit(unit);
+      ch->setAspect(0.3, last ? 170 : 150);
+      contextLayout_->addWidget(ch);
+    };
+    QVector<std::pair<const ChartLine *, QString>> strips{{&perf, x.unit}};
+    if (temp.pts.size() >= 2) strips.push_back({&temp, QStringLiteral("°C")});
+    if (ghz.pts.size() >= 2) strips.push_back({&ghz, tr("GHz")});
+    if (watts.pts.size() >= 2) strips.push_back({&watts, tr("W")});
+    for (int i = 0; i < strips.size(); i++) strip(*strips[i].first, strips[i].second, i == strips.size() - 1);
   } else if (kind == "resp") {
     for (const auto &x : r->ratios)
       if (x.name == "R_resp" && x.kernel == arg) {
