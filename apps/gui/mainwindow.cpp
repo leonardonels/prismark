@@ -162,6 +162,28 @@ QString phaseHint(const QString &phase, const QString &kernel) {
   return QObject::tr(qPrintable(hints.value(phase)));
 }
 
+/*
+ * One slim chart of a stack sharing the x axis (only the last one names it): one quantity, one or more lines of
+ * the same unit. Its axis is fitted to the values (never below 0) in four grid steps of a tidy size (1, 2, 2.5 or
+ * 5 x a power of ten), so a change of a few percent shows.
+ */
+void addStrip(QVBoxLayout *to, const QVector<ChartLine> &lines, const QString &unit, const QString &xLabel) {
+  double lo = INFINITY, hi = -INFINITY;
+  for (const ChartLine &l : lines)
+    for (const auto &pt : l.pts)
+      if (std::isfinite(pt[1])) lo = std::min(lo, pt[1]), hi = std::max(hi, pt[1]);
+  if (!std::isfinite(lo)) return;
+  double span = std::max(hi - lo, std::abs(hi) * 0.05), raw = span * 1.6 / 4, mag = std::pow(10, std::floor(std::log10(raw)));
+  double step = mag * (raw <= mag ? 1 : raw <= 2 * mag ? 2 : raw <= 2.5 * mag ? 2.5 : raw <= 5 * mag ? 5 : 10);
+  double y0 = std::max(0.0, std::floor((lo - span * 0.3) / step) * step);
+  while (y0 + 4 * step < hi) y0 += step;
+  auto *ch = new ChartView;
+  ch->setData(lines, false, xLabel, y0, y0 + 4 * step, false);
+  ch->setYUnit(unit);
+  ch->setAspect(0.3, xLabel.isEmpty() ? 150 : 170);
+  to->addWidget(ch);
+}
+
 /* No event for this long: something is probably wrong. Above the longest silent step of each phase. */
 int stallMinutes(const QString &phase, const QString &kernel) {
   if (kernel == "K1x") return 20;
@@ -805,7 +827,6 @@ void MainWindow::refreshContext() {
     ghz.name = tr("clock");
     ghz.unit = tr("GHz");
     ghz.color = 2;
-    perf.overlay = ghz.overlay = true;
     /* On hybrid and multi-CCX processors, one clock per core type or CCX ("P" first, then by name). */
     QVector<ChartLine> clocks;
     for (const auto &x : r->load) {
@@ -824,16 +845,14 @@ void MainWindow::refreshContext() {
           clocks.push_back(l);
           it = clocks.end() - 1;
         }
-        it->pts.push_back({double(x.n), d.mhz / 1000, NAN, NAN});
-        if (d.idle) it->muted.insert(double(x.n)); /* not running the test: greyed out */
+        if (!d.idle) it->pts.push_back({double(x.n), d.mhz / 1000, NAN, NAN}); /* a domain not running the test: left out */
       }
     }
     std::sort(clocks.begin(), clocks.end(), [](const ChartLine &a, const ChartLine &b) {
       return a.name.startsWith('P') != b.name.startsWith('P') ? a.name.startsWith('P') : a.name < b.name;
     });
     for (int i = 0; i < clocks.size(); i++) {
-      clocks[i].name = tr("clock %1").arg(clocks[i].name);
-      clocks[i].color = 2 + i;
+      clocks[i].color = 2 + i; /* named by its domain alone: the strip is the clock */
     }
     for (ChartLine *l : {&watts, &perf, &ghz}) std::sort(l->pts.begin(), l->pts.end(), byN);
     for (ChartLine &l : clocks) std::sort(l.pts.begin(), l.pts.end(), byN);
@@ -842,43 +861,35 @@ void MainWindow::refreshContext() {
       if (l.pts.size() >= 2) clockLines.push_back(l);
     if (clockLines.isEmpty() && ghz.pts.size() >= 2) clockLines.push_back(ghz);
 
-    if (watts.pts.size() >= 2) {
-      /* Power on the axis, result and clock labelled: a result that stops growing while the power stays flat is the
-         power limit; one that falls with the power and the clock is the platform holding the processor back. */
-      QVector<ChartLine> lines{watts};
-      if (perf.pts.size() >= 2) lines.push_back(perf);
-      lines += clockLines;
-      show(tr("Result, power and clock with more threads"),
-           tr("For %1: the power drawn by the processor (axis, in watts), with the result and the clock labelled at "
-              "each thread count. More threads should give more result for more power until the power limit; from "
-              "there the clock eases off. If the result falls together with the power and the clock, something "
-              "outside the program (a power setting, a charger or dock) is holding the processor back.")
-               .arg(esc(who)));
+    /* Stacked on the thread counts: the speed-up against perfect scaling (or the result itself, without
+       scaling), then the power and the clock(s), each on an axis of its own. */
+    ChartLine speedup;
+    speedup.name = tr("speed-up");
+    speedup.color = 0;
+    for (const auto &x : r->scaling)
+      if (x.kernel == arg) speedup.pts.push_back({double(x.n), x.s.v, x.s.lo, x.s.hi});
+    std::sort(speedup.pts.begin(), speedup.pts.end(), byN);
+    bool power = watts.pts.size() >= 2, clock = !clockLines.isEmpty();
+    if (speedup.pts.size() < 2 && perf.pts.size() < 2) return;
+    show(power ? tr("Speed-up, power and clock with more threads") : tr("Speed-up and clock with more threads"),
+         tr("For %1, by number of threads. The speed-up is how many times faster than one thread; the dashed line is "
+            "perfect scaling (8 threads = 8× faster), and real programs fall below it as threads wait for each other, "
+            "for memory or for power.").arg(esc(who)) +
+             (power ? " " + tr("More threads should draw more power until the power limit; from there the clock eases "
+                               "off. If the speed-up falls together with the power and the clock, something outside "
+                               "the program (a power setting, a charger or dock) is holding the processor back.")
+                    : QString()));
+    if (speedup.pts.size() >= 2) {
       auto *ch = new ChartView;
-      ch->setData(lines, false, tr("threads"), 0, NAN, false);
-      ch->setYUnit(tr("W"));
+      ch->setData({speedup}, false, power || clock ? QString() : tr("threads"), 0, NAN, true);
+      ch->setYUnit(QStringLiteral("×"));
+      ch->setAspect(0.4, 190);
       contextLayout_->addWidget(ch);
-      return;
+    } else {
+      addStrip(contextLayout_, {perf}, perf.unit, power || clock ? QString() : tr("threads"));
     }
-
-    /* Results without power: speed-up against perfect scaling, with the clock labelled where known. */
-    ChartLine l;
-    l.name = tr("speed-up");
-    l.color = 0;
-    for (const auto &s : r->scaling)
-      if (s.kernel == arg) l.pts.push_back({double(s.n), s.s.v, s.s.lo, s.s.hi});
-    std::sort(l.pts.begin(), l.pts.end(), byN);
-    if (l.pts.size() < 2) return;
-    QVector<ChartLine> lines{l};
-    lines += clockLines;
-    show(tr("Speed-up with more threads"),
-         tr("For %1: how many times faster than a single thread. The dashed line is perfect scaling (8 threads = 8× "
-            "faster); real programs fall below it as threads wait for each other, for memory, or for power.")
-              .arg(esc(who)));
-    auto *ch = new ChartView;
-    ch->setData(lines, false, tr("threads"), 0, NAN, true);
-    ch->setYUnit(QStringLiteral("×"));
-    contextLayout_->addWidget(ch);
+    if (power) addStrip(contextLayout_, {watts}, tr("W"), clock ? QString() : tr("threads"));
+    if (clock) addStrip(contextLayout_, clockLines, tr("GHz"), tr("threads"));
   } else if (kind == "ratio") {
     ChartLine l = byThreads(arg, QString());
     if (l.pts.isEmpty()) return;
@@ -954,26 +965,12 @@ void MainWindow::refreshContext() {
             "processor slowing down to stay within its limits.")
              .arg(esc(who)) +
              "<br>" + facts.join(QStringLiteral(" · ")));
-    /* Each strip's axis is fitted to its values (never below 0), so a change of a few percent shows. */
-    auto strip = [&](const ChartLine &l, const QString &unit, bool last) {
-      double lo = INFINITY, hi = -INFINITY;
-      for (const auto &pt : l.pts) lo = std::min(lo, pt[1]), hi = std::max(hi, pt[1]);
-      /* four grid steps of a tidy size (1, 2, 2.5 or 5 x a power of ten) around the values */
-      double span = std::max(hi - lo, std::abs(hi) * 0.05), raw = span * 1.6 / 4, mag = std::pow(10, std::floor(std::log10(raw)));
-      double step = mag * (raw <= mag ? 1 : raw <= 2 * mag ? 2 : raw <= 2.5 * mag ? 2.5 : raw <= 5 * mag ? 5 : 10);
-      double y0 = std::max(0.0, std::floor((lo - span * 0.3) / step) * step);
-      while (y0 + 4 * step < hi) y0 += step;
-      auto *ch = new ChartView;
-      ch->setData({l}, false, last ? tr("minutes") : QString(), y0, y0 + 4 * step, false);
-      ch->setYUnit(unit);
-      ch->setAspect(0.3, last ? 170 : 150);
-      contextLayout_->addWidget(ch);
-    };
     QVector<std::pair<const ChartLine *, QString>> strips{{&perf, x.unit}};
     if (temp.pts.size() >= 2) strips.push_back({&temp, QStringLiteral("°C")});
     if (ghz.pts.size() >= 2) strips.push_back({&ghz, tr("GHz")});
     if (watts.pts.size() >= 2) strips.push_back({&watts, tr("W")});
-    for (int i = 0; i < strips.size(); i++) strip(*strips[i].first, strips[i].second, i == strips.size() - 1);
+    for (int i = 0; i < strips.size(); i++)
+      addStrip(contextLayout_, {*strips[i].first}, strips[i].second, i == strips.size() - 1 ? tr("minutes") : QString());
   } else if (kind == "resp") {
     for (const auto &x : r->ratios)
       if (x.name == "R_resp" && x.kernel == arg) {

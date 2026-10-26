@@ -305,12 +305,14 @@ void ChartView::paintEvent(QPaintEvent *) {
 
   /* grid */
   QColor grid = t.border;
+  /* a whole number without decimals (128, not 128.0) */
+  auto tick = [](double v) { return v == std::round(v) && std::abs(v) < 1e9 ? QString::number(qint64(v)) : formatValue(v); };
   for (int k = 0; k <= 4; k++) {
     double yv = base ? y0 + (y1 - y0) * k / 4 : 25.0 * k;
     p.setPen(QPen(grid, 1, k ? Qt::DotLine : Qt::SolidLine));
     p.drawLine(QPointF(plot.left(), fy(yv)), QPointF(plot.right(), fy(yv)));
     {
-      QString s = base ? formatValue(yv) + (yUnit_.isEmpty() ? QString() : " " + yUnit_)
+      QString s = base ? tick(yv) + (yUnit_.isEmpty() ? QString() : " " + yUnit_)
                        : QString::number(yv, 'f', 0) + " %";
       p.setPen(t.faint);
       p.drawText(QPointF(plot.left() - fm.horizontalAdvance(s) - 6, fy(yv) + fm.ascent() / 2.6), s);
@@ -320,7 +322,7 @@ void ChartView::paintEvent(QPaintEvent *) {
   p.setPen(t.faint);
   double lastRight = -1e9;
   for (int i = 0; i < xs.size(); i++) {
-    QString s = formatValue(xs[i]);
+    QString s = tick(xs[i]);
     double tw = fm.horizontalAdvance(s);
     double x = fx(xs[i]) - (i == xs.size() - 1 ? tw : i == 0 ? 0 : tw / 2.0);
     if (x < lastRight + 4) continue; /* skip labels that would overlap */
