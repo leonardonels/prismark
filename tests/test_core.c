@@ -214,7 +214,7 @@ static void test_throughput_kernels(void) {
     const pmk_tk *tk = k->tk[i];
     if (!strcmp(tk->id, "K1")) continue; /* needs a snapshot */
     char err[128] = "";
-    pmk_tk_args a = {PMK_SIZE_BURST, NULL, err, sizeof err};
+    pmk_tk_args a = {.size = PMK_SIZE_BURST, .err = err, .errlen = sizeof err};
     uint64_t in[2] = {0, 0}, out[2] = {0, 0};
     for (int rep = 0; rep < 2; rep++) {
       void *inst = tk->create(&a);

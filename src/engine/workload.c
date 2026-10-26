@@ -21,9 +21,11 @@
 /* K1 tasks are whole translation units (up to ~25 s): longer windows, and a measurement three times longer. */
 #define SLOW_KERNEL_WINDOW_FACTOR 5
 
-void *wl_create(pmk_ctx *c, const pmk_tk *tk, int size, const char *mode) {
+void *wl_create(pmk_ctx *c, const pmk_tk *tk, int size, const char *mode) { return wl_create_bytes(c, tk, size, 0, mode); }
+
+void *wl_create_bytes(pmk_ctx *c, const pmk_tk *tk, int size, uint64_t bytes, const char *mode) {
   char err[256] = "";
-  pmk_tk_args a = {size, c->cfg.k1_data, err, sizeof err};
+  pmk_tk_args a = {.size = size, .data_dir = c->cfg.k1_data, .err = err, .errlen = sizeof err, .bytes = bytes};
   void *inst = tk->create(&a);
   if (!inst) ctx_unavailable(c, tk->id, tk->variant, mode, err[0] ? err : "kernel could not be created");
   return inst;

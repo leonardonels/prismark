@@ -529,6 +529,7 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
     jw_str(w, "unit", unit_of(r));
     jw_str(w, "core_type", c->m.type_names[r->type]);
     jw_int(w, "n", x->ncores ? 1 : r->nthreads ? r->nthreads : 1);
+    if (r->ws_bytes) jw_int(w, "bytes_tested", (int64_t)r->ws_bytes);
     jw_num(w, "duration_s", t.ran);
     jw_bool(w, "stopped", t.stopped);
     if (isfinite(x->score.est)) ci_json(w, "score", x->score);

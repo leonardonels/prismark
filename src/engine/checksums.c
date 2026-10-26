@@ -25,7 +25,7 @@ static void tier_checksums(const pmk_kernels *k, const char *k1_data, const char
     if (!selected(kernels, tk->id)) continue;
     for (int size = PMK_SIZE_BURST; size <= (burst_only ? PMK_SIZE_BURST : PMK_SIZE_FULL); size++) {
       char err[256] = "", label[32];
-      pmk_tk_args a = {size, k1_data, err, sizeof err};
+      pmk_tk_args a = {.size = size, .data_dir = k1_data, .err = err, .errlen = sizeof err};
       snprintf(label, sizeof label, "%s%s%s", tk->id, tk->variant ? " " : "", tk->variant ? tk->variant : "");
       jw_obj_begin(w, NULL);
       jw_str(w, "kernel", tk->id);

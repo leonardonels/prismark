@@ -174,6 +174,8 @@ void ctx_shuffle(pmk_rng *r, int *v, int n);
 
 /* Creates a kernel instance; on failure records it as unavailable for the mode and returns NULL. */
 void *wl_create(pmk_ctx *c, const pmk_tk *tk, int size, const char *mode);
+/* The same with pmk_tk_args.bytes (K11: the memory to cover). */
+void *wl_create_bytes(pmk_ctx *c, const pmk_tk *tk, int size, uint64_t bytes, const char *mode);
 /* Runs one job on the calling thread; returns its checksum. */
 uint64_t wl_job(const pmk_tk *tk, const void *inst, void *scratch);
 /* Input size for sustained runs: full, except the compile kernels in quick runs (cfg.quick_inputs). */

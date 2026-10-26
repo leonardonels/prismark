@@ -1046,6 +1046,7 @@ void MainWindow::refreshContext() {
     if (std::isfinite(x.last.v)) facts << tr("last minute %1 %2").arg(formatValue(x.last.v), esc(x.unit));
     if (std::isfinite(x.holdUp.v))
       facts << tr("held <b>%1 %</b> of its first-minute speed").arg(QString::number(x.holdUp.v * 100, 'f', 0));
+    if (std::isfinite(x.bytes)) facts << tr("%1 GB of memory tested").arg(QString::number(x.bytes / 1e9, 'f', 1));
     if (std::isfinite(x.tempMax)) facts << tr("hottest %1 °C").arg(QString::number(x.tempMax, 'f', 0));
     if (x.clamped) facts << tr("%1 windows throttled by the platform").arg(x.clamped);
     facts << (x.stopped ? tr("ran %1 min until stopped").arg(std::floor(x.durationS / 60))

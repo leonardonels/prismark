@@ -321,11 +321,14 @@ const QVector<Metric> &metrics() {
        "Higher is better, in GFLOP/s: the slowest core's speed. The test page lists every core, and any core that "
        "computed a wrong result.",
        "stress:each_core", true, {"stress"}, "K12", stress("each_core")},
-      {"s_mem", "stress", "Memory", "Memory under stress", "2 GiB written and checked, on every core", "GB/s",
-       "Every core writes 2 GiB of memory and checks every word on the next pass, over and over: how much data the "
-       "memory moves when it is kept busy and warm, and whether any of it comes back wrong.",
-       kStressHow, "Higher is better, in gigabytes per second (read and written) in the 10th minute. Any wrong word "
-       "is reported as an error.", "stress:memory", true, {"stress"}, "K11", stress("memory")},
+      {"s_mem", "stress", "Memory", "Memory under stress", "Most of the free memory, tested on every core", "GB/s",
+       "A memory test: every core writes about three quarters of the free memory and checks every word on the next "
+       "pass, over and over, with four patterns in turn (an address pattern, a walking one-bit, and their opposites, "
+       "so every bit is tested both ways). It shows whether any memory comes back wrong when kept busy and warm, and "
+       "how much data the memory moves meanwhile.",
+       kStressHow + " Close other programs first: the test covers the memory they leave free.",
+       "Higher is better, in gigabytes per second (read and written) in the 10th minute. Any wrong word fails the "
+       "test.", "stress:memory", true, {"stress"}, "K11", stress("memory")},
   };
   return m;
 }
@@ -418,6 +421,7 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
     x.unit = r["unit"].toString();
     if (r.contains("vector_isa") && s.vectorIsa.isEmpty()) s.vectorIsa = r["vector_isa"].toString();
     x.threads = r["n"].toInt();
+    x.bytes = r["bytes_tested"].toDouble(NAN);
     x.durationS = r["duration_s"].toDouble(NAN);
     x.stopped = r["stopped"].toBool();
     if (auto c = ci(r["first_minute"])) x.first = *c;

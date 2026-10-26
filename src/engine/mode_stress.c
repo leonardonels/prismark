@@ -7,7 +7,8 @@
  *   all cores    vector maths on every CPU
  *   each core    vector maths on one core at a time, moving to the next physical core every 10 s and around again
  *                (OCCT's core cycling): each core at its single-core boost, where per-core instability shows
- *   memory       K11 on every CPU: 2 GiB written and checked over and over
+ *   memory       K11 on every CPU: about three quarters of the free memory written and checked over and over,
+ *                with four patterns in turn (a memory test, and its bandwidth)
  *
  * A part runs for cfg.stress_s, or until pmk_cancel when that is 0; its windows, temperatures, clocks and power
  * are kept, and every job's checksum is checked against the first. The score (analysis) is the speed in the
@@ -34,8 +35,14 @@ static const struct {
 };
 #define NPARTS ((int)(sizeof PARTS / sizeof *PARTS))
 
-/* K11's buffer, and a quarter more so the rest of the machine keeps room. */
-#define K11_NEED ((uint64_t)5 << 29)
+/* The memory part covers three quarters of the free memory, keeping 512 MiB more for the rest of the machine, and
+   needs at least 1 GiB to be a memory test at all. */
+static uint64_t memory_bytes(void) {
+  uint64_t avail = pal_mem_available(), keep = (uint64_t)512 << 20;
+  if (!avail) return (uint64_t)2 << 30; /* unknown: the fixed 2 GiB */
+  uint64_t b = avail / 4 * 3;
+  return b > keep ? b - keep : 0;
+}
 
 const char *stress_part_name(uint32_t bit) {
   for (int i = 0; i < NPARTS; i++)
@@ -170,15 +177,15 @@ static int stress_part(pmk_ctx *c, int i, const int *order, uint32_t step, uint3
   if (PARTS[i].all_cpus && c->cfg.max_threads > 0 && c->cfg.max_threads < n) n = c->cfg.max_threads;
   int cpu0 = ctx_cpu_for_type(c, 0);
   const int *cpus = PARTS[i].all_cpus ? order : &cpu0;
-  uint64_t avail = pal_mem_available();
-  if (!strcmp(tk->id, "K11") && avail && avail < K11_NEED) {
+  uint64_t bytes = !strcmp(tk->id, "K11") ? memory_bytes() : 0;
+  if (!strcmp(tk->id, "K11") && bytes < ((uint64_t)1 << 30)) {
     char reason[128];
-    snprintf(reason, sizeof reason, "not enough memory: it needs about %.1f GB free, %.1f GB available",
-             (double)K11_NEED / 1e9, (double)avail / 1e9);
+    snprintf(reason, sizeof reason, "not enough memory: it needs at least 2 GB free, %.1f GB available",
+             (double)pal_mem_available() / 1e9);
     ctx_unavailable(c, tk->id, NULL, "stress", reason);
     return PMK_OK;
   }
-  void *inst = wl_create(c, tk, PMK_SIZE_FULL, "stress");
+  void *inst = wl_create_bytes(c, tk, PMK_SIZE_FULL, bytes, "stress");
   if (!inst) return PMK_OK;
   int open_ended = !(c->cfg.stress_s > 0);
   ctx_emit(c, PMK_EV_PHASE, "stress", tk->id, step, steps, "stress test, %s: %s on %d thread%s, %s", PARTS[i].label,
@@ -198,6 +205,7 @@ static int stress_part(pmk_ctx *c, int i, const int *order, uint32_t step, uint3
     r->part = PARTS[i].name;
     r->type = ctx_type_of_cpu(c, cpus[0]);
     r->cpu = n == 1 ? cpus[0] : -1;
+    if (bytes) r->ws_bytes = (bytes >> 23) << 23; /* the memory covered, in whole 8 MiB chunks */
     sus_spec s = {.tk = tk, .inst = inst, .nthreads = n, .cpus = cpus, .measure_s = part_seconds(c),
                   .window_ms = PMK_STRESS_WINDOW_MS, .open_ended = open_ended, .check_tasks = 1,
                   .stop_on_error = c->cfg.stress_stop_on_error, .max_temp_c = c->cfg.stress_max_temp_c};

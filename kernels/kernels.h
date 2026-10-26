@@ -39,6 +39,7 @@ typedef struct pmk_tk_args {
   const char *data_dir; /* K1: prepared snapshot directory; NULL if none */
   char *err;            /* on failure, create() writes the reason here */
   size_t errlen;
+  uint64_t bytes;       /* K11: memory to cover, 0 for its fixed size */
 } pmk_tk_args;
 
 /*
