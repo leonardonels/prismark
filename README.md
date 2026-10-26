@@ -23,14 +23,14 @@ This README uses the app's names, with the ID in brackets where it helps.
 | Reading JSON | K5 | Validating JSON parser, exact number handling | `kernels/k5_json` |
 | Starting a script | K6 | Lua 5.4.7: new state, load and run a script | `kernels/k6_lua` |
 | Memory delay | K7 | Pointer chase over L1-to-DRAM working sets | `kernels/k7_chase` |
-| Matrix maths | K8 | Matrix multiply, FP32 and INT8 | `kernels/k8_matmul` |
 | Wake-up test | K9 | Calibrated dependent-add loop | `kernels/k9_calib` |
 | Timer punctuality | K10 | Periodic timer | `src/engine/mode_periodic.c` |
+| Memory bandwidth | K11 | 2 GiB written and checked on every core (stress test only) | `kernels/k11_stream` |
 
 ## Measurement modes
 
 Each test runs in one or more modes. The app groups them into the tabs
-All cores, One core, Responsiveness, Memory & timing and New instructions; the
+All cores, One core, Memory & timing, Responsiveness and Stress test; the
 command line selects modes by ID (`--mode`).
 
 | Mode | Shown in the app as | CLI ID | Measured quantity | Tests |
@@ -41,24 +41,28 @@ command line selects modes by ID (`--mode`).
 | Multi-instance | all cores, each on its own | `mc_instances` | Memory latency while every core uses memory | Memory delay |
 | Cold start | started from rest | `cold_burst` | Latency penalty of work issued from idle, on the machine as configured | Wake-up test; Opening a photo, Starting a script |
 | Periodic | timer punctuality | `periodic` | Wake-up latency distribution of periodic tasks | Timer punctuality |
+| Stress | stress test | `stress` | Speed, clock, temperature and correctness over 10 minutes or more of full load | 3D rendering (one core, all cores), Memory bandwidth |
 
-ISA uplift (the New instructions tab: 3D rendering, Compression, Opening a
-photo and Matrix maths, each built for the baseline and the max-level ISA) runs
-under single-thread sustained conditions.
+The stress test is not part of a full run: it runs only when asked for (its
+cards in the app, or `--mode stress`). Each part runs for 10 minutes, 30
+minutes or until stopped, like Cinebench's stress test; its score is the speed
+in the 10th minute, so runs of every length compare, and a run stopped before
+10 minutes keeps its curve without a score. Every job's output is checked
+against the first, so a machine that is unstable under load shows errors.
 
 Every input is generated from fixed seeds or fetched by hash, so every host does
 identical work. Kernels are built without FP contraction and without libm
 transcendentals in their outputs, and their output checksums are bit-identical
-across ISA tiers and compilers (`prismark checksums`; CI compares x86-64 against
-ARM64).
+across architectures and compilers (`prismark checksums`; CI compares x86-64
+against ARM64).
 
 ## Methodology
 
 - Results are reported per kernel and per mode. Measurements from different
   modes are not combined.
 - Derived metrics (scaling S/E/p, throttling ratio, build overhead R_build,
-  instruction-set uplift U_ISA) compare the same
-  kernel and the same binary, with bootstrap 95 % intervals.
+  stress hold-up) compare the same kernel and the same binary, with bootstrap
+  95 % intervals.
 - Sustained runs are fixed in length, so a run takes the same time on every
   machine of a kind and includes the slowdown sustained use causes. In a full
   run each sustained mode starts with a 60 s warm-up (3D rendering at the
@@ -76,9 +80,9 @@ ARM64).
   tests have no warm-up.
 - A full run takes about 30 minutes on a 4-core laptop (i5-1035G1), less on
   faster machines.
-- Baseline builds target a common instruction-set level (x86-64-v2, Armv8.2-A)
-  and contain no vendor-specific intrinsics. Max-level tiers (x86-64-v3/v4,
-  Armv8.2-A+dotprod, Armv9-A+SVE2) are separate modules selected at runtime.
+- Everything is built once, for a common instruction-set level (x86-64-v2,
+  Armv8.2-A), with no vendor-specific intrinsics: every machine of an
+  architecture runs the same instructions.
 - Each result records the machine state: frequency governor, power mode,
   idle-state configuration, temperature and idle power. Prismark never
   changes any of it: every test measures the machine as it is configured.
@@ -89,10 +93,11 @@ ARM64).
 | Phase | Content | State |
 | --- | --- | --- |
 | 1 | Linux core, all six modes, 3D rendering, Compression, Wake-up test, Timer punctuality | implemented; gate 1 needs repeat runs on an x86-64 and an ARM64 machine |
-| 2 | Compiling code, Full software build, Opening a photo, Reading JSON, Starting a script, Memory delay, Matrix maths, statistics in the core, analyzer | implemented; Compiling code and Full software build untested (need the Clang 19 development libraries and a snapshot) |
+| 2 | Compiling code, Full software build, Opening a photo, Reading JSON, Starting a script, Memory delay, statistics in the core, analyzer | implemented; Compiling code and Full software build untested (need the Clang 19 development libraries and a snapshot) |
 | 3 | Windows PAL, CLI | portable package cross-built with llvm-mingw (`tools/package-windows.sh`), compile tests included; run under Wine (both compile tests, the app, the commands), not yet on Windows itself |
 | 4 | Android (JNI bridge), GUI | JNI bridge and Kotlin wrapper written, untested; desktop app (Qt) working on Linux |
 | 5 | macOS / iOS PAL, Swift wrapper | written, not yet compiled or run on Apple platforms |
+| 6 | Stress test (one core, all cores, memory), ISA uplift and Matrix maths removed | implemented; run on Linux x86-64 |
 
 On Linux x86-64 everything except Compiling code and Full software build has
 been run end to end. The gates in
@@ -174,8 +179,7 @@ The commands are the same on Ubuntu and Fedora:
 sudo cmake --install build/linux-clang --prefix /usr/local
 ```
 
-This copies `prismark-gui`, the `prismark` runner and its instruction-set
-modules to `/usr/local/bin`, the launcher entry to
+This copies `prismark-gui` and the `prismark` runner to `/usr/local/bin`, the launcher entry to
 `/usr/local/share/applications/prismark.desktop`, the icon to
 `/usr/local/share/icons/hicolor/scalable/apps/prismark.svg` and the
 compile-test script to `/usr/local/share/prismark`. Prismark then appears as
@@ -206,7 +210,7 @@ cp apps/gui/icons/prismark-app.svg ~/.local/share/icons/hicolor/scalable/apps/pr
 ```
 
 Run it from the source folder, on Ubuntu or Fedora. The app follows the link
-back to `build/linux-clang/` and uses the runner and modules built there; the
+back to `build/linux-clang/` and uses the runner built there; the
 compile-test script is found in `tools/k1x/` of the source folder. As with any
 `~/.local` install, `~/.local/bin` must be on the session `PATH` (on Ubuntu,
 log out and back in after the first time). Do not combine it with the copy
@@ -281,6 +285,7 @@ library from the system that is not on every desktop.
 ./build/linux-clang/prismark run              # full run of all modes (about 30 min on a 4-core laptop)
 ./build/linux-clang/prismark run --quick      # smoke run, a few minutes; not for comparison
 ./build/linux-clang/prismark --mode short-task,from-rest --tests photo,script,wakeup
+./build/linux-clang/prismark run --mode stress --stress all-cores --stress-time 30m   # or until-stopped
 ./build/linux-clang/prismark tests            # every test and mode, with the names and IDs it accepts
 ./build/linux-clang/prismark help             # options; `help advanced` for tuning and desktop-app options
 ```
@@ -310,6 +315,9 @@ Ctrl+C quits at once.
 The exit status says how a run ended: 0 done, 1 failed, 2 wrong usage, 3
 the machine was too busy to measure (another program was working; nothing was
 measured), 130 stopped with Ctrl+C (what was measured is saved).
+
+A stress test run with `--stress-time until-stopped` ends with Ctrl+C: that is
+its normal end, so the run is saved as complete and the command exits 0.
 
 Each run writes `prismark-<run_id>.json` with every raw sample, the machine
 state at start and end, and the statistics computed from them. It goes in the
@@ -495,8 +503,8 @@ include/prismark/prismark.h   public C ABI (start, cancel, progress events, comp
 src/engine/                   runner, modes, sustained-run engine, Full software build (K1x) driver
 src/stats/                    medians, bootstrap, analysis, compare and profiles
 src/result/                   JSON writer and reader
-pal/                          platform layers: linux, darwin, windows, posix, common (ISA detection)
-kernels/                      one directory per kernel; compiled once per ISA tier
+pal/                          platform layers: linux, darwin, windows, posix
+kernels/                      one directory per kernel; compiled once, for the baseline ISA level
 apps/cli, apps/gui            command-line runner, desktop app
 apps/viewer                   static web viewer
 bindings/android, bindings/swift   JNI bridge and Kotlin wrapper; Swift package
