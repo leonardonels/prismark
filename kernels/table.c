@@ -11,6 +11,7 @@ extern const pmk_tk PMK_SYM(pmk_k4_tk);
 extern const pmk_tk PMK_SYM(pmk_k5_tk);
 extern const pmk_tk PMK_SYM(pmk_k6_tk);
 extern const pmk_tk PMK_SYM(pmk_k11_tk);
+extern const pmk_tk PMK_SYM(pmk_k12_tk);
 #ifdef PMK_HAVE_K1
 extern const pmk_tk PMK_SYM(pmk_k1_tk);
 #endif
@@ -23,7 +24,7 @@ static const pmk_tk *const PMK_SYM(tk_list)[] = {
     &PMK_SYM(pmk_k1_tk),
 #endif
     &PMK_SYM(pmk_k2_tk), &PMK_SYM(pmk_k3_tk), &PMK_SYM(pmk_k4_tk), &PMK_SYM(pmk_k5_tk), &PMK_SYM(pmk_k6_tk),
-    &PMK_SYM(pmk_k11_tk),
+    &PMK_SYM(pmk_k12_tk), &PMK_SYM(pmk_k11_tk),
 };
 
 const pmk_kernels PMK_SYM(pmk_kernels) = {

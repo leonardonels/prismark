@@ -25,7 +25,8 @@ This README uses the app's names, with the ID in brackets where it helps.
 | Memory delay | K7 | Pointer chase over L1-to-DRAM working sets | `kernels/k7_chase` |
 | Wake-up test | K9 | Calibrated dependent-add loop | `kernels/k9_calib` |
 | Timer punctuality | K10 | Periodic timer | `src/engine/mode_periodic.c` |
-| Memory bandwidth | K11 | 2 GiB written and checked on every core (stress test only) | `kernels/k11_stream` |
+| Memory bandwidth | K11 | Most of the free memory written and checked on every core, four patterns (stress test only) | `kernels/k11_stream` |
+| Vector maths | K12 | Double-precision matrix multiply with fused multiply-adds at the widest vectors (AVX-512, AVX2, NEON), GFLOP/s | `kernels/k12_vector` |
 
 ## Measurement modes
 
@@ -36,19 +37,39 @@ command line selects modes by ID (`--mode`).
 | Mode | Shown in the app as | CLI ID | Measured quantity | Tests |
 | --- | --- | --- | --- | --- |
 | Single-thread burst | one core, short task | `st_burst` | Execution time of short interactive workloads on one core | Compression, Opening a photo, Reading JSON, Starting a script |
-| Single-thread sustained | one core, after warming up | `st_sustained` | Single-core throughput after a warm-up at full load | Compiling code, 3D rendering |
-| Multi-thread | all cores, working together | `mc_threaded` | Scaling of multithreaded workloads, including serial fractions | Compiling code, Full software build, 3D rendering |
+| Single-thread sustained | one core, after warming up | `st_sustained` | Single-core throughput after a warm-up at full load | Compiling code, 3D rendering, Vector maths |
+| Multi-thread | all cores, working together | `mc_threaded` | Scaling of multithreaded workloads, including serial fractions | Compiling code, Full software build, 3D rendering, Vector maths |
 | Multi-instance | all cores, each on its own | `mc_instances` | Memory latency while every core uses memory | Memory delay |
 | Cold start | started from rest | `cold_burst` | Latency penalty of work issued from idle, on the machine as configured | Wake-up test; Opening a photo, Starting a script |
 | Periodic | timer punctuality | `periodic` | Wake-up latency distribution of periodic tasks | Timer punctuality |
-| Stress | stress test | `stress` | Speed, clock, temperature and correctness over 10 minutes or more of full load | 3D rendering (one core, all cores), Memory bandwidth |
+| Stress | stress test | `stress` | Speed, clock, temperature and correctness over 10 minutes or more of full load | Vector maths (one core, all cores, each core in turn), Memory bandwidth |
 
 The stress test is not part of a full run: it runs only when asked for (its
 cards in the app, or `--mode stress`). Each part runs for 10 minutes, 30
-minutes or until stopped, like Cinebench's stress test; its score is the speed
-in the 10th minute, so runs of every length compare, and a run stopped before
-10 minutes keeps its curve without a score. Every job's output is checked
-against the first, so a machine that is unstable under load shows errors.
+minutes or until stopped; its score is the speed in the 10th minute, so runs
+of every length compare, and a run stopped before 10 minutes keeps its curve
+and verdict without a score. Like OCCT, it is a stability test as much as a
+benchmark:
+
+- Its CPU load is Vector maths, wide fused multiply-adds: the hottest load a
+  processor gets. *Each core in turn* runs it on one physical core at a time,
+  moving on every 10 s (core cycling), so every core reaches its own
+  single-core boost, where per-core instability shows; its score is the
+  slowest core.
+- The memory part is a memory test: about three quarters of the free memory,
+  checked word by word with four patterns in turn.
+- Every job is checked against the result a correct machine produces (known in
+  advance: outputs are identical on every host) and every task against its own
+  first result, so a wrong result is counted against the CPU that computed it.
+  The test stops at the first one (`--stress-on-error continue` keeps going)
+  or at a temperature limit (`--stress-max-temp 95`), and ends with a verdict:
+  stable, failed (when, on which CPU) or stopped hot. The command line exits
+  with status 4 when it failed.
+
+Vector maths is also a benchmark (One core, All cores) with an absolute score
+in GFLOP/s. It runs at the widest vector instructions the processor has,
+picked at run time; every width computes bit-identical results, and each
+result records which one ran (`vector_isa`).
 
 Every input is generated from fixed seeds or fetched by hash, so every host does
 identical work. Kernels are built without FP contraction and without libm
@@ -97,7 +118,7 @@ against ARM64).
 | 3 | Windows PAL, CLI | portable package cross-built with llvm-mingw (`tools/package-windows.sh`), compile tests included; run under Wine (both compile tests, the app, the commands), not yet on Windows itself |
 | 4 | Android (JNI bridge), GUI | JNI bridge and Kotlin wrapper written, untested; desktop app (Qt) working on Linux |
 | 5 | macOS / iOS PAL, Swift wrapper | written, not yet compiled or run on Apple platforms |
-| 6 | Stress test (one core, all cores, memory), ISA uplift and Matrix maths removed | implemented; run on Linux x86-64 |
+| 6 | Stress test (one core, all cores, each core in turn, memory test) with checks and verdict; Vector maths benchmark; ISA uplift and Matrix maths removed | implemented; run on Linux x86-64 (AVX2; AVX-512 not yet run) |
 
 On Linux x86-64 everything except Compiling code and Full software build has
 been run end to end. The gates in
@@ -314,7 +335,7 @@ Ctrl+C quits at once.
 
 The exit status says how a run ended: 0 done, 1 failed, 2 wrong usage, 3
 the machine was too busy to measure (another program was working; nothing was
-measured), 130 stopped with Ctrl+C (what was measured is saved).
+measured), 4 the stress test found wrong results, 130 stopped with Ctrl+C (what was measured is saved).
 
 A stress test run with `--stress-time until-stopped` ends with Ctrl+C: that is
 its normal end, so the run is saved as complete and the command exits 0.

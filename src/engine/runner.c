@@ -84,6 +84,8 @@ void pmk_config_init(pmk_config *cfg) {
   cfg->cooldown = 0;
   cfg->stress_s = 600;
   cfg->stress_parts = PMK_STRESS_ALL;
+  cfg->stress_stop_on_error = 1;
+  cfg->stress_max_temp_c = 0;
 }
 
 /* ---------- context helpers ---------- */
@@ -460,6 +462,7 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
     jw_str(w, "size", r->size);
     if (r->purpose) jw_str(w, "purpose", r->purpose);
     if (r->part) jw_str(w, "part", r->part);
+    if (r->isa) jw_str(w, "vector_isa", r->isa);
     if (r->nthreads) jw_int(w, !strcmp(r->mode, "mc_instances") ? "instances" : "threads", r->nthreads);
     if (r->ws_bytes) jw_int(w, "working_set_bytes", (int64_t)r->ws_bytes);
     if (r->windowed) jw_num(w, "window_ms", r->window_ms);
@@ -512,6 +515,19 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
     if (r->part) jw_int(w, "checksum_errors", (int64_t)r->errors);
   }
   if (r->stopped) jw_bool(w, "stopped", 1);
+  if (r->part) { /* the stress test's checks */
+    jw_str(w, "stop_reason", r->stop_reason);
+    jw_int(w, "wrong_tasks", (int64_t)r->wrong_tasks);
+    jw_num(w, "first_wrong_s", r->first_wrong_s);
+    jw_int(w, "first_wrong_cpu", r->first_wrong_cpu);
+    jw_obj_begin(w, "wrong_by_cpu");
+    for (int i = 0; i < r->nwrong_cpu; i++) {
+      char k[16];
+      snprintf(k, sizeof k, "%d", r->wrong_cpu[i]);
+      jw_int(w, k, (int64_t)r->wrong_cpu_n[i]);
+    }
+    jw_obj_end(w);
+  }
   jw_obj_end(w);
 }
 
@@ -610,6 +626,10 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
     c->cfg.stress_s = 600;
     c->cfg.stress_parts = PMK_STRESS_ALL;
   }
+  if (cfg_in->struct_size < offsetof(pmk_config, stress_max_temp_c) + sizeof(double)) { /* early ABI 8 */
+    c->cfg.stress_stop_on_error = 1;
+    c->cfg.stress_max_temp_c = 0;
+  }
   if (!c->cfg.stress_parts) c->cfg.stress_parts = PMK_STRESS_ALL;
   c->cb = cb;
   c->user = user;
@@ -620,7 +640,8 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   if (c->cfg.min_reps < 3 || c->cfg.max_reps < c->cfg.min_reps || c->cfg.cold_max_reps < c->cfg.min_reps || !(c->cfg.periodic_period_ms > 0) ||
       !(c->cfg.periodic_seconds > 0) || (c->cfg.modes & ~(uint32_t)(PMK_MODE_ALL | PMK_MODE_STRESS)) ||
       !(c->cfg.window_ms >= 10) || !(c->cfg.measure_s > 0) || !(c->cfg.warmup_s >= 0) || !(c->cfg.settle_s >= 0) ||
-      !(c->cfg.stress_s >= 0 && c->cfg.stress_s <= PMK_STRESS_MAX_S) || (c->cfg.stress_parts & ~(uint32_t)PMK_STRESS_ALL))
+      !(c->cfg.stress_s >= 0 && c->cfg.stress_s <= PMK_STRESS_MAX_S) || (c->cfg.stress_parts & ~(uint32_t)PMK_STRESS_ALL) ||
+      !(c->cfg.stress_max_temp_c >= 0 && c->cfg.stress_max_temp_c < 150))
     rc = PMK_ERR_INVALID;
 
   if (rc == PMK_OK && pal_init(&c->m)) rc = PMK_ERR_SYSTEM;
@@ -681,8 +702,10 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   jw_num(&w, "measure_s", c->cfg.measure_s);
   if (c->cfg.modes & PMK_MODE_STRESS) {
     jw_num(&w, "stress_s", c->cfg.stress_s);
+    jw_bool(&w, "stress_stop_on_error", c->cfg.stress_stop_on_error);
+    jw_num(&w, "stress_max_temp_c", c->cfg.stress_max_temp_c > 0 ? c->cfg.stress_max_temp_c : NAN);
     jw_arr_begin(&w, "stress_parts");
-    for (int i = 0; i < 3; i++)
+    for (int i = 0; i < 4; i++)
       if (c->cfg.stress_parts & (1u << i)) jw_str(&w, NULL, stress_part_name(1u << i));
     jw_arr_end(&w);
   }

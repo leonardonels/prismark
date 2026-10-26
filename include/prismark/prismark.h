@@ -46,10 +46,11 @@ enum {
 
 /* Parts of the stress test (ABI 8), a bitmask for pmk_config.stress_parts. */
 enum {
-  PMK_STRESS_ONE_CORE = 1u << 0,  /* 3D rendering on one core of the fastest type */
-  PMK_STRESS_ALL_CORES = 1u << 1, /* 3D rendering on every CPU */
-  PMK_STRESS_MEMORY = 1u << 2,    /* K11, writing and checking 2 GiB of memory on every CPU */
-  PMK_STRESS_ALL = PMK_STRESS_ONE_CORE | PMK_STRESS_ALL_CORES | PMK_STRESS_MEMORY
+  PMK_STRESS_ONE_CORE = 1u << 0,  /* vector maths (K12) on one core of the fastest type */
+  PMK_STRESS_ALL_CORES = 1u << 1, /* vector maths on every CPU */
+  PMK_STRESS_MEMORY = 1u << 2,    /* K11 on every CPU: about 3/4 of the free memory written and checked, 4 patterns */
+  PMK_STRESS_EACH_CORE = 1u << 3, /* vector maths on one physical core at a time, moving on every 10 s */
+  PMK_STRESS_ALL = PMK_STRESS_ONE_CORE | PMK_STRESS_ALL_CORES | PMK_STRESS_MEMORY | PMK_STRESS_EACH_CORE
 };
 
 typedef struct pmk_config {
@@ -92,6 +93,8 @@ typedef struct pmk_config {
   double stress_s;           /* seconds per part (default 600); 0 runs until pmk_cancel, which then ends the run
                                 normally (at most 24 h) */
   uint32_t stress_parts;     /* PMK_STRESS_* bits; 0 means all */
+  int32_t stress_stop_on_error; /* end the stress test at the first wrong result (default 1) */
+  double stress_max_temp_c;  /* end it once the CPU reaches this temperature, 0 for no limit (default 0) */
 } pmk_config;
 
 /* Fills cfg with defaults. */

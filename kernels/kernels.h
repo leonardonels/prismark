@@ -18,7 +18,7 @@
 #define PMK_SYM(name) PMK_SYM2(name, PMK_TIER)
 
 /* Bumped whenever pmk_kernels or pmk_tk changes layout; modules with another value are refused. */
-#define PMK_KERNELS_ABI 2
+#define PMK_KERNELS_ABI 3
 
 /* K7: one node per cache line, linked into a single random cycle. */
 typedef struct pmk_k7_node {
@@ -39,6 +39,7 @@ typedef struct pmk_tk_args {
   const char *data_dir; /* K1: prepared snapshot directory; NULL if none */
   char *err;            /* on failure, create() writes the reason here */
   size_t errlen;
+  uint64_t bytes;       /* K11: memory to cover, 0 for its fixed size */
 } pmk_tk_args;
 
 /*
@@ -63,6 +64,12 @@ typedef struct pmk_tk {
   void (*scratch_free)(void *s);
   uint64_t (*task)(const void *inst, void *scratch, size_t i);
   uint64_t (*input_hash)(const void *inst);
+  /* Optional: the job checksum a correct machine produces for this instance, 0 if not known. Outputs are
+     bit-identical on every host, so it can be known in advance; the stress test checks every job against it. */
+  uint64_t (*expected)(const void *inst);
+  /* Optional: the vector instructions the instance runs with (e.g. "AVX-512"), for kernels that pick them at run
+     time; NULL when the kernel uses the build's ISA level only. */
+  const char *(*isa)(const void *inst);
 } pmk_tk;
 
 typedef struct pmk_kernels {
@@ -79,7 +86,7 @@ typedef struct pmk_kernels {
   void (*k7_build)(pmk_k7_node *nodes, size_t n, uint64_t seed);
   uint64_t (*k7_chase)(const pmk_k7_node *nodes, uint64_t start, uint64_t steps);
 
-  /* Throughput kernels (K1-K6, and K11 for the stress test). */
+  /* Throughput kernels (K1-K6, K12, and K11 for the stress test). */
   const pmk_tk *const *tk;
   size_t ntk;
 } pmk_kernels;

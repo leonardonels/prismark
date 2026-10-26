@@ -3,8 +3,8 @@
  *
  *   ST burst      single-core speed on short interactive tasks: K3 (small
  *                 input), K4, K5, K6; pre-warmed; one series per core type
- *   ST sustained  single-core speed at thermal steady state: K1, K2
- *   MC threaded   scaling of multithreaded software: K1, K2 (and K1x) at
+ *   ST sustained  single-core speed at thermal steady state: K1, K2, K12
+ *   MC threaded   scaling of multithreaded software: K1, K2, K12 (and K1x) at
  *                 n = 1, 2, 4, ..., all CPUs, each run sustained
  *   MC instances  memory latency under contention: K7 while n - 1 other
  *                 copies chase memory on the other CPUs
@@ -24,8 +24,8 @@
 #define BURST_WARMUP_JOBS 2
 
 static const char *const BURST_KERNELS[] = {"K3", "K4", "K5", "K6"};
-static const char *const SUSTAINED_KERNELS[] = {"K1", "K2"};
-static const char *const THREADED_KERNELS[] = {"K1", "K2"};
+static const char *const SUSTAINED_KERNELS[] = {"K1", "K2", "K12"};
+static const char *const THREADED_KERNELS[] = {"K1", "K2", "K12"};
 
 #define COUNT(a) ((int)(sizeof(a) / sizeof *(a)))
 
@@ -136,7 +136,7 @@ static int mode_warm_up(pmk_ctx *c, const char *mode, const int *cpus, int nthre
     r->purpose = "warmup";
     r->type = ctx_type_of_cpu(c, cpus[0]);
     r->cpu = nthreads == 1 ? cpus[0] : -1;
-    sus_spec s = {tk, inst, nthreads, cpus, c->cfg.warmup_s, 1, 0, 0, 0};
+    sus_spec s = {.tk = tk, .inst = inst, .nthreads = nthreads, .cpus = cpus, .warm_s = c->cfg.warmup_s, .warm_only = 1};
     rc = wl_sustained(c, &s, r);
   }
   tk->destroy(inst);
@@ -152,7 +152,7 @@ static int sustained_series(pmk_ctx *c, const char *mode, const pmk_tk *tk, int 
   set_tk_fields(r, tk, c->k, wl_size_for(c, tk) == PMK_SIZE_BURST ? "burst" : "full");
   r->type = type;
   r->cpu = nthreads == 1 ? cpus[0] : -1;
-  sus_spec s = {tk, inst, nthreads, cpus, c->cfg.settle_s, 0, 0, 0, 0};
+  sus_spec s = {.tk = tk, .inst = inst, .nthreads = nthreads, .cpus = cpus, .warm_s = c->cfg.settle_s};
   return wl_sustained(c, &s, r);
 }
 

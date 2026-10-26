@@ -50,6 +50,10 @@ typedef struct sum_row { /* checksum agreement per kernel, variant, input size a
 
 typedef struct stress_row {
   const pmk_result *r;
+  /* Core cycling ("each_core"): one series per core, gathered in one row; r is the first of them. */
+  const pmk_result **cores;
+  pmk_ci *core_perf;
+  int ncores;
   pmk_ci score;       /* median window speed over minute 9-10, NaN when the part ran less than 10 minutes */
   pmk_ci first, end;  /* the first minute (after its first window) and the last minute */
   pmk_ci hold_up;     /* end / first */
@@ -105,6 +109,69 @@ static size_t windows_in(const pmk_result *r, double lo, double hi, size_t *from
   if (b > r->n) b = r->n;
   *from = a;
   return b > a ? b - a : 0;
+}
+
+/* "failed" (a wrong result), "too_hot" (ended at the temperature limit) or "stable". */
+static const char *stress_verdict(const pmk_result *r) {
+  if (r->errors || r->wrong_tasks) return "failed";
+  if (r->stop_reason && !strcmp(r->stop_reason, "temperature")) return "too_hot";
+  return "stable";
+}
+
+/* A row's figures, over every core of a core-cycling row: its own series' otherwise. */
+typedef struct row_sum {
+  double ran;
+  int stopped;
+  const char *verdict, *stop_reason;
+  uint64_t errors, wrong_tasks;
+  double first_s;
+  int first_cpu, nwrong;
+  int wrong_cpu[PMK_MAX_WRONG_CPUS];
+  uint64_t wrong_n[PMK_MAX_WRONG_CPUS];
+  int clamped;
+  size_t jobs;
+} row_sum;
+
+static row_sum stress_totals(const stress_row *x) {
+  row_sum t = {0};
+  t.first_s = NAN;
+  t.first_cpu = -1;
+  t.verdict = "stable";
+  int n = x->ncores ? x->ncores : 1;
+  for (int i = 0; i < n; i++) {
+    const pmk_result *r = x->ncores ? x->cores[i] : x->r;
+    const char *v = stress_verdict(r);
+    t.ran += (double)r->n * r->window_ms / 1e3;
+    t.stopped |= r->stopped;
+    if (r->stop_reason && (!t.stop_reason || r->stopped)) t.stop_reason = r->stop_reason;
+    if (!strcmp(v, "failed") || (!strcmp(v, "too_hot") && strcmp(t.verdict, "failed"))) t.verdict = v;
+    t.errors += r->errors;
+    t.wrong_tasks += r->wrong_tasks;
+    t.clamped += r->clamped;
+    t.jobs += r->job_ns.n;
+    if (isfinite(r->first_wrong_s) && !(t.first_s <= r->first_wrong_s)) t.first_s = r->first_wrong_s, t.first_cpu = r->first_wrong_cpu;
+    for (int k = 0; k < r->nwrong_cpu && t.nwrong < PMK_MAX_WRONG_CPUS; k++)
+      t.wrong_cpu[t.nwrong] = r->wrong_cpu[k], t.wrong_n[t.nwrong++] = r->wrong_cpu_n[k];
+  }
+  return t;
+}
+
+/* Core cycling: each core's median speed; the score is the slowest core's, once the part ran 10 minutes. */
+static void compute_each_core(pmk_ctx *c, stress_row *row) {
+  pmk_ci none = {NAN, NAN, NAN};
+  double ran = 0;
+  row->score = row->first = row->end = row->hold_up = none;
+  row->temp_max = row->mhz = row->watts = NAN;
+  row->core_perf = calloc((size_t)row->ncores, sizeof *row->core_perf);
+  for (int i = 0; row->core_perf && i < row->ncores; i++) {
+    const pmk_result *r = row->cores[i];
+    ran += (double)r->n * r->window_ms / 1e3;
+    row->core_perf[i] = r->n ? pmk_boot_median(r->samples, r->n, PMK_BOOT_B, &c->stat_rng) : none;
+    if (!(row->score.est <= row->core_perf[i].est)) row->score = row->core_perf[i];
+    for (size_t k = 0; k < r->temps.n; k++)
+      if (isfinite(r->temps.v[k]) && !(row->temp_max >= r->temps.v[k])) row->temp_max = r->temps.v[k];
+  }
+  if (ran < PMK_STRESS_SCORE_TO_S - 1e-6) row->score = none;
 }
 
 static void compute_stress(pmk_ctx *c, stress_row *row) {
@@ -249,11 +316,24 @@ void analysis_tp_compute(pmk_ctx *c) {
   if (!a->rows || !a->sc || !a->ra || !a->sums || !a->st) return;
   pmk_rng *rng = &c->stat_rng;
 
-  for (size_t i = 0; i < c->nres; i++)
-    if (!strcmp(c->res[i].mode, "stress") && c->res[i].n) {
-      a->st[a->nst].r = &c->res[i];
-      compute_stress(c, &a->st[a->nst++]);
+  stress_row *cycling = NULL;
+  for (size_t i = 0; i < c->nres; i++) {
+    const pmk_result *r = &c->res[i];
+    if (strcmp(r->mode, "stress")) continue;
+    if (r->part && !strcmp(r->part, "each_core")) { /* gathered below */
+      if (!cycling) {
+        cycling = &a->st[a->nst++];
+        cycling->r = r;
+        cycling->cores = calloc(c->nres, sizeof *cycling->cores);
+      }
+      if (cycling->cores && r->n) cycling->cores[cycling->ncores++] = r;
+      continue;
     }
+    if (!r->n) continue;
+    a->st[a->nst].r = r;
+    compute_stress(c, &a->st[a->nst++]);
+  }
+  if (cycling) compute_each_core(c, cycling);
 
   for (size_t i = 0; i < c->nres; i++) {
     const pmk_result *r = &c->res[i];
@@ -330,6 +410,10 @@ void analysis_tp_free(pmk_ctx *c) {
   free(c->antp->sc);
   free(c->antp->ra);
   free(c->antp->sums);
+  for (size_t i = 0; i < c->antp->nst; i++) {
+    free(c->antp->st[i].cores);
+    free(c->antp->st[i].core_perf);
+  }
   free(c->antp->st);
   free(c->antp);
   c->antp = NULL;
@@ -366,6 +450,7 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
     jw_str(w, "core_type", c->m.type_names[r->type]);
     jw_int(w, "cpu", r->cpu);
     jw_int(w, "n", r->nthreads ? r->nthreads : 1);
+    if (r->isa) jw_str(w, "vector_isa", r->isa);
     if (r->ws_bytes) jw_int(w, "working_set_bytes", (int64_t)r->ws_bytes);
     if (!strcmp(r->mode, "cold_burst")) jw_str(w, "start", r->warm ? "warm" : "cold");
     jw_int(w, "samples", (int64_t)r->n);
@@ -436,14 +521,17 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
   for (size_t i = 0; a && i < a->nst; i++) {
     const stress_row *x = &a->st[i];
     const pmk_result *r = x->r;
+    row_sum t = stress_totals(x);
     jw_obj_begin(w, NULL);
     jw_str(w, "part", r->part);
     jw_str(w, "kernel", r->kernel);
+    jw_str(w, "vector_isa", r->isa);
     jw_str(w, "unit", unit_of(r));
     jw_str(w, "core_type", c->m.type_names[r->type]);
-    jw_int(w, "n", r->nthreads ? r->nthreads : 1);
-    jw_num(w, "duration_s", (double)r->n * r->window_ms / 1e3);
-    jw_bool(w, "stopped", r->stopped);
+    jw_int(w, "n", x->ncores ? 1 : r->nthreads ? r->nthreads : 1);
+    if (r->ws_bytes) jw_int(w, "bytes_tested", (int64_t)r->ws_bytes);
+    jw_num(w, "duration_s", t.ran);
+    jw_bool(w, "stopped", t.stopped);
     if (isfinite(x->score.est)) ci_json(w, "score", x->score);
     else jw_raw(w, "score", "null");
     ci_json(w, "first_minute", x->first);
@@ -452,9 +540,36 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
     jw_num(w, "temp_max_c", x->temp_max);
     jw_num(w, "mhz", x->mhz);
     jw_num(w, "power_w", x->watts);
-    jw_int(w, "clamped_windows", r->clamped);
-    jw_int(w, "jobs", (int64_t)r->job_ns.n);
-    jw_int(w, "checksum_errors", (int64_t)r->errors);
+    jw_int(w, "clamped_windows", t.clamped);
+    jw_int(w, "jobs", (int64_t)t.jobs);
+    jw_int(w, "checksum_errors", (int64_t)t.errors);
+    jw_str(w, "verdict", t.verdict);
+    jw_str(w, "stop_reason", t.stop_reason);
+    jw_int(w, "wrong_tasks", (int64_t)t.wrong_tasks);
+    jw_num(w, "first_error_s", t.first_s);
+    jw_int(w, "first_error_cpu", t.first_cpu);
+    jw_obj_begin(w, "wrong_by_cpu");
+    for (int k = 0; k < t.nwrong; k++) {
+      char key[16];
+      snprintf(key, sizeof key, "%d", t.wrong_cpu[k]);
+      jw_int(w, key, (int64_t)t.wrong_n[k]);
+    }
+    jw_obj_end(w);
+    if (x->ncores) { /* core cycling: each core's speed and checks */
+      jw_arr_begin(w, "cores");
+      for (int k = 0; k < x->ncores; k++) {
+        const pmk_result *q = x->cores[k];
+        jw_obj_begin(w, NULL);
+        jw_int(w, "cpu", q->cpu);
+        jw_str(w, "core_type", c->m.type_names[q->type]);
+        ci_json(w, "perf", x->core_perf ? x->core_perf[k] : (pmk_ci){NAN, NAN, NAN});
+        jw_num(w, "seconds", (double)q->n * q->window_ms / 1e3);
+        jw_num(w, "mhz", steady_median(q, &q->mhz));
+        jw_int(w, "wrong", (int64_t)(q->wrong_tasks + q->errors));
+        jw_obj_end(w);
+      }
+      jw_arr_end(w);
+    }
     jw_obj_end(w);
   }
   jw_arr_end(w);
@@ -575,17 +690,40 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
     for (size_t i = 0; i < a->nst; i++) {
       const stress_row *x = &a->st[i];
       const pmk_result *r = x->r;
+      row_sum t = stress_totals(x);
+      double ran = t.ran;
+      if (!strcmp(t.verdict, "failed")) {
+        buf_printf(b, "  %s: FAILED: wrong results", r->part);
+        if (isfinite(t.first_s)) buf_printf(b, ", the first after %d:%02d", (int)t.first_s / 60, (int)t.first_s % 60);
+        if (t.first_cpu >= 0) buf_printf(b, " on CPU %d", t.first_cpu);
+        buf_printf(b, " (%llu wrong task%s, %llu wrong job%s)", (unsigned long long)t.wrong_tasks,
+                   t.wrong_tasks == 1 ? "" : "s", (unsigned long long)t.errors, t.errors == 1 ? "" : "s");
+        for (int k = 0; k < t.nwrong; k++) buf_printf(b, "%s CPU %d: %llu", k ? "," : ";", t.wrong_cpu[k], (unsigned long long)t.wrong_n[k]);
+        buf_printf(b, "\n");
+      } else if (!strcmp(t.verdict, "too_hot")) {
+        buf_printf(b, "  %s: STOPPED at the temperature limit after %d:%02d, no wrong results\n", r->part, (int)ran / 60, (int)ran % 60);
+      } else {
+        buf_printf(b, "  %s: stable for %d:%02d, no wrong results%s\n", r->part, (int)ran / 60, (int)ran % 60,
+                   t.stop_reason && !strcmp(t.stop_reason, "user") ? " (stopped by you)" : "");
+      }
       char score[64], dur[32];
       if (isfinite(x->score.est))
         snprintf(score, sizeof score, "%.4g [%.4g, %.4g]", x->score.est, x->score.lo, x->score.hi);
       else snprintf(score, sizeof score, "no score (under 10 min)");
-      double s = (double)r->n * r->window_ms / 1e3;
-      if (s < 120) snprintf(dur, sizeof dur, "%.0f s%s", s, r->stopped ? ", stopped" : "");
-      else snprintf(dur, sizeof dur, "%.0f min%s", s / 60, r->stopped ? ", stopped" : "");
+      if (ran < 120) snprintf(dur, sizeof dur, "%.0f s%s", ran, t.stopped ? ", stopped" : "");
+      else snprintf(dur, sizeof dur, "%.0f min%s", ran / 60, t.stopped ? ", stopped" : "");
+      if (x->ncores) {
+        buf_printf(b, "  %-10s %-12s %3d cores %-26s %s (slowest core)  (%s)\n", r->part, pmk_display_name(r->kernel),
+                   x->ncores, score, unit_of(r), dur);
+        for (int k = 0; x->core_perf && k < x->ncores; k++)
+          buf_printf(b, "    CPU %-4d %-3s %.4g %s%s\n", x->cores[k]->cpu, c->m.type_names[x->cores[k]->type],
+                     x->core_perf[k].est, unit_of(r), x->cores[k]->wrong_tasks + x->cores[k]->errors ? "  WRONG RESULTS" : "");
+        continue;
+      }
       buf_printf(b, "  %-10s %-12s %3d thr  %-28s %s  hold-up %.3f", r->part, pmk_display_name(r->kernel),
                  r->nthreads ? r->nthreads : 1, score, unit_of(r), x->hold_up.est);
       if (isfinite(x->temp_max)) buf_printf(b, "  max %.0f C", x->temp_max);
-      buf_printf(b, "  (%s)%s\n", dur, r->errors ? "  ERRORS: some jobs came out wrong" : "");
+      buf_printf(b, "  (%s)\n", dur);
     }
   }
   int bad = 0;

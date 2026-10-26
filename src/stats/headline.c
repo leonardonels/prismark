@@ -27,8 +27,10 @@ static const struct metric {
     {"mc_k2", "All cores", "3D rendering on all cores", "M samples/s", 1, THROUGHPUT, "K2", "mc_threaded", NULL, 0},
     {"mc_k1", "All cores", "Compiling code on all cores", "builds/h", 1, THROUGHPUT, "K1", "mc_threaded", NULL, 0},
     {"mc_k1x", "All cores", "Full software build", "s", 0, K1X, "K1x", NULL, NULL, 0},
+    {"mc_k12", "All cores", "Vector maths on all cores", "GFLOP/s", 1, THROUGHPUT, "K12", "mc_threaded", NULL, 0},
     {"st_k2", "One core", "3D rendering on one core", "M samples/s", 1, THROUGHPUT, "K2", "st_sustained", NULL, 0},
     {"st_k1", "One core", "Compiling code on one core", "builds/h", 1, THROUGHPUT, "K1", "st_sustained", NULL, 0},
+    {"st_k12", "One core", "Vector maths on one core", "GFLOP/s", 1, THROUGHPUT, "K12", "st_sustained", NULL, 0},
     {"b_k3", "One core", "Compressing a file", "ms", 0, MEDIAN, "K3", "st_burst", NULL, 1e-6},
     {"b_k4", "One core", "Opening a photo", "ms", 0, MEDIAN, "K4", "st_burst", NULL, 1e-6},
     {"b_k5", "One core", "Reading structured data (JSON)", "ms", 0, MEDIAN, "K5", "st_burst", NULL, 1e-6},
@@ -41,8 +43,8 @@ static const struct metric {
     {"r_10ms", "Responsiveness", "Reacting from rest: a 10 ms task", "%", 1, RRESP, "K9", NULL, NULL, 10},
     {"c_k4", "Responsiveness", "Opening a photo from rest", "ms", 0, MEDIAN, "K4", "cold_burst", "cold", 1e-6},
     {"c_k6", "Responsiveness", "Starting a small script from rest", "ms", 0, MEDIAN, "K6", "cold_burst", "cold", 1e-6},
-    {"s_st", "Stress test", "One core under stress (10th minute)", "M samples/s", 1, STRESS, "K2", NULL, "one_core", 0},
-    {"s_mc", "Stress test", "All cores under stress (10th minute)", "M samples/s", 1, STRESS, "K2", NULL, "all_cores", 0},
+    {"s_st", "Stress test", "One core under stress (10th minute)", "GFLOP/s", 1, STRESS, "K12", NULL, "one_core", 0},
+    {"s_mc", "Stress test", "All cores under stress (10th minute)", "GFLOP/s", 1, STRESS, "K12", NULL, "all_cores", 0},
     {"s_mem", "Stress test", "Memory under stress (10th minute)", "GB/s", 1, STRESS, "K11", NULL, "memory", 0},
 };
 #define NMETRICS (sizeof METRICS / sizeof *METRICS)

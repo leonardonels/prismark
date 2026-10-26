@@ -69,8 +69,10 @@ banner while any are loaded. The format:
 | `mc_k2` | 3D rendering on all cores | M samples/s |
 | `mc_k1` | Compiling code on all cores | builds/h |
 | `mc_k1x` | Full software build | s |
+| `mc_k12` | Vector maths on all cores | GFLOP/s |
 | `st_k2` | 3D rendering on one core | M samples/s |
 | `st_k1` | Compiling code on one core | builds/h |
+| `st_k12` | Vector maths on one core | GFLOP/s |
 | `b_k3` | Compressing a file | ms |
 | `b_k4` | Opening a photo | ms |
 | `b_k5` | Reading structured data (JSON) | ms |
@@ -83,8 +85,9 @@ banner while any are loaded. The format:
 | `r_10ms` | Reacting from rest: a 10 ms task | % |
 | `c_k4` | Opening a photo from rest | ms |
 | `c_k6` | Starting a small script from rest | ms |
-| `s_st` | One core under stress (10th minute) | M samples/s |
-| `s_mc` | All cores under stress (10th minute) | M samples/s |
+| `s_st` | One core under stress (10th minute) | GFLOP/s |
+| `s_mc` | All cores under stress (10th minute) | GFLOP/s |
+| `s_cc` | Each core in turn: the slowest core | GFLOP/s |
 | `s_mem` | Memory under stress (10th minute) | GB/s |
 
 A key the app does not know is reported when it starts (on the terminal), so

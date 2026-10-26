@@ -13,6 +13,7 @@
 #include "rng.h"
 
 #define PMK_MAX_CLOCK_DOMAINS 8
+#define PMK_MAX_WRONG_CPUS 64
 
 typedef struct pmk_dvec {
   double *v;
@@ -42,8 +43,16 @@ typedef struct pmk_result {
   const char *size;    /* "burst" or "full" */
   const char *purpose; /* "warmup" for a mode's warm-up, "stress" for a stress-test part, else NULL */
   const char *part;    /* stress test: "one_core", "all_cores" or "memory" */
-  int stopped;         /* stress test: ended by pmk_cancel (a run without a set length), not by its time */
-  uint64_t errors;     /* jobs whose checksum differed from the first job's */
+  const char *isa;     /* the vector instructions a kernel picked at run time (pmk_tk.isa), or NULL */
+  int stopped;         /* stress test: ended before its time (see stop_reason) */
+  const char *stop_reason; /* stress test: "time", "user" (pmk_cancel, a run without a set length), "error", "temperature" */
+  uint64_t errors;     /* jobs whose checksum differed from the known-good one (or, if unknown, the first job's) */
+  uint64_t wrong_tasks; /* stress test: tasks whose checksum differed from their first */
+  double first_wrong_s; /* when the first wrong result came, NaN if none */
+  int first_wrong_cpu;  /* and on which CPU, -1 if not known */
+  int nwrong_cpu;       /* CPUs with wrong tasks, and how many each */
+  int wrong_cpu[PMK_MAX_WRONG_CPUS];
+  uint64_t wrong_cpu_n[PMK_MAX_WRONG_CPUS];
   int nthreads;        /* threads (threaded) or copies (K7 instances); 0 for single-core modes */
   int windowed;        /* samples are throughput per window, not times */
   double window_ms;
@@ -165,6 +174,8 @@ void ctx_shuffle(pmk_rng *r, int *v, int n);
 
 /* Creates a kernel instance; on failure records it as unavailable for the mode and returns NULL. */
 void *wl_create(pmk_ctx *c, const pmk_tk *tk, int size, const char *mode);
+/* The same with pmk_tk_args.bytes (K11: the memory to cover). */
+void *wl_create_bytes(pmk_ctx *c, const pmk_tk *tk, int size, uint64_t bytes, const char *mode);
 /* Runs one job on the calling thread; returns its checksum. */
 uint64_t wl_job(const pmk_tk *tk, const void *inst, void *scratch);
 /* Input size for sustained runs: full, except the compile kernels in quick runs (cfg.quick_inputs). */
@@ -183,6 +194,9 @@ typedef struct sus_spec {
   double measure_s;   /* measured seconds instead of cfg.measure_s, 0 for the default */
   double window_ms;   /* window instead of the kernel's, 0 for the default */
   int open_ended;     /* measure until pmk_cancel (at most measure_s), which ends the series normally */
+  int check_tasks;    /* check every task against its first result and count wrong ones by CPU */
+  int stop_on_error;  /* end the series at the first wrong result */
+  double max_temp_c;  /* end it once the CPU reaches this temperature, 0 for no limit */
 } sus_spec;
 
 /*

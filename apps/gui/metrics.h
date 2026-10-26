@@ -93,11 +93,19 @@ struct RunSummary {
     bool stopped = false; /* a run without a set length, ended by its user */
     Value first, last, holdUp; /* speed in the first and the last minute, and last / first */
     double tempMax = NAN, mhz = NAN, watts = NAN;
+    double bytes = NAN;   /* memory: how much memory it covered */
     int clamped = 0;
-    qint64 errors = 0;    /* jobs whose result differed from the first */
+    qint64 errors = 0;    /* wrong results: jobs and tasks */
+    QString verdict, stopReason; /* "stable", "failed", "too_hot"; "time", "user", "error", "temperature" */
+    double firstErrorS = NAN;
+    int firstErrorCpu = -1;
+    QMap<int, qint64> wrongByCpu;
+    struct Core { int cpu; QString type; Value perf; double mhz; qint64 wrong; };
+    QVector<Core> cores; /* core cycling: each core's speed and checks */
     QVector<double> perf, mhzT, tempT, powerT;
   };
   QMap<QString, Stress> stress;
+  QString vectorIsa;            /* the vector instructions vector maths ran with ("AVX2"), if it ran */
   int clampedSeries = 0;        /* series of the run with platform-clamped windows */
   double clampedMhz = NAN;      /* the lowest clamped clock among them */
 };

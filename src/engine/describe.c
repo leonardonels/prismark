@@ -21,6 +21,7 @@ static const struct {
     {"K6", "Starting a script"},    {"K7", "Memory delay"},
     {"K8", "Matrix maths"} /* older results */, {"K9", "Wake-up test"},
     {"K10", "Timer punctuality"},   {"K11", "Memory bandwidth"},
+    {"K12", "Vector maths"},
     {"st_burst", "one core, short task"},
     {"st_sustained", "one core, after warming up"},
     {"mc_threaded", "all cores, working together"},
