@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 # Builds Prismark for Linux x86-64 and packs a portable folder: unpack and run ./prismark-gui, nothing to
-# install (a live USB session is enough). It holds the desktop app, the runner, the tier modules, Qt and every
-# library they need that a desktop distribution may lack, and the compile tests with everything they need: Clang
-# built into the runner (Compiling code), and for Full software build the prepared snapshot (k1x/) and the build
-# tools (tools/: Clang 19, CMake, Ninja).
+# install (a live USB session is enough). It holds the desktop app, the runner, Qt and every library they need
+# that a desktop distribution may lack, and the compile tests with everything they need: Clang built into the
+# runner (Compiling code), and for Full software build the prepared snapshot (k1x/) and the build tools (tools/:
+# Clang 19, CMake, Ninja).
 #
 #   K1X_SNAPSHOT=DIR tools/package-linux.sh QT [OUT_DIR]
 #
@@ -51,7 +51,7 @@ STAGE=$OUT/$NAME
 rm -rf "$STAGE" "$OUT/$NAME.tar.gz"
 mkdir -p "$STAGE"/lib "$STAGE"/plugins
 
-cp "$BUILD"/prismark "$BUILD"/prismark-gui "$BUILD"/prismark-kernels-*.so "$STAGE"/
+cp "$BUILD"/prismark "$BUILD"/prismark-gui "$STAGE"/
 # Qt's plugins: X11 and Wayland, the SVG icons, and the desktop's file dialogs and theme through the portal.
 for d in platforms/libqxcb.so platforms/libqwayland-egl.so platforms/libqwayland-generic.so \
   wayland-shell-integration wayland-decoration-client wayland-graphics-integration-client xcbglintegrations \

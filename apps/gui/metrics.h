@@ -47,8 +47,7 @@ struct Group {
  *   read     how to read the number (unit, which direction is better)
  *   context  the chart or comparison that explains the result, shown under the ranking:
  *            "wake" (speed from rest by task length), "scaling:<kernel>" (speed-up by threads),
- *            "ratio:R_build" (build-tool overhead by threads), "resp:<kernel>" (speed from rest),
- *            "isa" (which instruction sets were compared), or ""
+ *            "ratio:R_build" (build-tool overhead by threads), "resp:<kernel>" (speed from rest), or ""
  */
 struct Metric {
   QString id, group, name, title, sub, unit, desc, how, read, context;
@@ -121,8 +120,6 @@ bool offeredOn(const QString &kernel, const QString &os);
 
 /* Instruction-set level of a result ("x86-64-v4") as the name people know ("AVX-512"); unknown levels unchanged. */
 QString isaName(const QString &level);
-/* The two instruction sets a run compared, e.g. "SSE4.2 → AVX-512", or "SSE4.2 only" without a newer one. */
-QString isaPair(const QJsonObject &tiers);
 
 /* The glossary shown by "What do these terms mean?", as rich text. */
 QString glossaryHtml();

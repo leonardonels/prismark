@@ -40,7 +40,7 @@ typedef struct pmk_result {
   uint64_t overruns;
   /* throughput kernels */
   const char *size;    /* "burst" or "full" */
-  const char *purpose; /* "isa_uplift" for the ISA-uplift series, else NULL */
+  const char *purpose; /* "warmup" for a mode's warm-up, else NULL */
   int nthreads;        /* threads (threaded) or copies (K7 instances); 0 for single-core modes */
   int windowed;        /* samples are throughput per window, not times */
   double window_ms;
@@ -97,9 +97,7 @@ typedef struct pmk_ctx {
   pmk_rng stat_rng; /* drives bootstrap resampling, so it never perturbs the experiment */
   uint64_t seed;
   pmk_machine m;
-  const pmk_kernels *k;    /* baseline tier */
-  const pmk_kernels *kmax; /* loaded max-level tier, or NULL */
-  char kmax_status[256];   /* why kmax is NULL, or which level was selected */
+  const pmk_kernels *k; /* the kernels, built for the baseline ISA level */
   pmk_result *res;
   size_t nres, capres;
   pmk_calib calib[PMK_MAX_TYPES];

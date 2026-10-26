@@ -15,13 +15,13 @@
 #include "jparse.h"
 #include "prismark/prismark.h"
 
-typedef enum { THROUGHPUT, K1X, MEDIAN, RRESP, K7, PERIODIC, UPLIFT } how;
+typedef enum { THROUGHPUT, K1X, MEDIAN, RRESP, K7, PERIODIC } how;
 
 static const struct metric {
   const char *key, *group, *name, *unit;
   int higher_better;
   how how;
-  const char *kernel, *mode, *arg; /* MEDIAN: start; UPLIFT: variant; K7: "all"; PERIODIC: condition */
+  const char *kernel, *mode, *arg; /* MEDIAN: start; K7: "all"; PERIODIC: condition */
   double k;                        /* MEDIAN: scale; RRESP: W in ms */
 } METRICS[] = {
     {"mc_k2", "All cores", "3D rendering on all cores", "M samples/s", 1, THROUGHPUT, "K2", "mc_threaded", NULL, 0},
@@ -41,11 +41,6 @@ static const struct metric {
     {"m_latn", "Memory & timing", "Memory delay while every core uses memory", "ns", 0, K7, "K7", NULL, "all", 0},
     {"j_idle", "Memory & timing", "Timer punctuality, idle (worst 1 in 1000)", "us", 0, PERIODIC, "K10", NULL, "idle", 0},
     {"j_load", "Memory & timing", "Timer punctuality, other cores busy", "us", 0, PERIODIC, "K10", NULL, "loaded", 0},
-    {"u_k2", "New instructions", "3D rendering: gain", "x", 1, UPLIFT, "K2", NULL, NULL, 0},
-    {"u_k3", "New instructions", "Compression: gain", "x", 1, UPLIFT, "K3", NULL, NULL, 0},
-    {"u_k4", "New instructions", "Opening a photo: gain", "x", 1, UPLIFT, "K4", NULL, NULL, 0},
-    {"u_k8f", "New instructions", "Matrix maths, decimal numbers: gain", "x", 1, UPLIFT, "K8", NULL, "fp32", 0},
-    {"u_k8i", "New instructions", "Matrix maths, small integers: gain", "x", 1, UPLIFT, "K8", NULL, "int8", 0},
 };
 #define NMETRICS (sizeof METRICS / sizeof *METRICS)
 
@@ -148,15 +143,6 @@ static value read_result(const jv *root, const struct metric *m) {
         const jv *r = &pd->items[i];
         const jv *p = jv_get(r, "p999_ns");
         if (is(r, "condition", m->arg) && p && p->t == JV_NUM) return (value){1, p->num / 1e3, NAN, NAN, 0};
-      }
-      return none;
-    }
-    case UPLIFT: {
-      const jv *ra = jv_get(an, "ratios");
-      for (size_t i = 0; i < jv_len(ra); i++) {
-        const jv *r = &ra->items[i];
-        if (is(r, "name", "U_ISA") && is(r, "kernel", m->kernel) && is(r, "variant", m->arg))
-          return ci(jv_get(r, "value"), 1);
       }
       return none;
     }

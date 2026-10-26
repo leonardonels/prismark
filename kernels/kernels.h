@@ -1,12 +1,7 @@
 /*
- * Kernel library interface. Every kernel is compiled once per ISA tier into
- * that tier's library; the core reaches a tier only through its pmk_kernels
- * table, so two tiers can never mix inside one measurement.
- *
- * The baseline tier is linked statically. Max-level tiers are loadable
- * modules built with hidden visibility, each exporting only
- * prismark_kernels_entry(), so their copies of third-party code (zstd, Lua,
- * stb) cannot collide with the baseline copies.
+ * Kernel library interface. Every kernel is compiled once, for the baseline
+ * ISA level (x86-64-v2, armv8.2-a), into one static library that the core
+ * reaches through its pmk_kernels table.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
@@ -72,8 +67,8 @@ typedef struct pmk_tk {
 
 typedef struct pmk_kernels {
   uint32_t abi;      /* PMK_KERNELS_ABI */
-  const char *tier;  /* "baseline" or "max" */
-  const char *level; /* ISA level of the tier, e.g. "x86-64-v3" */
+  const char *tier;  /* "baseline" */
+  const char *level; /* ISA level the kernels are built for, e.g. "x86-64-v2" */
   const char *march; /* compiler ISA flag the tier was built with */
 
   /* K9: calibrated L1 loop, a dependent chain of k9_adds_per_iter integer adds per iteration. */
@@ -84,16 +79,12 @@ typedef struct pmk_kernels {
   void (*k7_build)(pmk_k7_node *nodes, size_t n, uint64_t seed);
   uint64_t (*k7_chase)(const pmk_k7_node *nodes, uint64_t start, uint64_t steps);
 
-  /* Throughput kernels (K1-K6, K8). */
+  /* Throughput kernels (K1-K6). */
   const pmk_tk *const *tk;
   size_t ntk;
 } pmk_kernels;
 
 extern const pmk_kernels pmk_kernels_baseline;
-
-/* Entry point exported by a max-level tier module. */
-typedef const pmk_kernels *(*pmk_kernels_entry_fn)(void);
-#define PMK_KERNELS_ENTRY "prismark_kernels_entry"
 
 /* Looks up a throughput kernel by id and variant (variant NULL matches a kernel without one). */
 static inline const pmk_tk *pmk_find_tk(const pmk_kernels *k, const char *id, const char *variant) {

@@ -79,7 +79,6 @@ void pmk_config_init(pmk_config *cfg) {
   cfg->warmup_s = 60;
   cfg->settle_s = 5;
   cfg->measure_s = 20;
-  cfg->isa_uplift = 1;
   cfg->k1x_reps = 3;
   cfg->cooldown = 0;
 }
@@ -510,35 +509,11 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
   jw_obj_end(w);
 }
 
-/* Selects and loads the highest max-level tier the CPU supports. */
-static void load_max_tier(pmk_ctx *c) {
-#ifdef PMK_MAX_TIERS
-  static const char *const tiers[] = {PMK_MAX_TIERS};
-  static const char *const levels[] = {PMK_MAX_LEVELS};
-  int n = (int)(sizeof tiers / sizeof *tiers);
-  snprintf(c->kmax_status, sizeof c->kmax_status, "the CPU supports no max-level tier beyond %s", c->k->level);
-  for (int i = n - 1; i >= 0; i--) { /* listed lowest to highest */
-    if (!pal_isa_supported(levels[i])) continue;
-    c->kmax = pal_load_tier(tiers[i], c->kmax_status, sizeof c->kmax_status);
-    if (c->kmax) snprintf(c->kmax_status, sizeof c->kmax_status, "%s", c->kmax->level);
-    return;
-  }
-#else
-  snprintf(c->kmax_status, sizeof c->kmax_status, "this build has no max-level tiers");
-#endif
-}
-
 static void tiers_json(pmk_jw *w, const pmk_ctx *c) {
   jw_obj_begin(w, "tiers");
   jw_obj_begin(w, "baseline");
   jw_str(w, "level", c->k->level);
   jw_str(w, "march", c->k->march);
-  jw_obj_end(w);
-  jw_obj_begin(w, "max");
-  jw_bool(w, "loaded", c->kmax != NULL);
-  jw_str(w, "level", c->kmax ? c->kmax->level : NULL);
-  jw_str(w, "march", c->kmax ? c->kmax->march : NULL);
-  jw_str(w, "status", c->kmax_status);
   jw_obj_end(w);
   jw_obj_end(w);
 }
@@ -691,7 +666,6 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   jw_num(&w, "warmup_s", c->cfg.warmup_s);
   jw_num(&w, "settle_s", c->cfg.settle_s);
   jw_num(&w, "measure_s", c->cfg.measure_s);
-  jw_bool(&w, "isa_uplift", c->cfg.isa_uplift);
   jw_int(&w, "max_threads", c->cfg.max_threads);
   jw_str(&w, "kernels", c->cfg.kernels);
   jw_str(&w, "k1_data", c->cfg.k1_data);
@@ -699,7 +673,6 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   jw_bool(&w, "quick", c->cfg.quick_inputs); /* the --quick preset sets both; front-ends read this one */
   jw_obj_end(&w);
   machine_json(&w, &c->m);
-  load_max_tier(c);
   tiers_json(&w, c);
 
   /* Preflight. */
@@ -822,7 +795,6 @@ int pmk_info(char **info_json) {
   jw_bool(&w, "k1_built", pmk_find_tk(c->k, "K1", NULL) != NULL);
   jw_str(&w, "k1_llvm", PMK_K1_LLVM_VERSION[0] ? PMK_K1_LLVM_VERSION : NULL);
   if (ok) {
-    load_max_tier(c);
     tiers_json(&w, c);
     machine_json(&w, &c->m);
     pal_fini(&c->m);

@@ -112,17 +112,6 @@ void pal_lock_broadcast(pal_lock *l);
 void *pal_aligned_alloc(size_t align, size_t n);
 void pal_aligned_free(void *p);
 
-/* ---------- ISA tiers ---------- */
-
-/* True when the CPU and OS can run code built for an ISA level such as "x86-64-v3". */
-int pal_isa_supported(const char *level);
-/*
- * Loads the max-level tier module prismark-kernels-<tier> from the directory
- * of the core library (or $PRISMARK_KERNEL_DIR). NULL with a reason in err.
- * Modules stay loaded until the process exits.
- */
-const pmk_kernels *pal_load_tier(const char *tier, char *err, size_t errlen);
-
 /* ---------- processes and files (K1x) ---------- */
 
 /*

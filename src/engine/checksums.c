@@ -1,4 +1,4 @@
-/* Kernel output checksums for cross-ISA verification. Copyright 2026 The Prismark Authors. Apache-2.0. */
+/* Kernel output checksums, for the verification that every host does identical work. Copyright 2026 The Prismark Authors. Apache-2.0. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -68,26 +68,13 @@ int pmk_checksums(const char *k1_data, char **report_json, char **report_text) {
 int pmk_checksums_ex(const char *k1_data, const char *kernels, int burst_only, char **report_json, char **report_text) {
   pmk_jw w = {0};
   pmk_buf t = {0};
-  const pmk_kernels *kmax = NULL;
-  char status[400] = "this build has no max-level tiers";
-#ifdef PMK_MAX_TIERS
-  static const char *const tiers[] = {PMK_MAX_TIERS};
-  static const char *const levels[] = {PMK_MAX_LEVELS};
-  snprintf(status, sizeof status, "the CPU supports no max-level tier");
-  for (int i = (int)(sizeof tiers / sizeof *tiers) - 1; i >= 0 && !kmax; i--)
-    if (pal_isa_supported(levels[i]) && !(kmax = pal_load_tier(tiers[i], status, sizeof status))) break;
-  if (kmax) snprintf(status, sizeof status, "%s", kmax->level);
-#endif
   jw_obj_begin(&w, NULL);
   jw_str(&w, "schema", "prismark-checksums/1");
   jw_str(&w, "version", pmk_version());
   jw_str(&w, "baseline_level", pmk_kernels_baseline.level);
-  jw_str(&w, "max_tier", status);
   jw_arr_begin(&w, "kernels");
-  buf_printf(&t, "Prismark %s kernel checksums (baseline %s; max tier: %s)\n", pmk_version(), pmk_kernels_baseline.level,
-             status);
+  buf_printf(&t, "Prismark %s kernel checksums (%s)\n", pmk_version(), pmk_kernels_baseline.level);
   tier_checksums(&pmk_kernels_baseline, k1_data, kernels, burst_only, &w, &t);
-  if (kmax) tier_checksums(kmax, k1_data, kernels, burst_only, &w, &t);
   jw_arr_end(&w);
   jw_obj_end(&w);
   if (report_json) *report_json = buf_take(&w.b);

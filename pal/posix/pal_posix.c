@@ -5,7 +5,6 @@
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
 #define _GNU_SOURCE
-#include <dlfcn.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <pthread.h>
@@ -72,58 +71,6 @@ void *pal_aligned_alloc(size_t align, size_t n) {
 }
 
 void pal_aligned_free(void *p) { free(p); }
-
-/* ---------- tier modules ---------- */
-
-/* CMake names MODULE libraries *.so on Linux, Android and macOS alike; APKs only package lib*.so. */
-#define MODULE_SUFFIX ".so"
-#if defined(__ANDROID__)
-#define MODULE_PREFIX "lib"
-#else
-#define MODULE_PREFIX ""
-#endif
-
-/* Directory holding the core: the executable, or the shared library the core is linked into. */
-static void core_dir(char *out, size_t n) {
-  const char *env = getenv("PRISMARK_KERNEL_DIR");
-  if (env && *env) {
-    snprintf(out, n, "%s", env);
-    return;
-  }
-  Dl_info info;
-  out[0] = 0;
-  if (dladdr((void *)core_dir, &info) && info.dli_fname && strchr(info.dli_fname, '/')) {
-    snprintf(out, n, "%s", info.dli_fname);
-  } else {
-#if defined(__linux__)
-    ssize_t len = readlink("/proc/self/exe", out, n - 1);
-    out[len > 0 ? len : 0] = 0;
-#endif
-  }
-  char *slash = strrchr(out, '/');
-  if (slash) *slash = 0;
-  else snprintf(out, n, ".");
-}
-
-const pmk_kernels *pal_load_tier(const char *tier, char *err, size_t errlen) {
-  char dir[1024], path[1200];
-  core_dir(dir, sizeof dir);
-  snprintf(path, sizeof path, "%s/" MODULE_PREFIX "prismark-kernels-%s" MODULE_SUFFIX, dir, tier);
-  void *h = dlopen(path, RTLD_NOW | RTLD_LOCAL);
-  if (!h) {
-    const char *e = dlerror();
-    snprintf(err, errlen, "cannot load %s: %s", path, e ? e : "unknown error");
-    return NULL;
-  }
-  pmk_kernels_entry_fn entry = (pmk_kernels_entry_fn)dlsym(h, PMK_KERNELS_ENTRY);
-  const pmk_kernels *k = entry ? entry() : NULL;
-  if (!k || k->abi != PMK_KERNELS_ABI) {
-    snprintf(err, errlen, "%s: %s", path, k ? "kernel ABI mismatch" : "no entry point");
-    dlclose(h);
-    return NULL;
-  }
-  return k;
-}
 
 /* ---------- processes ---------- */
 

@@ -1,7 +1,7 @@
 /*
  * Statistics for the throughput modes: per-series medians with bootstrap
  * CIs, steady-state throughput and R_throttle, scaling S(n), E(n), p(n), and
- * the same-kernel ratios R_build, U_ISA and R_resp of the realistic
+ * the same-kernel ratios R_build and R_resp of the realistic
  * cold bursts. Each ratio pairs series of one kernel only.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
@@ -33,7 +33,7 @@ typedef struct scale_row {
 } scale_row;
 
 typedef struct ratio_row {
-  const char *name; /* "R_build", "U_ISA", "R_resp" */
+  const char *name; /* "R_build", "R_resp" */
   const char *kernel, *variant;
   int n;            /* threads, or 0 */
   const char *core_type;
@@ -259,15 +259,6 @@ void analysis_tp_compute(pmk_ctx *c) {
         free(t);
       }
     }
-    /* U_ISA = perf_max / perf_baseline under ST sustained conditions. */
-    if (r->purpose && !strcmp(r->purpose, "isa_uplift") && !strcmp(r->k->tier, "max")) {
-      const pmk_result *base = find(c, r->kernel, "st_sustained", "baseline", -1, "isa_uplift", r->variant);
-      if (base) {
-        size_t nm, nb;
-        const double *m = steady_set(r, &nm), *b = steady_set(base, &nb);
-        add_ratio(a, "U_ISA", r, 0, core, pmk_boot_median_ratio(m, nm, b, nb, PMK_BOOT_B, rng));
-      }
-    }
     /* R_resp of the realistic cold bursts: t_warm / t_cold. */
     if (!strcmp(r->mode, "cold_burst") && strcmp(r->kernel, "K9") && !r->warm) {
       for (size_t j = 0; j < c->nres; j++) {
@@ -419,7 +410,7 @@ static const char *fmt_time(char *out, size_t n, double ns) {
   return out;
 }
 
-/* The app's name for the kernel and its variant, e.g. "Matrix maths fp32". */
+/* The app's name for the kernel and its variant, e.g. "3D rendering". */
 static const char *label(char *out, size_t n, const pmk_result *r) {
   snprintf(out, n, "%s%s%s", pmk_display_name(r->kernel), r->variant ? " " : "", r->variant ? r->variant : "");
   return out;
@@ -472,7 +463,8 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
                  r->nthreads ? r->nthreads : 1, perf, thr, r->steady ? "yes" : "no");
       if (isfinite(r->tau_s)) buf_printf(b, " (tau %.0f s, %.0f s run)", r->tau_s, r->elapsed_s);
       else buf_printf(b, " (%.0f s run)", r->elapsed_s);
-      buf_printf(b, "%s\n", r->purpose ? "  [ISA uplift]" : "");
+      if (r->purpose) buf_printf(b, "  [%s]", r->purpose);
+      buf_printf(b, "\n");
     }
   }
 

@@ -224,7 +224,7 @@ typedef struct pitem {
   double *reps;
 } pitem;
 
-/* Finds the series a profile item names in run R: baseline tier, fastest core type, no ISA-uplift purpose. */
+/* Finds the series a profile item names in run R: baseline tier, fastest core type, no purpose (warm-up). */
 static const series *find_item(const run *R, const jv *item) {
   const char *kernel = str_or(item, "kernel", ""), *mode = str_or(item, "mode", "");
   const char *start = str_or(item, "start", NULL), *tier = str_or(item, "tier", "baseline");

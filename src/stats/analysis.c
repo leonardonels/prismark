@@ -216,8 +216,8 @@ char *analysis_text(pmk_ctx *c, const char *run_id, const char *note) {
   pmk_buf b = {0};
   char x[32], y[32], z[32], u[32];
   buf_printf(&b, "Prismark %s  run %s\n", pmk_version(), run_id);
-  buf_printf(&b, "%s, %d CPUs, %s, %s %s, tiers: baseline %s, max %s\n", c->m.model, c->m.ncpu, c->m.isa, c->m.os,
-             c->m.kernel, c->k->level, c->kmax ? c->kmax->level : c->kmax_status);
+  buf_printf(&b, "%s, %d CPUs, %s, %s %s, built for %s\n", c->m.model, c->m.ncpu, c->m.isa, c->m.os, c->m.kernel,
+             c->k->level);
   buf_printf(&b, "capabilities: pinning %s, perf counters %s, power %s%s%s\n", c->m.caps.pinning ? "yes" : "no",
              c->m.caps.perf_counters ? "yes" : "no", c->m.caps.power[0] ? c->m.caps.power : "none",
              !c->m.caps.power[0] && c->m.caps.power_note[0] ? " " : "",

@@ -711,7 +711,6 @@ void MainWindow::refreshRanking() {
     row.yours = !r.reference;
     row.name = r.reference ? r.name : tr("This PC · %1").arg(r.name);
     row.detail = r.reference ? QString("%1 · %2").arg(r.machine["os"].toString(), r.machine["isa"].toString()) : r.date;
-    if (m->group == "isa" && !isaPair(r.tiers).isEmpty()) row.detail = isaPair(r.tiers) + " · " + row.detail;
     if (r.placeholder) row.tags << "placeholder";
     if (r.reference && !r.placeholder) row.tags << "reference";
     if (&r == latest && allRuns_->isChecked()) row.tags << "latest";
@@ -885,17 +884,6 @@ void MainWindow::refreshContext() {
                                              tr("%1 s").arg(formatValue(build)), 0},
                                             {tr("Compiling the same files in memory"), compile,
                                              tr("%1 s").arg(formatValue(compile)), 2}}));
-  } else if (kind == "isa") {
-    QString pair = isaPair(r->tiers);
-    if (pair.isEmpty()) return;
-    QString base = r->tiers["baseline"].toObject()["level"].toString(),
-            max = r->tiers["max"].toObject()["level"].toString();
-    show(tr("Instruction sets compared"),
-         max.isEmpty() ? tr("For %1: this processor has nothing newer than %2 (%3), so there was no gain to measure.")
-                             .arg(esc(who), esc(isaName(base)), esc(base))
-                       : tr("For %1: <b>%2</b> (%3), the common baseline, against <b>%4</b> (%5), the newest this "
-                            "processor supports. Every row of the ranking shows the pair its computer compared.")
-                             .arg(esc(who), esc(isaName(base)), esc(base), esc(isaName(max)), esc(max)));
   } else if (kind == "resp") {
     for (const auto &x : r->ratios)
       if (x.name == "R_resp" && x.kernel == arg) {
@@ -971,7 +959,6 @@ void MainWindow::refreshDetails() {
       for (const Group &gr : groups())
         if (gr.id == mt.group) {
           QString label = QString(gr.label).replace("&&", "&");
-          if (gr.id == "isa" && !isaPair(r->tiers).isEmpty()) label += " · " + isaPair(r->tiers);
           QLabel *h = text(esc(label), 8.5, QFont::DemiBold, t.faint);
           h->setContentsMargins(0, row ? 6 : 0, 0, 0);
           tg->addWidget(h, row++, 0, 1, 2);
@@ -1137,12 +1124,8 @@ void MainWindow::refreshDetails() {
     kv(tgl, trow, tr("Board"), m["board"].toString());
     if (cpu["llc_bytes"].toDouble() > 0)
       kv(tgl, trow, tr("Largest cache"), QStringLiteral("%1 MiB").arg(cpu["llc_bytes"].toDouble() / (1 << 20)));
-    QJsonObject max = r->tiers["max"].toObject();
-    kv(tgl, trow, tr("Instruction sets"),
-       tr("%1 (%2) → %3").arg(isaName(r->tiers["baseline"].toObject()["level"].toString()),
-                              r->tiers["baseline"].toObject()["level"].toString(),
-                              max["level"].toString().isEmpty() ? tr("none newer")
-                                                                : QStringLiteral("%1 (%2)").arg(isaName(max["level"].toString()), max["level"].toString())));
+    QString level = r->tiers["baseline"].toObject()["level"].toString();
+    if (!level.isEmpty()) kv(tgl, trow, tr("Built for"), QStringLiteral("%1 (%2)").arg(isaName(level), level));
     if (!r->harness.isEmpty())
       kv(tgl, trow, tr("Prismark"), tr("%1, built with %2").arg(r->harness["version"].toString(), r->harness["compiler"].toString()));
     if (!r->frontend.isEmpty()) {
@@ -1283,11 +1266,7 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
   bool all = !m;
   QStringList args = {"--progress-json", "--cancel-on-stdin", "--frontend", "gui"};
   if (m) {
-    if (m->group == "isa") args << "--mode" << "st_sustained" << "--kernels" << "K2,K3,K4,K8";
-    else {
-      args << "--mode" << m->modes.join(",") << "--kernels" << m->kernels;
-      if (m->modes.contains("st_sustained")) args << "--no-isa-uplift";
-    }
+    args << "--mode" << m->modes.join(",") << "--kernels" << m->kernels;
   }
   if (all && !advanced_) { /* Simple: run what the Simple view shows */
     QStringList modes, kernels;
@@ -1298,7 +1277,6 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
         if (!kernels.contains(x.kernels)) kernels << x.kernels;
       }
     args << "--mode" << modes.join(",") << "--kernels" << kernels.join(",");
-    if (!visibleGroups().contains("isa")) args << "--no-isa-uplift"; /* no New instructions test to fill */
   }
   if (quick) args << "--quick";
   /* Compile tests need a snapshot: ask when this run includes one. */

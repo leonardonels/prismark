@@ -10,8 +10,6 @@ extern const pmk_tk PMK_SYM(pmk_k3_tk);
 extern const pmk_tk PMK_SYM(pmk_k4_tk);
 extern const pmk_tk PMK_SYM(pmk_k5_tk);
 extern const pmk_tk PMK_SYM(pmk_k6_tk);
-extern const pmk_tk PMK_SYM(pmk_k8_fp32_tk);
-extern const pmk_tk PMK_SYM(pmk_k8_int8_tk);
 #ifdef PMK_HAVE_K1
 extern const pmk_tk PMK_SYM(pmk_k1_tk);
 #endif
@@ -23,9 +21,7 @@ static const pmk_tk *const PMK_SYM(tk_list)[] = {
 #ifdef PMK_HAVE_K1
     &PMK_SYM(pmk_k1_tk),
 #endif
-    &PMK_SYM(pmk_k2_tk),      &PMK_SYM(pmk_k3_tk),      &PMK_SYM(pmk_k4_tk),
-    &PMK_SYM(pmk_k5_tk),      &PMK_SYM(pmk_k6_tk),      &PMK_SYM(pmk_k8_fp32_tk),
-    &PMK_SYM(pmk_k8_int8_tk),
+    &PMK_SYM(pmk_k2_tk), &PMK_SYM(pmk_k3_tk), &PMK_SYM(pmk_k4_tk), &PMK_SYM(pmk_k5_tk), &PMK_SYM(pmk_k6_tk),
 };
 
 const pmk_kernels PMK_SYM(pmk_kernels) = {
@@ -40,13 +36,3 @@ const pmk_kernels PMK_SYM(pmk_kernels) = {
     .tk = PMK_SYM(tk_list),
     .ntk = sizeof PMK_SYM(tk_list) / sizeof *PMK_SYM(tk_list),
 };
-
-#ifdef PMK_TIER_MODULE
-#if defined(_WIN32)
-#define PMK_EXPORT __declspec(dllexport)
-#else
-#define PMK_EXPORT __attribute__((visibility("default")))
-#endif
-PMK_EXPORT const pmk_kernels *prismark_kernels_entry(void);
-PMK_EXPORT const pmk_kernels *prismark_kernels_entry(void) { return &PMK_SYM(pmk_kernels); }
-#endif

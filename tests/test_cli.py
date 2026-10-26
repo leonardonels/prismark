@@ -118,8 +118,8 @@ class Cli(unittest.TestCase):
         self.assertIn("nothing to measure", err)
         _, err = self.run_cli("run", "--tests", "json", "--mode", "timer", code=2)
         self.assertIn("nothing to measure", err)
-        _, err = self.run_cli("run", "--tests", "matrix", "--mode", "warmed-up", "--no-isa-uplift", code=2)
-        self.assertIn("only for the new-instruction gain", err)
+        _, err = self.run_cli("run", "--no-isa-uplift", code=2)
+        self.assertIn("--no-isa-uplift", err)
 
     # ---------- results folder ----------
 

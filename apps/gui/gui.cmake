@@ -68,12 +68,11 @@ if(PRISMARK_DESKTOP AND NOT PRISMARK_GUI STREQUAL "OFF")
       target_compile_definitions(prismark-gui PRIVATE PMK_HAVE_DBUS)
     endif()
     install(PROGRAMS tools/k1x/prepare.py DESTINATION share/prismark)
-    add_dependencies(prismark-gui prismark_cli ${PRISMARK_MODULE_TARGETS})
+    add_dependencies(prismark-gui prismark_cli)
     if(APPLE)
-      # The app looks for the runner (and the runner for its tier modules) in its own directory.
+      # The app looks for the runner in its own directory.
       add_custom_command(TARGET prismark-gui POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:prismark_cli> $<TARGET_FILE_DIR:prismark-gui>/
-        COMMAND ${CMAKE_COMMAND} -E copy ${PRISMARK_MODULE_FILES} $<TARGET_FILE_DIR:prismark-gui>/
         COMMAND_EXPAND_LISTS)
     endif()
     install(TARGETS prismark-gui RUNTIME DESTINATION bin BUNDLE DESTINATION .)

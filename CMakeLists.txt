@@ -66,7 +66,6 @@ prismark_add_kernel(k4_image SOURCES kernels/k4_image/k4.c INCLUDE ${PRISMARK_ST
 prismark_add_kernel(k5_json SOURCES kernels/k5_json/k5.c)
 prismark_add_kernel(k6_lua SOURCES kernels/k6_lua/k6.c kernels/k6_lua/lua_one.c
   INCLUDE ${PRISMARK_LUA_INCLUDE} DEFINES ${PRISMARK_LUA_DEFINES})
-prismark_add_kernel(k8_matmul SOURCES kernels/k8_matmul/k8.c)
 include(cmake/k1.cmake)
 prismark_kernel_tables()
 if(PRISMARK_HAVE_K1)
@@ -99,13 +98,7 @@ else()
 endif()
 
 # ---- core library: engine, analysis, PAL ----
-# Built at the baseline ISA, so the harness itself never needs more than the lowest tier.
-string(REPLACE ";" "\",\"" _tiers_c "${PRISMARK_MAX_TIER_LIST}")
-set(_levels "")
-foreach(t IN LISTS PRISMARK_MAX_TIER_LIST)
-  list(APPEND _levels "${PRISMARK_TIER_${t}_LEVEL}")
-endforeach()
-string(REPLACE ";" "\",\"" _levels_c "${_levels}")
+# Built at the baseline ISA, as the kernels are.
 
 add_library(prismark
   src/engine/runner.c
@@ -120,7 +113,6 @@ add_library(prismark
   src/stats/analysis_tp.c
   src/stats/compare.c
   src/stats/headline.c
-  pal/common/isa.c
   ${PRISMARK_PAL_SOURCES})
 string(REPLACE "\\" "\\\\" _sources_esc "${PRISMARK_SOURCES_JSON}")
 string(REPLACE "\"" "\\\"" _sources_esc "${_sources_esc}")
@@ -130,14 +122,8 @@ target_include_directories(prismark PUBLIC include PRIVATE src/engine pal ${CMAK
 target_compile_options(prismark PRIVATE -march=${PRISMARK_TIER_baseline_MARCH} -mtune=generic)
 target_compile_definitions(prismark PRIVATE
   PMK_VERSION="${PROJECT_VERSION}" PMK_GIT_SHA="${PRISMARK_GIT_SHA}")
-if(PRISMARK_MAX_TIER_LIST)
-  target_compile_definitions(prismark PRIVATE "PMK_MAX_TIERS=\"${_tiers_c}\"" "PMK_MAX_LEVELS=\"${_levels_c}\"")
-endif()
 target_link_libraries(prismark PRIVATE pmk_kernels_baseline pmk_stats pmk_result ${PRISMARK_PAL_LIBS}
   Threads::Threads)
-if(PRISMARK_MODULE_TARGETS)
-  add_dependencies(prismark ${PRISMARK_MODULE_TARGETS})
-endif()
 
 # ---- applications ----
 if(IOS)
@@ -166,13 +152,6 @@ install(TARGETS prismark_cli)
 file(GLOB _cli_references ${PROJECT_SOURCE_DIR}/references/*.json)
 install(FILES ${_cli_references} DESTINATION share/prismark/references)
 target_compile_definitions(prismark_cli PRIVATE PRISMARK_REFERENCES_DIR="${PROJECT_SOURCE_DIR}/references")
-if(PRISMARK_MODULE_TARGETS)
-  install(TARGETS ${PRISMARK_MODULE_TARGETS} LIBRARY DESTINATION bin)
-endif()
-set(PRISMARK_MODULE_FILES "")
-foreach(t IN LISTS PRISMARK_MODULE_TARGETS)
-  list(APPEND PRISMARK_MODULE_FILES $<TARGET_FILE:${t}>)
-endforeach()
 
 include(apps/gui/gui.cmake)
 

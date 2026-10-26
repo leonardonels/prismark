@@ -19,7 +19,7 @@ static const struct {
     {"K2", "3D rendering"},         {"K3", "Compression"},
     {"K4", "Opening a photo"},      {"K5", "Reading JSON"},
     {"K6", "Starting a script"},    {"K7", "Memory delay"},
-    {"K8", "Matrix maths"},         {"K9", "Wake-up test"},
+    {"K8", "Matrix maths"} /* older results */, {"K9", "Wake-up test"},
     {"K10", "Timer punctuality"},   {"st_burst", "one core, short task"},
     {"st_sustained", "one core, after warming up"},
     {"mc_threaded", "all cores, working together"},

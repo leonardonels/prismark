@@ -209,7 +209,7 @@ static void test_zstd_roundtrip(void) {
 /* Every throughput kernel: burst inputs create, two jobs agree, and a fresh instance reproduces both hashes. */
 static void test_throughput_kernels(void) {
   const pmk_kernels *k = &pmk_kernels_baseline;
-  CHECK(k->ntk >= 7);
+  CHECK(k->ntk >= 5); /* K2-K6; K1 when built in */
   for (size_t i = 0; i < k->ntk; i++) {
     const pmk_tk *tk = k->tk[i];
     if (!strcmp(tk->id, "K1")) continue; /* needs a snapshot */

@@ -34,7 +34,6 @@ const GROUPS = [
   { id: 'st', label: 'Single core' },
   { id: 'resp', label: 'Responsiveness' },
   { id: 'mem', label: 'Memory & jitter' },
-  { id: 'isa', label: 'ISA uplift' },
 ];
 
 const series = (d) => d?.analysis?.series ?? [];
@@ -61,13 +60,6 @@ function coldTime(kernel) {
   return (d) => {
     const r = series(d).find((x) => x.kernel === kernel && x.mode === 'cold_burst' && x.start === 'cold' && fast(x));
     return r ? ci(r.median, 1e-6) : null;
-  };
-}
-
-function uplift(kernel, variant) {
-  return (d) => {
-    const r = (d?.analysis?.ratios ?? []).find((x) => x.name === 'U_ISA' && x.kernel === kernel && (x.variant ?? null) === variant);
-    return r ? ci(r.value) : null;
   };
 }
 
@@ -139,12 +131,6 @@ const METRICS = [
   { id: 'j_load', group: 'mem', name: 'Wake-up lateness, loaded', sub: 'K10 periodic · p99.9 with K7 load', unit: 'µs', better: 'lower',
     desc: 'The same tail with K7 loading every other CPU.', get: periodic('loaded') },
 
-  { id: 'u_k2', group: 'isa', name: 'K2 render', sub: 'U_ISA = perf_max / perf_baseline', unit: '×', better: 'higher',
-    desc: 'Same source, baseline ISA against the highest supported level.', get: uplift('K2', null) },
-  { id: 'u_k3', group: 'isa', name: 'K3 compression', sub: 'U_ISA', unit: '×', better: 'higher', desc: 'ISA uplift of zstd.', get: uplift('K3', null) },
-  { id: 'u_k4', group: 'isa', name: 'K4 image', sub: 'U_ISA', unit: '×', better: 'higher', desc: 'ISA uplift of decode and resize.', get: uplift('K4', null) },
-  { id: 'u_k8f', group: 'isa', name: 'K8 matmul FP32', sub: 'U_ISA', unit: '×', better: 'higher', desc: 'ISA uplift of FP32 matrix multiply.', get: uplift('K8', 'fp32') },
-  { id: 'u_k8i', group: 'isa', name: 'K8 matmul INT8', sub: 'U_ISA', unit: '×', better: 'higher', desc: 'ISA uplift of INT8 matrix multiply.', get: uplift('K8', 'int8') },
 ];
 
 /* ---------- summaries ---------- */
@@ -367,7 +353,7 @@ function renderDetails() {
       xlabel: 'threads n', ylabel: 'S(n) = T1 / Tn (dashed: ideal)', ymin: 0, ideal: true,
     });
   }
-  const ratios = (r.ratios ?? []).filter((x) => x.name !== 'U_ISA').map((x) =>
+  const ratios = (r.ratios ?? []).map((x) =>
     `<tr><td>${esc(x.name)} ${esc(x.kernel)}${x.variant ? ' ' + esc(x.variant) : ''}${x.n ? ` n=${x.n}` : ''}</td>
      <td class="num">${num(x.value.est)} <span class="muted">[${num(x.value.lo)}, ${num(x.value.hi)}]</span></td></tr>`).join('');
   const unavailable = (r.unavailable ?? []).map((u) => `<li>${esc(u.kernel)}${u.variant ? ' ' + esc(u.variant) : ''} · ${esc(u.mode)}: <span class="muted">${esc(u.reason)}</span></li>`).join('');
@@ -382,7 +368,7 @@ function renderDetails() {
       <dt>OS</dt><dd>${esc(m.os ?? '')} ${esc(m.kernel ?? '')}</dd>
       ${m.board ? `<dt>Board</dt><dd>${esc(m.board)}</dd>` : ''}
       ${m.llc_bytes ? `<dt>LLC</dt><dd>${bytes(m.llc_bytes)}</dd>` : ''}
-      <dt>Tiers</dt><dd>${esc(r.tiers?.baseline?.level ?? 'baseline')}; max ${esc(r.tiers?.max?.level ?? r.tiers?.max?.status ?? '–')}</dd>
+      <dt>Built for</dt><dd>${esc(r.tiers?.baseline?.level ?? '–')}</dd>
       ${r.state?.governor ? `<dt>Governor</dt><dd>${esc(r.state.governor)}</dd>` : ''}
       ${r.state?.power_mode ? `<dt>Power mode</dt><dd>${esc(r.state.power_mode)}</dd>` : ''}
       ${r.harness ? `<dt>Harness</dt><dd class="mono small">${esc(r.harness.version)} · ${esc(r.harness.compiler)} · ${esc(r.harness.git)}</dd>` : ''}

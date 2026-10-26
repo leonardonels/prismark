@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Cross-builds Prismark for Windows x86-64 on Linux and zips a portable folder: unzip and run prismark-gui.exe,
-# nothing to install. It holds the desktop app, the runner, the tier modules, Qt and the C++ runtime, and the
+# nothing to install. It holds the desktop app, the runner, Qt and the C++ runtime, and the
 # compile tests with everything they need: Clang built into the runner (Compiling code), and for Full software
 # build the prepared snapshot (k1x\) and the build tools (tools\: Clang 19, CMake, Ninja).
 #
@@ -53,7 +53,7 @@ STAGE=$OUT/$NAME
 rm -rf "$STAGE" "$OUT/$NAME.zip"
 mkdir -p "$STAGE"/{platforms,styles,imageformats,iconengines}
 
-cp "$BUILD"/prismark.exe "$BUILD"/prismark-gui.exe "$BUILD"/prismark-kernels-*.dll "$STAGE"/
+cp "$BUILD"/prismark.exe "$BUILD"/prismark-gui.exe "$STAGE"/
 for m in Core Gui Widgets Svg; do cp "$QT_WIN/bin/Qt6$m.dll" "$STAGE"/; done
 cp "$QT_WIN"/plugins/platforms/qwindows.dll "$STAGE"/platforms/
 cp "$QT_WIN"/plugins/styles/qmodernwindowsstyle.dll "$STAGE"/styles/ 2>/dev/null || true

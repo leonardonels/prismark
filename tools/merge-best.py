@@ -7,7 +7,7 @@ Copyright 2026 The Prismark Authors. Apache-2.0.
 
 A test is chosen as a whole (its series, raw results and derived rows come from one run):
   - throughput series: highest steady perf; time series: lowest median
-  - ISA-uplift pair (baseline + max): highest gain
+  - ISA-uplift pair (baseline + max), in results before ISA uplift was removed: highest gain
   - realistic from-rest pair (warm + cold): lowest cold median
   - K9 wake-up test per core type: highest mean R_resp (with its calibration)
   - K10 timer per condition: lowest p99.9

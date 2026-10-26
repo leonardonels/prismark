@@ -17,7 +17,7 @@
 extern "C" {
 #endif
 
-#define PMK_ABI_VERSION 7
+#define PMK_ABI_VERSION 8
 
 /* Return codes. */
 enum {
@@ -61,7 +61,7 @@ typedef struct pmk_config {
   double window_ms;          /* perf(t) window for sustained runs (default 1000) */
   double sustained_min_s;    /* unused since ABI 5 (was: the steady-state search's minimum); see measure_s */
   double sustained_max_s;    /* unused since ABI 5 (was: the steady-state search's limit); see warmup_s */
-  int32_t isa_uplift;        /* also run K2, K3, K4, K8 at the max-level tier (default 1) */
+  int32_t reserved1;         /* was `isa_uplift` up to ABI 7; ignored. Every kernel is built for one ISA level */
   int32_t max_threads;       /* cap for n in the multi-core modes; 0 = all CPUs */
   const char *kernels;       /* comma-separated kernel filter, e.g. "K2,K3"; NULL = all */
   const char *k1_data;       /* prepared K1/K1x snapshot directory; NULL: K1 and K1x unavailable */
@@ -139,10 +139,10 @@ int pmk_compare_headline(const char *a_json, const char *b_json, char **report_t
 char *pmk_default_profiles(void);
 
 /*
- * Runs one job of every throughput kernel at both input sizes, at the
- * baseline tier and at the loaded max-level tier, and reports input hashes
- * and output checksums. No timing: this is the cross-ISA verification that
- * every build performs identical work (gate 2), cheap enough for CI.
+ * Runs one job of every throughput kernel at both input sizes and reports
+ * input hashes and output checksums. No timing: this is the cross-ISA
+ * verification that every build performs identical work (gate 2), cheap
+ * enough for CI.
  * k1_data may be NULL (K1 is then listed as unavailable).
  */
 int pmk_checksums(const char *k1_data, char **report_json, char **report_text);
@@ -151,7 +151,7 @@ int pmk_checksums_ex(const char *k1_data, const char *kernels, int burst_only, c
 
 /*
  * What this build can run on this machine, as JSON: version, whether K1 is
- * built in, the ISA tiers (built and selectable), the platform capabilities
+ * built in, the ISA level it is built for, the platform capabilities
  * of the calling process.
  * Cheap (no measurement); front-ends call it before offering tests.
  */

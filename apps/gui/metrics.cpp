@@ -78,17 +78,6 @@ std::function<std::optional<Value>(const QJsonObject &)> medianOf(QString kernel
   };
 }
 
-std::function<std::optional<Value>(const QJsonObject &)> uplift(QString kernel, QString variant) {
-  return [=](const QJsonObject &d) -> std::optional<Value> {
-    for (const QJsonValue &v : d["analysis"].toObject()["ratios"].toArray()) {
-      QJsonObject r = v.toObject();
-      if (r["name"].toString() == "U_ISA" && r["kernel"].toString() == kernel && r["variant"].toString() == variant)
-        return ci(r["value"]);
-    }
-    return std::nullopt;
-  };
-}
-
 std::function<std::optional<Value>(const QJsonObject &)> k7(bool all) {
   return [=](const QJsonObject &d) -> std::optional<Value> {
     auto rows = filter(series(d), [](const QJsonObject &r) { return r["kernel"].toString() == "K7"; });
@@ -145,26 +134,15 @@ const QVector<Group> &groups() {
       {"mem", "Memory && timing",
        "How long the CPU waits for main memory, and how punctually it wakes up for tasks that run on a fixed "
        "schedule (audio, games, control loops)."},
-      {"isa", "New instructions",
-       "The same code built twice: once for the instructions every processor of its kind has (SSE4.2 on Intel and "
-       "AMD, NEON on Arm), once for the newest this processor supports (AVX2 or AVX-512; dot product or SVE2 on "
-       "Arm). Shows how much the newer instructions help."},
   };
   return g;
 }
 
 const QVector<Metric> &metrics() {
-  static const QStringList uplift_modes = {"st_sustained"};
   static const QString kSettle =
       "In a full run the processor first works at full load for a minute, so it is as hot (and, if it throttles, as "
       "slow) as long use makes it; then the test is measured for 20 seconds (compiling: 60). Every computer gets "
       "exactly the same warm-up and measurement. Quick runs skip the warm-up and measure a few seconds.";
-  static const QString kUplift =
-      "The same code is built twice: once for the common baseline (SSE4.2 on Intel and AMD, NEON on Arm) and once "
-      "for the newest instructions this processor supports (AVX2 or AVX-512 on Intel and AMD; dot product or SVE2 "
-      "on Arm). Newer sets mostly process more numbers per step: AVX-512 handles four times as many as SSE4.2. Each "
-      "version is measured on one core after the warm-up.";
-  static const QString kUpliftRead = "Higher is better. 1.00× means no gain; 1.50× means 50 % faster.";
   static const QString kBurstHow =
       "The task is repeated on a core that is already running, until its time is known to within about 1 %.";
   static const QString kRestHow =
@@ -283,28 +261,6 @@ const QVector<Metric> &metrics() {
        "As on an idle computer, with every other core running a memory-heavy task.",
        "Lower is better, in microseconds. Compare with “Timer punctuality on an idle computer”.", "", false,
        {"periodic"}, "K10", periodic("loaded")},
-      /* New instructions */
-      {"u_k2", "isa", "3D rendering", "3D rendering: gain from the newest instructions", "Gain from newest instructions",
-       "×", "How much faster the renderer runs when built for the newest instructions this processor supports.",
-       kUplift, kUpliftRead, "isa", true, uplift_modes, "K2", uplift("K2", "")},
-      {"u_k3", "isa", "Compression", "Compression: gain from the newest instructions", "Gain from newest instructions",
-       "×", "How much faster compressing a file gets when built for the newest instructions this processor supports.",
-       kUplift, kUpliftRead, "isa", true, uplift_modes, "K3", uplift("K3", "")},
-      {"u_k4", "isa", "Opening a photo", "Opening a photo: gain from the newest instructions",
-       "Gain from newest instructions", "×",
-       "How much faster opening and resizing a photo gets when built for the newest instructions this processor "
-       "supports.",
-       kUplift, kUpliftRead, "isa", true, uplift_modes, "K4", uplift("K4", "")},
-      {"u_k8f", "isa", "Maths, decimal", "Matrix maths with decimal numbers: gain from the newest instructions",
-       "Decimal numbers, as in graphics", "×",
-       "Multiplying large tables of decimal numbers is the core of graphics and of training AI models. Newer vector "
-       "instructions often help a lot here.",
-       kUplift, kUpliftRead, "isa", true, uplift_modes, "K8", uplift("K8", "fp32")},
-      {"u_k8i", "isa", "Maths, integer", "Matrix maths with small whole numbers: gain from the newest instructions",
-       "Small integers, as in AI", "×",
-       "Multiplying large tables of small whole numbers is how AI models run on a device. Some processors add "
-       "instructions just for this.",
-       kUplift, kUpliftRead, "isa", true, uplift_modes, "K8", uplift("K8", "int8")},
   };
   return m;
 }
@@ -419,7 +375,7 @@ QString plainMode(const QString &mode) {
       {"st_burst", "one core, short task"},           {"st_sustained", "one core, after warming up"},
       {"mc_threaded", "all cores, working together"}, {"mc_instances", "all cores, each on its own"},
       {"cold_burst", "started from rest"},            {"periodic", "timer punctuality"},
-      {"isa_uplift", "new-instruction gain"},          {"all", "every test"}};
+      {"all", "every test"}};
   return names.value(mode, mode);
 }
 
@@ -523,13 +479,6 @@ QString isaName(const QString &level) {
       {"armv8.2-a", "NEON"},     {"armv8.2-a+dotprod+fp16", "NEON + dot product"},
       {"armv9-a+sve2", "SVE2"}};
   return names.value(level, level);
-}
-
-QString isaPair(const QJsonObject &tiers) {
-  QString base = isaName(tiers["baseline"].toObject()["level"].toString());
-  QString max = tiers["max"].toObject()["level"].toString();
-  if (base.isEmpty()) return QString();
-  return max.isEmpty() ? QStringLiteral("%1 only").arg(base) : QStringLiteral("%1 → %2").arg(base, isaName(max));
 }
 
 bool offeredOn(const QString &kernel, const QString &os) {
