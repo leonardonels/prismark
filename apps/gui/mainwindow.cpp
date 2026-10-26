@@ -326,9 +326,13 @@ void MainWindow::buildUi() {
   head->addWidget(stressTab_);
   head->addStretch();
   quick_ = new Toggle(tr("Quick"));
-  quick_->setToolTip(tr("On: quick runs, a few minutes, for a first look (not comparable).\n"
-                        "Off: full runs, accurate and comparable; they can take hours."));
-  quick_->setChecked(QSettings().value("quick", true).toBool());
+  quick_->setToolTip(tr("On: quick runs, a few minutes, for a first look. Their numbers are rough, so they are not "
+                        "ranked: each test page shows your latest one under its ranking.\n"
+                        "Off: full runs, accurate and ranked; all tests take about 30 minutes on a laptop."));
+  quick_->setChecked(QSettings().value("quick", false).toBool());
+  QSizePolicy keep = quick_->sizePolicy(); /* hidden on the stress tab without moving the tabs */
+  keep.setRetainSizeWhenHidden(true);
+  quick_->setSizePolicy(keep);
   connect(quick_, &Toggle::toggled, this, [this](bool on) {
     QSettings().setValue("quick", on);
     refreshRunLabels();
@@ -438,6 +442,15 @@ void MainWindow::buildUi() {
     refreshDetails();
   });
   pl->addWidget(ranking_);
+  quickNote_ = text(QString(), 9, QFont::Normal, theme().muted);
+  quickNote_->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
+  connect(quickNote_, &QLabel::linkActivated, this, [this](const QString &id) {
+    selected_ = id;
+    refreshRanking();
+    refreshDetails();
+  });
+  quickNote_->hide();
+  pl->addWidget(quickNote_);
   context_ = new QWidget;
   contextLayout_ = new QVBoxLayout(context_);
   contextLayout_->setContentsMargins(0, 8, 0, 0);
@@ -691,11 +704,11 @@ void MainWindow::refreshTests() {
       hidden++;
       continue;
     }
-    const RunSummary *latest = nullptr;
+    const RunSummary *latest = nullptr, *quick = nullptr; /* the card shows full runs: quick ones are not ranked */
     for (const RunSummary &r : runs_)
-      if (!r.reference && r.metrics.contains(m.id)) latest = &r;
+      if (!r.reference && r.metrics.contains(m.id)) (r.quick ? quick : latest) = &r;
     auto *c = new TestCard(m.id);
-    QString note = tr("No result yet");
+    QString note = quick ? tr("Quick run only · not ranked") : tr("No result yet");
     if (m.kernels == "K1" || m.kernels == "K1x") {
       CompileStatus st = compileStatus(info_, QSettings().value("k1_data").toString());
       if (m.kernels == "K1" ? !st.canRunK1() : !st.canRunK1x()) note = tr("Needs one-time setup · press Run");
@@ -708,7 +721,9 @@ void MainWindow::refreshTests() {
       refreshRanking();
       refreshDetails();
     });
-    connect(c, &TestCard::runRequested, this, [this](const QString &id) { runTest(id, quick_->isChecked()); });
+    /* a stress test has no quick run: its length is asked for instead */
+    connect(c, &TestCard::runRequested, this,
+            [this](const QString &id) { runTest(id, quick_->isChecked() && findMetric(id)->group != "stress"); });
     cards_.addButton(c);
     cardsLayout_->addWidget(c);
   }
@@ -726,8 +741,10 @@ void MainWindow::refreshRunLabels() {
   runAll_->setText(quick ? tr("▶  Run all quick") : tr("▶  Run all full"));
   runAll_->setToolTip(advanced_ ? tr("Runs every test but the stress tests, which run from their own cards.")
                                 : tr("Runs the tests of the Simple view. Switch to Advanced to run every test."));
+  bool stress = group_ == "stress";
+  quick_->setVisible(!stress); /* a stress test has no quick run */
   for (QAbstractButton *b : cards_.buttons())
-    static_cast<TestCard *>(b)->setRunLabel(quick ? tr("Run quick") : tr("Run full"));
+    static_cast<TestCard *>(b)->setRunLabel(stress ? tr("Run") : quick ? tr("Run quick") : tr("Run full"));
 }
 
 void MainWindow::refreshRanking() {
@@ -739,11 +756,13 @@ void MainWindow::refreshRanking() {
   how_->setText(esc(m->how));
   read_->setText(esc(m->read));
   QVector<RankRow> rows;
-  const RunSummary *latest = nullptr;
+  /* Quick runs are a first look: rough numbers, so they stay out of the ranking; the latest is offered below it. */
+  const RunSummary *latest = nullptr, *quick = nullptr;
   for (const RunSummary &r : runs_)
-    if (!r.reference && r.metrics.contains(m->id)) latest = &r;
+    if (!r.reference && r.metrics.contains(m->id)) (r.quick ? quick : latest) = &r;
+  if (quick && latest && quick->date < latest->date) quick = nullptr; /* a full run since: the quick one is old news */
   for (const RunSummary &r : runs_) {
-    if (!r.metrics.contains(m->id)) continue;
+    if (!r.metrics.contains(m->id) || r.quick) continue;
     if (!r.reference && !allRuns_->isChecked() && &r != latest) continue;
     RankRow row;
     row.runId = r.id;
@@ -753,11 +772,10 @@ void MainWindow::refreshRanking() {
     if (r.placeholder) row.tags << "placeholder";
     if (r.reference && !r.placeholder) row.tags << "reference";
     if (&r == latest && allRuns_->isChecked()) row.tags << "latest";
-    if (r.quick) row.tags << "quick";
     if (r.state["ac_online"] == QJsonValue(false)) row.tags << tr("on battery");
     if (!r.complete) row.tags << "partial";
     row.value = r.metrics[m->id];
-    if (row.value.unsettled && !r.quick) row.tags << "did not settle";
+    if (row.value.unsettled) row.tags << "did not settle";
     if (row.value.ofThreads) row.tags << tr("%1 of %2 threads").arg(row.value.threads).arg(row.value.ofThreads);
     if (row.value.clamped) row.tags << tr("throttled");
     if (m->group == "stress") {
@@ -768,11 +786,21 @@ void MainWindow::refreshRanking() {
     }
     rows.push_back(row);
   }
-  bool shown = std::any_of(rows.begin(), rows.end(), [&](const RankRow &x) { return x.runId == selected_; });
-  if (!shown && latest) { /* follow the test: select your result that this ranking shows */
-    selected_ = latest->id;
+  bool shown = std::any_of(rows.begin(), rows.end(), [&](const RankRow &x) { return x.runId == selected_; }) ||
+               (quick && quick->id == selected_); /* a quick run opened from the note below */
+  if (!shown && (latest || quick)) { /* follow the test: select your result that this page shows */
+    selected_ = (latest ? latest : quick)->id;
     QTimer::singleShot(0, this, [this] { refreshDetails(); });
   }
+  if (quick) {
+    const Value &v = quick->metrics[m->id];
+    quickNote_->setText(
+        tr("Your quick run of %1: %2 %3, a rough first look, not ranked. <a href='%4' style='color:%5; "
+           "text-decoration:none'>%6</a>")
+            .arg(quick->date, formatValue(v.v), esc(m->unit), quick->id, theme().accent.name(),
+                 quick->id == selected_ ? tr("Shown on the right") : tr("Show its report")));
+  }
+  quickNote_->setVisible(quick != nullptr);
   ranking_->setRows(rows, m->higherBetter, m->unit, selected_);
   refreshContext();
 }
@@ -1352,8 +1380,8 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
   const Metric *m = metricId.isEmpty() ? nullptr : findMetric(metricId);
   bool all = !m;
   QStringList args = {"--progress-json", "--cancel-on-stdin", "--frontend", "gui"};
-  QString stressTime; /* "10m", "30m" or "until-stopped"; a quick run takes a minute per part */
-  if (m && m->group == "stress" && !quick) {
+  QString stressTime; /* "10m", "30m" or "until-stopped" */
+  if (m && m->group == "stress") {
     QMessageBox box(QMessageBox::Question, tr("Stress test"),
                     tr("How long should “%1” run? The score is the speed in the 10th minute, so every length from "
                        "10 minutes on compares; longer runs show how the speed holds up.").arg(m->title),
