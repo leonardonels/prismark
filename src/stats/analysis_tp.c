@@ -1,8 +1,10 @@
 /*
  * Statistics for the throughput modes: per-series medians with bootstrap
  * CIs, steady-state throughput and R_throttle, scaling S(n), E(n), p(n), and
- * the same-kernel ratios R_build, U_ISA and R_resp of the realistic
- * cold bursts. Each ratio pairs series of one kernel only.
+ * the same-kernel ratios R_build and R_resp of the realistic
+ * cold bursts. Each ratio pairs series of one kernel only. And the stress
+ * test: the score (the 10th minute), the first and last minute, and how the
+ * speed held up between them.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
@@ -33,7 +35,7 @@ typedef struct scale_row {
 } scale_row;
 
 typedef struct ratio_row {
-  const char *name; /* "R_build", "U_ISA", "R_resp" */
+  const char *name; /* "R_build", "R_resp" */
   const char *kernel, *variant;
   int n;            /* threads, or 0 */
   const char *core_type;
@@ -46,7 +48,17 @@ typedef struct sum_row { /* checksum agreement per kernel, variant, input size a
   int consistent, series;
 } sum_row;
 
+typedef struct stress_row {
+  const pmk_result *r;
+  pmk_ci score;       /* median window speed over minute 9-10, NaN when the part ran less than 10 minutes */
+  pmk_ci first, end;  /* the first minute (after its first window) and the last minute */
+  pmk_ci hold_up;     /* end / first */
+  double temp_max, mhz, watts;
+} stress_row;
+
 struct pmk_analysis_tp {
+  stress_row *st;
+  size_t nst;
   tp_row *rows;
   size_t nrows;
   scale_row *sc;
@@ -84,6 +96,38 @@ static const double *initial_set(const pmk_result *r, size_t *n) {
   size_t from = r->n > 1 + INITIAL_WINDOWS ? 1 : 0;
   *n = r->n - from < INITIAL_WINDOWS ? r->n - from : INITIAL_WINDOWS;
   return r->samples + from;
+}
+
+/* Windows [from, to) of r that end within seconds (lo, hi] of the run. */
+static size_t windows_in(const pmk_result *r, double lo, double hi, size_t *from) {
+  double w = r->window_ms / 1e3;
+  size_t a = (size_t)ceil(lo / w - 1e-9), b = (size_t)floor(hi / w + 1e-9);
+  if (b > r->n) b = r->n;
+  *from = a;
+  return b > a ? b - a : 0;
+}
+
+static void compute_stress(pmk_ctx *c, stress_row *row) {
+  const pmk_result *r = row->r;
+  pmk_rng *rng = &c->stat_rng;
+  double w = r->window_ms / 1e3, ran = (double)r->n * w;
+  size_t from, n;
+  pmk_ci none = {NAN, NAN, NAN};
+  row->score = none;
+  if (ran >= PMK_STRESS_SCORE_TO_S - 1e-6 && (n = windows_in(r, PMK_STRESS_SCORE_FROM_S, PMK_STRESS_SCORE_TO_S, &from)))
+    row->score = pmk_boot_median(r->samples + from, n, PMK_BOOT_B, rng);
+  /* The first window holds the start-up (threads starting, the first job), so the first minute begins after it. */
+  n = windows_in(r, w, 60, &from);
+  if (!n) n = r->n, from = 0;
+  row->first = pmk_boot_median(r->samples + from, n, PMK_BOOT_B, rng);
+  size_t last = r->n < (size_t)(60 / w + 0.5) ? r->n : (size_t)(60 / w + 0.5);
+  row->end = pmk_boot_median(r->samples + r->n - last, last, PMK_BOOT_B, rng);
+  row->hold_up = pmk_boot_median_ratio(r->samples + r->n - last, last, r->samples + from, n, PMK_BOOT_B, rng);
+  row->temp_max = NAN;
+  for (size_t i = 0; i < r->temps.n; i++)
+    if (isfinite(r->temps.v[i]) && !(row->temp_max >= r->temps.v[i])) row->temp_max = r->temps.v[i];
+  row->mhz = steady_median(r, &r->mhz);
+  row->watts = steady_median(r, &r->power);
 }
 
 static pmk_ci invert_time(pmk_ci t, double work, double unit_div) {
@@ -201,8 +245,15 @@ void analysis_tp_compute(pmk_ctx *c) {
   a->sc = calloc(cap, sizeof *a->sc);
   a->ra = calloc(cap * 2, sizeof *a->ra);
   a->sums = calloc(cap, sizeof *a->sums);
-  if (!a->rows || !a->sc || !a->ra || !a->sums) return;
+  a->st = calloc(cap, sizeof *a->st);
+  if (!a->rows || !a->sc || !a->ra || !a->sums || !a->st) return;
   pmk_rng *rng = &c->stat_rng;
+
+  for (size_t i = 0; i < c->nres; i++)
+    if (!strcmp(c->res[i].mode, "stress") && c->res[i].n) {
+      a->st[a->nst].r = &c->res[i];
+      compute_stress(c, &a->st[a->nst++]);
+    }
 
   for (size_t i = 0; i < c->nres; i++) {
     const pmk_result *r = &c->res[i];
@@ -259,15 +310,6 @@ void analysis_tp_compute(pmk_ctx *c) {
         free(t);
       }
     }
-    /* U_ISA = perf_max / perf_baseline under ST sustained conditions. */
-    if (r->purpose && !strcmp(r->purpose, "isa_uplift") && !strcmp(r->k->tier, "max")) {
-      const pmk_result *base = find(c, r->kernel, "st_sustained", "baseline", -1, "isa_uplift", r->variant);
-      if (base) {
-        size_t nm, nb;
-        const double *m = steady_set(r, &nm), *b = steady_set(base, &nb);
-        add_ratio(a, "U_ISA", r, 0, core, pmk_boot_median_ratio(m, nm, b, nb, PMK_BOOT_B, rng));
-      }
-    }
     /* R_resp of the realistic cold bursts: t_warm / t_cold. */
     if (!strcmp(r->mode, "cold_burst") && strcmp(r->kernel, "K9") && !r->warm) {
       for (size_t j = 0; j < c->nres; j++) {
@@ -288,6 +330,7 @@ void analysis_tp_free(pmk_ctx *c) {
   free(c->antp->sc);
   free(c->antp->ra);
   free(c->antp->sums);
+  free(c->antp->st);
   free(c->antp);
   c->antp = NULL;
 }
@@ -389,6 +432,33 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
   }
   jw_arr_end(w);
 
+  jw_arr_begin(w, "stress");
+  for (size_t i = 0; a && i < a->nst; i++) {
+    const stress_row *x = &a->st[i];
+    const pmk_result *r = x->r;
+    jw_obj_begin(w, NULL);
+    jw_str(w, "part", r->part);
+    jw_str(w, "kernel", r->kernel);
+    jw_str(w, "unit", unit_of(r));
+    jw_str(w, "core_type", c->m.type_names[r->type]);
+    jw_int(w, "n", r->nthreads ? r->nthreads : 1);
+    jw_num(w, "duration_s", (double)r->n * r->window_ms / 1e3);
+    jw_bool(w, "stopped", r->stopped);
+    if (isfinite(x->score.est)) ci_json(w, "score", x->score);
+    else jw_raw(w, "score", "null");
+    ci_json(w, "first_minute", x->first);
+    ci_json(w, "last_minute", x->end);
+    ci_json(w, "hold_up", x->hold_up);
+    jw_num(w, "temp_max_c", x->temp_max);
+    jw_num(w, "mhz", x->mhz);
+    jw_num(w, "power_w", x->watts);
+    jw_int(w, "clamped_windows", r->clamped);
+    jw_int(w, "jobs", (int64_t)r->job_ns.n);
+    jw_int(w, "checksum_errors", (int64_t)r->errors);
+    jw_obj_end(w);
+  }
+  jw_arr_end(w);
+
   jw_arr_begin(w, "checksums");
   for (size_t i = 0; a && i < a->nsums; i++) {
     const sum_row *s = &a->sums[i];
@@ -419,7 +489,7 @@ static const char *fmt_time(char *out, size_t n, double ns) {
   return out;
 }
 
-/* The app's name for the kernel and its variant, e.g. "Matrix maths fp32". */
+/* The app's name for the kernel and its variant, e.g. "3D rendering". */
 static const char *label(char *out, size_t n, const pmk_result *r) {
   snprintf(out, n, "%s%s%s", pmk_display_name(r->kernel), r->variant ? " " : "", r->variant ? r->variant : "");
   return out;
@@ -472,7 +542,8 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
                  r->nthreads ? r->nthreads : 1, perf, thr, r->steady ? "yes" : "no");
       if (isfinite(r->tau_s)) buf_printf(b, " (tau %.0f s, %.0f s run)", r->tau_s, r->elapsed_s);
       else buf_printf(b, " (%.0f s run)", r->elapsed_s);
-      buf_printf(b, "%s\n", r->purpose ? "  [ISA uplift]" : "");
+      if (r->purpose) buf_printf(b, "  [%s]", r->purpose);
+      buf_printf(b, "\n");
     }
   }
 
@@ -497,6 +568,24 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
       if (r->n) buf_printf(b, " n=%-3d", r->n);
       else buf_printf(b, " %-5s", r->core_type);
       buf_printf(b, " %.3f [%.3f, %.3f]\n", r->r.est, r->r.lo, r->r.hi);
+    }
+  }
+  if (a->nst) {
+    buf_printf(b, "\nStress test: score = speed in the 10th minute; hold-up = last minute / first minute\n");
+    for (size_t i = 0; i < a->nst; i++) {
+      const stress_row *x = &a->st[i];
+      const pmk_result *r = x->r;
+      char score[64], dur[32];
+      if (isfinite(x->score.est))
+        snprintf(score, sizeof score, "%.4g [%.4g, %.4g]", x->score.est, x->score.lo, x->score.hi);
+      else snprintf(score, sizeof score, "no score (under 10 min)");
+      double s = (double)r->n * r->window_ms / 1e3;
+      if (s < 120) snprintf(dur, sizeof dur, "%.0f s%s", s, r->stopped ? ", stopped" : "");
+      else snprintf(dur, sizeof dur, "%.0f min%s", s / 60, r->stopped ? ", stopped" : "");
+      buf_printf(b, "  %-10s %-12s %3d thr  %-28s %s  hold-up %.3f", r->part, pmk_display_name(r->kernel),
+                 r->nthreads ? r->nthreads : 1, score, unit_of(r), x->hold_up.est);
+      if (isfinite(x->temp_max)) buf_printf(b, "  max %.0f C", x->temp_max);
+      buf_printf(b, "  (%s)%s\n", dur, r->errors ? "  ERRORS: some jobs came out wrong" : "");
     }
   }
   int bad = 0;

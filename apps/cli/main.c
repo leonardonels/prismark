@@ -172,44 +172,43 @@ static const char *pretty_path(char *out, size_t n, const char *path) {
 static const struct {
   const char *id, *slug;
   uint32_t modes;        /* the modes it runs in */
-  int isa;               /* also measured one core, after warming up, for the gain from the newest instructions */
   const char *tag;       /* a few words, for the menu */
   const char *what;      /* what it runs */
   const char *reports;   /* what it reports */
 } KERNELS[] = {
-    {"K1", "compile", ST_S | MC_T, 0, "C++ compiler, in memory",
+    {"K1", "compile", ST_S | MC_T, "C++ compiler, in memory",
      "Compiles a fixed set of C++ files with the Clang compiler built into Prismark, entirely in memory.",
      "builds per hour (higher is better). Needs the compile-test setup."},
-    {"K1x", "build", MC_T, 0, "CMake + Ninja build",
+    {"K1x", "build", MC_T, "CMake + Ninja build",
      "Builds part of LLVM with CMake and Ninja on all cores, three times: compiling plus the build tools.",
      "seconds per build (lower is better). Needs the compile-test setup."},
-    {"K2", "render", ST_S | MC_T, 1, "path tracer",
+    {"K2", "render", ST_S | MC_T | PMK_MODE_STRESS, "path tracer",
      "A small path tracer draws a fixed scene, as 3D rendering and video software do.",
      "million light samples per second (higher is better)."},
-    {"K3", "compression", ST_B, 1, "zstd on a small file",
+    {"K3", "compression", ST_B, "zstd on a small file",
      "Compresses a small generated file with zstd (level 3), a common compression format.",
      "milliseconds per file (lower is better)."},
-    {"K4", "photo", ST_B | PMK_MODE_COLD_BURST, 1, "JPEG decode and resize",
+    {"K4", "photo", ST_B | PMK_MODE_COLD_BURST, "JPEG decode and resize",
      "Decodes a JPEG photo and resizes it, as a photo viewer or a web page does.",
      "milliseconds per photo (lower is better)."},
-    {"K5", "json", ST_B, 0, "web-style text data",
+    {"K5", "json", ST_B, "web-style text data",
      "Reads JSON documents, the text format most websites and online services exchange.",
      "milliseconds per batch (lower is better)."},
-    {"K6", "script", ST_B | PMK_MODE_COLD_BURST, 0, "start Lua, run a script",
+    {"K6", "script", ST_B | PMK_MODE_COLD_BURST, "start Lua, run a script",
      "Starts the Lua language, loads a small script and runs it, as when a plugin or a game script starts.",
      "milliseconds per start (lower is better)."},
-    {"K7", "memory", PMK_MODE_MC_INSTANCES, 0, "wait for main memory",
+    {"K7", "memory", PMK_MODE_MC_INSTANCES, "wait for main memory",
      "Follows a chain of links through memory larger than every cache, so each step waits for main memory.",
      "nanoseconds per read, alone and with every core reading (lower is better)."},
-    {"K8", "matrix", 0, 1, "decimal and int8 maths",
-     "Multiplies large tables of decimal numbers (as in graphics) and small integers (as in AI models).",
-     "only the gain from the newest instructions (higher is better)."},
-    {"K9", "wakeup", PMK_MODE_COLD_BURST, 0, "tasks after a rest",
+    {"K9", "wakeup", PMK_MODE_COLD_BURST, "tasks after a rest",
      "Times short tasks that arrive while the processor rests, against the same tasks on a busy core.",
      "speed as a percentage of a busy core's (higher is better; 100 % = no penalty)."},
-    {"K10", "timer", PMK_MODE_PERIODIC, 0, "1 ms timer lateness",
+    {"K10", "timer", PMK_MODE_PERIODIC, "1 ms timer lateness",
      "A task asks to wake up every millisecond for a minute, on an idle computer and with other cores busy.",
      "how late the worst 1 in 1000 wake-ups are, in microseconds (lower is better)."},
+    {"K11", "bandwidth", PMK_MODE_STRESS, "write and check 2 GiB",
+     "Writes 2 GiB of memory on every core and checks every word on the next pass, over and over.",
+     "gigabytes per second (higher is better), and any word that came back wrong."},
 };
 #undef ST_B
 #undef ST_S
@@ -223,7 +222,7 @@ static const struct {
     {"st_burst", "short-task", "short jobs on a core that is already running, until each time is known to ~1 %",
      PMK_MODE_ST_BURST},
     {"st_sustained", "warmed-up",
-     "one core after a minute of full load, measured for 20 s (compiling: 60 s); also the new-instruction builds",
+     "one core after a minute of full load, measured for 20 s (compiling: 60 s)",
      PMK_MODE_ST_SUSTAINED},
     {"mc_threaded", "all-cores", "every core on the same job, from 1 thread up to all of them, to show the scaling",
      PMK_MODE_MC_THREADED},
@@ -232,6 +231,8 @@ static const struct {
      PMK_MODE_COLD_BURST},
     {"periodic", "timer", "a 1 ms timer for a minute, idle and with other cores busy; hands off the keyboard",
      PMK_MODE_PERIODIC},
+    {"stress", "stress", "full load for 10 minutes per part (--stress-time), scored on the 10th minute; only when "
+     "asked for", PMK_MODE_STRESS},
 };
 #define NMODES (sizeof MODES / sizeof *MODES)
 
@@ -241,32 +242,35 @@ static const struct {
 } CATEGORIES[] = {
     {"All cores", "heavy jobs on every core at once, after a minute of full load"},
     {"One core", "short everyday tasks, and long tasks once the core has warmed up"},
-    {"Responsiveness", "how quickly work starts while the processor rests; hands off the keyboard"},
     {"Memory & timing", "waits for main memory, and how punctual a 1 ms timer is"},
-    {"New instructions", "the same code built for the common and the newest instructions"},
+    {"Responsiveness", "how quickly work starts while the processor rests; hands off the keyboard"},
+    {"Stress test", "10 minutes or more of full load: how the speed holds up, and whether it stays correct"},
 };
 #define NCATEGORIES (sizeof CATEGORIES / sizeof *CATEGORIES)
 
 static const struct {
   int cat;
   const char *name, *kernels, *mode;
-  int needs_k1, isa;
+  int needs_k1;
+  const char *stress; /* the stress-test part (--stress), or NULL */
 } ITEMS[] = {
-    {0, "3D rendering", "K2", "mc_threaded", 0, 0},
-    {0, "Compiling code", "K1", "mc_threaded", 1, 0},
-    {0, "Full software build", "K1x", "mc_threaded", 1, 0},
-    {1, "3D rendering, after warming up", "K2", "st_sustained", 0, 0},
-    {1, "Compiling code, after warming up", "K1", "st_sustained", 1, 0},
-    {1, "Compression", "K3", "st_burst", 0, 0},
-    {1, "Opening a photo", "K4", "st_burst", 0, 0},
-    {1, "Reading JSON", "K5", "st_burst", 0, 0},
-    {1, "Starting a script", "K6", "st_burst", 0, 0},
-    {2, "Wake-up test: 0.1 to 100 ms tasks from rest", "K9", "cold_burst", 0, 0},
-    {2, "Opening a photo from rest", "K4", "cold_burst", 0, 0},
-    {2, "Starting a script from rest", "K6", "cold_burst", 0, 0},
-    {3, "Memory delay, alone and with every core reading", "K7", "mc_instances", 0, 0},
-    {3, "Timer punctuality, idle and with other cores busy", "K10", "periodic", 0, 0},
-    {4, "Gain in 3D rendering, compression, photos, matrix maths", "K2,K3,K4,K8", "st_sustained", 0, 1},
+    {0, "3D rendering", "K2", "mc_threaded", 0, NULL},
+    {0, "Compiling code", "K1", "mc_threaded", 1, NULL},
+    {0, "Full software build", "K1x", "mc_threaded", 1, NULL},
+    {1, "3D rendering, after warming up", "K2", "st_sustained", 0, NULL},
+    {1, "Compiling code, after warming up", "K1", "st_sustained", 1, NULL},
+    {1, "Compression", "K3", "st_burst", 0, NULL},
+    {1, "Opening a photo", "K4", "st_burst", 0, NULL},
+    {1, "Reading JSON", "K5", "st_burst", 0, NULL},
+    {1, "Starting a script", "K6", "st_burst", 0, NULL},
+    {2, "Memory delay, alone and with every core reading", "K7", "mc_instances", 0, NULL},
+    {2, "Timer punctuality, idle and with other cores busy", "K10", "periodic", 0, NULL},
+    {3, "Wake-up test: 0.1 to 100 ms tasks from rest", "K9", "cold_burst", 0, NULL},
+    {3, "Opening a photo from rest", "K4", "cold_burst", 0, NULL},
+    {3, "Starting a script from rest", "K6", "cold_burst", 0, NULL},
+    {4, "One core under stress", "K2", "stress", 0, "one-core"},
+    {4, "All cores under stress", "K2", "stress", 0, "all-cores"},
+    {4, "Memory under stress", "K11", "stress", 0, "memory"},
 };
 #define NITEMS (sizeof ITEMS / sizeof *ITEMS)
 
@@ -329,6 +333,46 @@ static int parse_modes(const char *s, uint32_t *out, const char **bad, size_t *b
   return *out ? 0 : -1;
 }
 
+static const struct {
+  const char *slug;
+  uint32_t bit;
+} STRESS_PARTS[] = {{"one-core", PMK_STRESS_ONE_CORE}, {"all-cores", PMK_STRESS_ALL_CORES}, {"memory", PMK_STRESS_MEMORY}};
+#define NSTRESS (sizeof STRESS_PARTS / sizeof *STRESS_PARTS)
+
+/* "one-core,memory" -> PMK_STRESS_* bits; -1 naming the first unknown entry. */
+static int parse_stress(const char *s, uint32_t *out, const char **bad, size_t *badlen) {
+  *out = 0;
+  while (*s) {
+    size_t len = strcspn(s, ",");
+    size_t i = 0;
+    while (i < NSTRESS && !name_matches(s, len, STRESS_PARTS[i].slug, STRESS_PARTS[i].slug)) i++;
+    if (i == NSTRESS) {
+      *bad = s;
+      *badlen = len;
+      return -1;
+    }
+    *out |= STRESS_PARTS[i].bit;
+    s += len + (s[len] == ',');
+  }
+  return *out ? 0 : -1;
+}
+
+/* "10m", "30m", "1h", "600" (seconds) or "0" / "until-stopped" -> seconds; -1 after saying what is wrong. */
+static int parse_stress_time(const char *v, double *out) {
+  char *end;
+  double x = strtod(v, &end);
+  double unit = !strcmp(end, "m") || !strcmp(end, "min") ? 60 : !strcmp(end, "h") ? 3600 : !*end || !strcmp(end, "s") ? 1 : 0;
+  if (!strcmp(v, "until-stopped")) x = 0, unit = 1, end = (char *)v;
+  if (end == v && strcmp(v, "until-stopped")) unit = 0;
+  if (!unit || !isfinite(x) || x < 0 || x * unit > 24 * 3600 || (x > 0 && x * unit < 60)) {
+    fprintf(stderr, "prismark: --stress-time takes a length from 1m to 24h (10m, 30m, 600) or 0 to run until "
+                    "stopped, not '%s'\n", v);
+    return -1;
+  }
+  *out = x * unit;
+  return 0;
+}
+
 /* Whether the comma-separated list has id. */
 static int has_id(const char *list, const char *id) {
   size_t n = strlen(id);
@@ -338,11 +382,6 @@ static int has_id(const char *list, const char *id) {
     p += len + (p[len] == ',');
   }
   return 0;
-}
-
-/* The modes kernel k runs in, with the new-instruction runs (one core, after warming up) when isa is on. */
-static uint32_t kernel_modes(size_t k, int isa) {
-  return KERNELS[k].modes | (isa && KERNELS[k].isa ? (uint32_t)PMK_MODE_ST_SUSTAINED : 0);
 }
 
 /* "short-task, from-rest": the short names of the modes in bits. */
@@ -358,7 +397,7 @@ static const char *mode_slugs(char *out, size_t n, uint32_t bits) {
  * Whether the chosen tests (IDs, comma-separated) run in the chosen modes (0: all). Tests that run in none of
  * them are named; when no test would be measured at all, -1: the run would only produce an empty result.
  */
-static int check_selection(const char *tests, uint32_t modes, int isa) {
+static int check_selection(const char *tests, uint32_t modes) {
   if (!tests) return 0;
   if (!modes) modes = PMK_MODE_ALL;
   int measured = 0, skipped = 0;
@@ -368,18 +407,14 @@ static int check_selection(const char *tests, uint32_t modes, int isa) {
     size_t len = strcspn(p, ",");
     for (size_t k = 0; k < NKERNELS; k++) {
       if (strlen(KERNELS[k].id) != len || strncmp(KERNELS[k].id, p, len)) continue;
-      if (kernel_modes(k, isa) & modes) {
+      if (KERNELS[k].modes & modes) {
         measured++;
         break;
       }
       skipped++;
-      mode_slugs(runs, sizeof runs, kernel_modes(k, 1));
-      if (kernel_modes(k, 1) & modes)
-        fprintf(stderr, "prismark: %s runs warmed-up only for the new-instruction gain, which --no-isa-uplift turns "
-                        "off\n", pmk_display_name(KERNELS[k].id));
-      else
-        fprintf(stderr, "prismark: %s does not run in --mode %s; it runs in %s\n", pmk_display_name(KERNELS[k].id),
-                chosen, runs);
+      mode_slugs(runs, sizeof runs, KERNELS[k].modes);
+      fprintf(stderr, "prismark: %s does not run in --mode %s; it runs in %s\n", pmk_display_name(KERNELS[k].id),
+              chosen, runs);
     }
     p += len + (p[len] == ',');
   }
@@ -1099,9 +1134,11 @@ static void help_main(FILE *f) {
           "\n%swhat to run:%s\n"
           "  --quick                  smoke run of a few minutes: no warm-up, short series (not for comparison)\n"
           "  --tests LIST             only these tests, by name or ID: compression,photo or K3,K4 (default: all)\n"
-          "  --mode LIST              only these modes, by name or ID: short-task,from-rest (default: all)\n"
-          "  --no-isa-uplift          skip the new-instruction runs (3D rendering, Compression, Opening a photo,\n"
-          "                           Matrix maths at the newest instruction level)\n"
+          "  --mode LIST              only these modes, by name or ID: short-task,from-rest (default: all but the\n"
+          "                           stress test)\n"
+          "  --stress LIST            stress-test parts: one-core,all-cores,memory (default: all three)\n"
+          "  --stress-time T          length of each stress-test part: 10m (default), 30m, 1h, or until-stopped\n"
+          "                           (Ctrl+C ends it and keeps the result; scored from 10 minutes on)\n"
           "  --k1-data DIR            prepared snapshot for Compiling code and Full software build\n"
           "                           (default: the one the desktop app or tools/k1x/prepare.py prepared)\n"
           "\n%swhere it runs:%s\n"
@@ -1231,17 +1268,8 @@ static int cmd_tests(void) {
       const char *mode_slug = "";
       for (size_t m = 0; m < NMODES; m++)
         if (!strcmp(MODES[m].id, ITEMS[i].mode)) mode_slug = MODES[m].slug;
-      int extra_isa = !ITEMS[i].isa && !strcmp(ITEMS[i].mode, "st_sustained"); /* else the gain runs too */
-      printf("\n  %s%s%s  %s(--tests %s --mode %s%s)%s\n", o(BOLD), ITEMS[i].name, o(RESET), o(DIM), slugs, mode_slug,
-             extra_isa ? " --no-isa-uplift" : "", o(RESET));
-      if (ITEMS[i].isa) {
-        printf("    Each test built twice: for the instructions every processor of its kind has, and for the\n"
-               "    newest this one supports. Matrix maths multiplies large tables of decimal numbers (graphics)\n"
-               "    and small integers (AI models).\n"
-               "    %sReports:%s how many times faster the newest instructions are (higher is better; 1.00x = none).\n",
-               o(DIM), o(RESET));
-        continue;
-      }
+      printf("\n  %s%s%s  %s(--tests %s --mode %s%s%s)%s\n", o(BOLD), ITEMS[i].name, o(RESET), o(DIM), slugs,
+             mode_slug, ITEMS[i].stress ? " --stress " : "", ITEMS[i].stress ? ITEMS[i].stress : "", o(RESET));
       size_t k = kernel_index(ITEMS[i].kernels);
       if (described[k]) {
         printf("    The %s test above, %s.\n", pmk_display_name(KERNELS[k].id), pmk_display_name(ITEMS[i].mode));
@@ -1258,7 +1286,8 @@ static int cmd_tests(void) {
            MODES[i].slug, MODES[i].id, o(RESET), MODES[i].how);
   }
   printf("\n--tests also takes a test's ID or full name (prismark help). A full run runs every test in every mode\n"
-         "it has, in random order: about 30 minutes on a 4-core laptop. Every machine does the same work.\n");
+         "it has, in random order: about 30 minutes on a 4-core laptop. Every machine does the same work.\n"
+         "The stress test is not part of a full run: --mode stress runs it, 10 minutes per part (--stress-time).\n");
   return 0;
 }
 
@@ -1641,15 +1670,19 @@ static int cmd_completion(int argc, char **argv) {
          "_prismark() {\n"
          "  local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD-1]} prog=${COMP_WORDS[0]}\n"
          "  local cmds='run tests list show compare references profiles checksums info help completion'\n"
-         "  local runopts='--quick --tests --mode --no-isa-uplift --k1-data --cpu --max-threads -o --output -q --quiet\n"
-         "    --no-color --version --seed --min-reps --max-reps --cold-max-reps --warmup --settle --measure --window-ms\n"
-         "    --cooldown --period-ms --periodic-seconds --k1x-reps --skip-preflight --max-load'\n"
+         "  local runopts='--quick --tests --mode --stress --stress-time --k1-data --cpu --max-threads -o --output\n"
+         "    -q --quiet --no-color --version --seed --min-reps --max-reps --cold-max-reps --warmup --settle --measure\n"
+         "    --window-ms --cooldown --period-ms --periodic-seconds --k1x-reps --skip-preflight --max-load'\n"
          "  local list\n"
          "  case $prev in\n"
          "    --tests|--kernels|--mode)\n"
          "      [[ $prev == --mode ]] && list='%s' || list='%s'\n"
          "      local pre=''; [[ $cur == *,* ]] && pre=${cur%%,*},\n"
          "      COMPREPLY=($(compgen -P \"$pre\" -W \"$list\" -- \"${cur##*,}\")); return ;;\n"
+         "    --stress)\n"
+         "      local pre=''; [[ $cur == *,* ]] && pre=${cur%%,*},\n"
+         "      COMPREPLY=($(compgen -P \"$pre\" -W 'one-core all-cores memory' -- \"${cur##*,}\")); return ;;\n"
+         "    --stress-time) COMPREPLY=($(compgen -W '10m 30m until-stopped' -- \"$cur\")); return ;;\n"
          "    -o|--output|--k1-data|--profiles|--dir) COMPREPLY=($(compgen -f -- \"$cur\")); return ;;\n"
          "    --cpu|--max-threads|--seed|--min-reps|--max-reps|--cold-max-reps|--warmup|--settle|--measure|\\\n"
          "    --window-ms|--period-ms|--periodic-seconds|--k1x-reps|--max-load) return ;;\n"
@@ -1688,6 +1721,7 @@ static int cmd_run(int argc, char **argv) {
   const char *output = NULL;
   int out_mode = OUT_TEXT, cancel_on_stdin = 0, quick = 0;
   char tests[256];
+  const char *stress_opt = NULL; /* --stress or --stress-time, which need --mode stress */
 
   for (int i = 1; i < argc; i++) {
     const char *a = argv[i];
@@ -1723,6 +1757,19 @@ static int cmd_run(int argc, char **argv) {
       }
       cfg.kernels = tests;
     }
+    else if (!strcmp(a, "--stress")) {
+      NEED_ARG;
+      if (parse_stress(v, &cfg.stress_parts, &bad, &badlen)) {
+        fprintf(stderr, "prismark: unknown stress-test part '%.*s' (one-core, all-cores, memory)\n", (int)badlen, bad);
+        return 2;
+      }
+      stress_opt = a;
+    }
+    else if (!strcmp(a, "--stress-time")) {
+      NEED_ARG;
+      if (parse_stress_time(v, &cfg.stress_s)) return 2;
+      stress_opt = a;
+    }
     else if (!strcmp(a, "--cpu")) { NEED_ARG; INT(cfg.cpu, 0, 65535); }
     else if (!strcmp(a, "--max-threads")) { NEED_ARG; INT(cfg.max_threads, 1, 65536); }
     else if (!strcmp(a, "--seed")) {
@@ -1735,7 +1782,6 @@ static int cmd_run(int argc, char **argv) {
         return 2;
       }
     }
-    else if (!strcmp(a, "--no-isa-uplift")) cfg.isa_uplift = 0;
     else if (!strcmp(a, "--min-reps")) { NEED_ARG; INT(cfg.min_reps, 3, 1000000); }
     else if (!strcmp(a, "--max-reps")) { NEED_ARG; INT(cfg.max_reps, 3, 1000000); }
     else if (!strcmp(a, "--cold-max-reps")) { NEED_ARG; INT(cfg.cold_max_reps, 3, 1000000); }
@@ -1800,7 +1846,11 @@ static int cmd_run(int argc, char **argv) {
       return 2;
     }
   }
-  if (check_selection(cfg.kernels, cfg.modes, cfg.isa_uplift)) return 2;
+  if (stress_opt && !(cfg.modes & PMK_MODE_STRESS)) {
+    fprintf(stderr, "prismark: %s needs --mode stress (the stress test runs only when asked for)\n", stress_opt);
+    return 2;
+  }
+  if (check_selection(cfg.kernels, cfg.modes)) return 2;
   /* The compile tests use the snapshot the desktop app (or tools/k1x/prepare.py) prepared, as in the menu. The
      desktop app passes its own --k1-data, so this is for runs from the command line only. */
   char snapshot[1200];
@@ -1821,6 +1871,17 @@ static int cmd_run(int argc, char **argv) {
             quick ? "quick run: a smoke test, not for comparison" : subset ? "selected tests" : "full run",
             quick || subset ? "" : ", about 30 minutes on a 4-core laptop",
             live ? ". Ctrl+C stops and keeps what was measured." : "");
+    if (cfg.modes & PMK_MODE_STRESS) {
+      char len[16];
+      fmt_duration(len, sizeof len, cfg.stress_s);
+      if (!quick && !(cfg.stress_s > 0))
+        fprintf(stderr, "%sStress test: runs until you stop it with Ctrl+C, which keeps the result; from 10 minutes "
+                        "on it has a score (the speed in the 10th minute).%s\n", e(DIM), e(RESET));
+      else
+        fprintf(stderr, "%sStress test: %s per part%s.%s\n", e(DIM), quick ? "1 minute" : len,
+                quick ? " (quick run: no score, which needs 10 minutes)" : "; the score is the speed in the 10th minute",
+                e(RESET));
+    }
     char pd[1200];
     int compile = !cfg.kernels || has_id(cfg.kernels, "K1") || has_id(cfg.kernels, "K1x");
     if (found_k1 && compile)
@@ -1836,6 +1897,8 @@ static int cmd_run(int argc, char **argv) {
   fmt_duration(el, sizeof el, now_s() - prog.t0);
   if (rc == PMK_ERR_CANCELLED) fprintf(stderr, "%sCancelled after %s.%s%s\n", e(YELLOW), el, e(RESET), json ? " The part measured so far is saved." : "");
   else if (rc != PMK_OK) fprintf(stderr, "%sprismark: %s%s\n", e(RED), pmk_strerror(rc), e(RESET));
+  else if (out_mode == OUT_TEXT && json && strstr(json, "\"stopped\":true"))
+    fprintf(stderr, "%sStress test stopped after %s.%s\n", e(GREEN), el, e(RESET));
   else if (out_mode == OUT_TEXT) fprintf(stderr, "%sFinished in %s.%s\n", e(GREEN), el, e(RESET));
 
   if (json) {
@@ -1929,20 +1992,23 @@ static const char *to_slugs(char *out, size_t n, const char *ids, int modes) {
 
 /* Starts a run with the menu's choices; the same code path as prismark run, whose command it shows first. Like
    prismark run, it finds the compile-test snapshot itself. */
-static void menu_run(int quick, const char *tests, const char *modes, int isa) {
-  const char *args[14];
+static void menu_run(int quick, const char *tests, const char *modes, const char *stress, const char *stress_time) {
+  const char *args[18];
   int n = 0;
   args[n++] = "prismark";
   if (quick) args[n++] = "--quick";
   if (tests && *tests) args[n++] = "--tests", args[n++] = tests;
   if (modes && *modes) args[n++] = "--mode", args[n++] = modes;
-  if (!isa) args[n++] = "--no-isa-uplift";
+  if (stress && *stress) args[n++] = "--stress", args[n++] = stress;
+  if (stress_time && *stress_time) args[n++] = "--stress-time", args[n++] = stress_time;
   args[n] = NULL;
   char ts[256] = "", ms[256] = "";
   if (tests && *tests) to_slugs(ts, sizeof ts, tests, 0);
   if (modes && *modes) to_slugs(ms, sizeof ms, modes, 1);
-  printf("\n%sThe same from the command line: prismark run%s%s%s%s%s%s%s\n", o(DIM), quick ? " --quick" : "",
-         *ts ? " --tests " : "", ts, *ms ? " --mode " : "", ms, isa ? "" : " --no-isa-uplift", o(RESET));
+  int st = stress && *stress, stt = stress_time && *stress_time;
+  printf("\n%sThe same from the command line: prismark run%s%s%s%s%s%s%s%s%s%s\n", o(DIM), quick ? " --quick" : "",
+         *ts ? " --tests " : "", ts, *ms ? " --mode " : "", ms, st ? " --stress " : "", st ? stress : "",
+         stt ? " --stress-time " : "", stt ? stress_time : "", o(RESET));
   cmd_run(n, (char **)args);
   signal(SIGINT, SIG_DFL);
   signal(SIGTERM, SIG_DFL);
@@ -1968,8 +2034,8 @@ static void add_ids(char *list, size_t n, const char *ids) {
 }
 
 /* Whether a run of these tests and modes measures item i (the engine runs every test in every chosen mode). */
-static int item_measured(size_t i, const char *tests, const char *modes, int isa) {
-  if (!has_id(modes, ITEMS[i].mode) || (ITEMS[i].isa && !isa)) return 0;
+static int item_measured(size_t i, const char *tests, const char *modes) {
+  if (!has_id(modes, ITEMS[i].mode)) return 0;
   for (const char *p = ITEMS[i].kernels; *p;) {
     char id[32];
     size_t len = strcspn(p, ",");
@@ -1998,8 +2064,9 @@ static void menu_choose(const char *k1) {
   if (!k1) printf("\n  %sCompiling code and Full software build need the compile-test setup.%s\n", o(DIM), o(RESET));
 
   /* Three steps: which tests, quick or full, start; b goes one step back, and from the first to the menu. */
-  int any = 0, quick = 0, isa = 0;
-  char tests[128] = "", modes[128] = "";
+  int any = 0, quick = 0;
+  char tests[128] = "", modes[128] = "", stress[64] = "";
+  const char *stress_time = NULL;
   for (int step = 0; step < 3;) {
     if (step == 0) {
       if (ask("\nWhich tests? Their numbers, e.g. 6 7 (Enter: everything, b: back): ", buf, sizeof buf) ||
@@ -2027,28 +2094,43 @@ static void menu_choose(const char *k1) {
         in += tok;
       }
       if (!ok) continue;
-      tests[0] = modes[0] = 0;
-      isa = !any; /* everything includes the new-instruction gain */
+      tests[0] = modes[0] = stress[0] = 0;
       for (size_t i = 0; i < NITEMS && any; i++)
         if (chosen[i]) {
           add_ids(tests, sizeof tests, ITEMS[i].kernels);
           add_ids(modes, sizeof modes, ITEMS[i].mode);
-          isa |= ITEMS[i].isa;
+          if (ITEMS[i].stress) add_ids(stress, sizeof stress, ITEMS[i].stress);
         }
       step = 1;
     } else if (step == 1) {
       quick = ask_yn("\nQuick run, a few minutes and not for comparison? [y/N, b: back] ", 0);
       step = quick < 0 ? 0 : 2;
+      stress_time = NULL;
+      while (step == 2 && !quick && *stress) { /* the stress test's length */
+        if (ask("Stress test length: 1) 10 minutes  2) 30 minutes  3) until you stop it (Ctrl+C)  [1, b: back] ",
+                buf, sizeof buf) || is_back(buf)) {
+          step = 1;
+          break;
+        }
+        if (!*buf || !strcmp(buf, "1")) stress_time = "10m";
+        else if (!strcmp(buf, "2")) stress_time = "30m";
+        else if (!strcmp(buf, "3")) stress_time = "until-stopped";
+        else {
+          printf("  %sChoose 1, 2 or 3, or b to go back.%s\n", o(YELLOW), o(RESET));
+          continue;
+        }
+        break;
+      }
     } else {
       printf("\n%s%s%s%s\n", o(BOLD), quick ? "Quick run" : "Full run", o(RESET), any ? " of:" : " of everything.");
       int extra = 0;
       for (size_t i = 0; i < NITEMS && any; i++)
         if (chosen[i]) printf("  %s · %s\n", CATEGORIES[ITEMS[i].cat].name, ITEMS[i].name);
-        else extra |= number[i] && item_measured(i, tests, modes, isa);
+        else extra |= number[i] && item_measured(i, tests, modes);
       if (extra) { /* one run measures every chosen test in every chosen mode */
         printf("%sAlso measured, because the chosen tests share these modes:%s\n", o(DIM), o(RESET));
         for (size_t i = 0; i < NITEMS; i++)
-          if (!chosen[i] && number[i] && item_measured(i, tests, modes, isa))
+          if (!chosen[i] && number[i] && item_measured(i, tests, modes))
             printf("  %s%s · %s%s\n", o(DIM), CATEGORIES[ITEMS[i].cat].name, ITEMS[i].name, o(RESET));
       }
       printf("For steady results, close other programs and leave the computer alone while it runs.\n"
@@ -2059,7 +2141,7 @@ static void menu_choose(const char *k1) {
       else step = 3;
     }
   }
-  menu_run(quick, tests, modes, isa);
+  menu_run(quick, tests, modes, stress, stress_time);
   pause_for_enter();
 }
 
@@ -2204,13 +2286,13 @@ static int cmd_menu(void) {
     switch (c) {
       case '1':
         if (confirm_start(0, "every test, about 30 minutes")) {
-          menu_run(0, NULL, NULL, 1);
+          menu_run(0, NULL, NULL, NULL, NULL);
           pause_for_enter();
         }
         break;
       case '2':
         if (confirm_start(1, "every test, a few minutes")) {
-          menu_run(1, NULL, NULL, 1);
+          menu_run(1, NULL, NULL, NULL, NULL);
           pause_for_enter();
         }
         break;

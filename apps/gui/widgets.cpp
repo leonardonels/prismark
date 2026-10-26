@@ -55,7 +55,7 @@ void RankingView::setRows(QVector<RankRow> rows, bool higherBetter, const QStrin
 }
 
 double RankingView::speed(double v) const { return higher_ ? v : 1.0 / v; }
-QSize RankingView::sizeHint() const { return {520, std::max(3, int(rows_.size())) * kRowH + 2 * kPad}; }
+QSize RankingView::sizeHint() const { return {520, (rows_.isEmpty() ? 2 : int(rows_.size())) * kRowH + 2 * kPad}; }
 QSize RankingView::minimumSizeHint() const { return {280, sizeHint().height()}; }
 
 int RankingView::rowAt(int y) const {

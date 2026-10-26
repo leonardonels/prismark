@@ -48,7 +48,7 @@ struct Group {
  *   context  the chart or comparison that explains the result, shown under the ranking:
  *            "wake" (speed from rest by task length), "scaling:<kernel>" (speed-up by threads),
  *            "ratio:R_build" (build-tool overhead by threads), "resp:<kernel>" (speed from rest),
- *            "isa" (which instruction sets were compared), or ""
+ *            "stress:<part>" (speed, clock and temperature over a stress test), or ""
  */
 struct Metric {
   QString id, group, name, title, sub, unit, desc, how, read, context;
@@ -85,6 +85,19 @@ struct RunSummary {
   /* How much slower each warm-up ended than it started (speed hot / speed cold, below 1 when it throttles), by
      mode: "st_sustained" (one core) and "mc_threaded" (all cores). */
   QMap<QString, Value> hot;
+  /* A stress-test part ("one_core", "all_cores", "memory"): its figures, and its 5-second windows over time. */
+  struct Stress {
+    QString unit;
+    int threads = 0;
+    double durationS = NAN, windowS = 5;
+    bool stopped = false; /* a run without a set length, ended by its user */
+    Value first, last, holdUp; /* speed in the first and the last minute, and last / first */
+    double tempMax = NAN, mhz = NAN, watts = NAN;
+    int clamped = 0;
+    qint64 errors = 0;    /* jobs whose result differed from the first */
+    QVector<double> perf, mhzT, tempT, powerT;
+  };
+  QMap<QString, Stress> stress;
   int clampedSeries = 0;        /* series of the run with platform-clamped windows */
   double clampedMhz = NAN;      /* the lowest clamped clock among them */
 };
@@ -121,8 +134,6 @@ bool offeredOn(const QString &kernel, const QString &os);
 
 /* Instruction-set level of a result ("x86-64-v4") as the name people know ("AVX-512"); unknown levels unchanged. */
 QString isaName(const QString &level);
-/* The two instruction sets a run compared, e.g. "SSE4.2 → AVX-512", or "SSE4.2 only" without a newer one. */
-QString isaPair(const QJsonObject &tiers);
 
 /* The glossary shown by "What do these terms mean?", as rich text. */
 QString glossaryHtml();

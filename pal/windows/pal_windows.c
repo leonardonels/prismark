@@ -627,37 +627,6 @@ void pal_lock_broadcast(pal_lock *l) { WakeAllConditionVariable(&l->c); }
 void *pal_aligned_alloc(size_t align, size_t n) { return _aligned_malloc(n ? n : 1, align); }
 void pal_aligned_free(void *p) { _aligned_free(p); }
 
-/* ---------- tier modules ---------- */
-
-const pmk_kernels *pal_load_tier(const char *tier, char *err, size_t errlen) {
-  char dir[MAX_PATH], path[MAX_PATH + 64];
-  const char *env = getenv("PRISMARK_KERNEL_DIR");
-  if (env && *env) {
-    snprintf(dir, sizeof dir, "%s", env);
-  } else {
-    HMODULE self = NULL;
-    GetModuleHandleExA(GET_MODULE_HANDLE_EX_FLAG_FROM_ADDRESS | GET_MODULE_HANDLE_EX_FLAG_UNCHANGED_REFCOUNT,
-                       (LPCSTR)(void *)pal_load_tier, &self);
-    GetModuleFileNameA(self, dir, sizeof dir);
-    char *slash = strrchr(dir, '\\');
-    if (slash) *slash = 0;
-  }
-  snprintf(path, sizeof path, "%s\\prismark-kernels-%s.dll", dir, tier);
-  HMODULE h = LoadLibraryA(path);
-  if (!h) {
-    snprintf(err, errlen, "cannot load %s (error %lu)", path, GetLastError());
-    return NULL;
-  }
-  pmk_kernels_entry_fn entry = (pmk_kernels_entry_fn)(void *)GetProcAddress(h, PMK_KERNELS_ENTRY);
-  const pmk_kernels *k = entry ? entry() : NULL;
-  if (!k || k->abi != PMK_KERNELS_ABI) {
-    snprintf(err, errlen, "%s: %s", path, k ? "kernel ABI mismatch" : "no entry point");
-    FreeLibrary(h);
-    return NULL;
-  }
-  return k;
-}
-
 /* ---------- processes and files ---------- */
 
 /* Appends one argument quoted by the CommandLineToArgvW rules. */

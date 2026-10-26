@@ -5,7 +5,6 @@
 # Needs the Clang and LLVM CMake packages (e.g. libclang-19-dev and
 # llvm-19-dev from apt.llvm.org). For official results LLVM itself is built
 # at the baseline ISA (spec 3.3); a distribution build records its origin.
-# K1 lives only in the baseline tier: it is not part of ISA uplift.
 
 set(PRISMARK_K1 AUTO CACHE STRING "Build K1 (in-process Clang): AUTO, ON or OFF")
 set_property(CACHE PRISMARK_K1 PROPERTY STRINGS AUTO ON OFF)
@@ -51,7 +50,7 @@ if((PRISMARK_DESKTOP OR (IOS AND PRISMARK_K1_LLVM_DIR)) AND NOT PRISMARK_K1 STRE
     if(NOT LLVM_ENABLE_RTTI)
       set_source_files_properties(kernels/k1_compile/k1.cpp PROPERTIES COMPILE_OPTIONS "-fno-rtti")
     endif()
-    prismark_add_kernel(k1_compile BASELINE_ONLY SOURCES kernels/k1_compile/k1.cpp
+    prismark_add_kernel(k1_compile SOURCES kernels/k1_compile/k1.cpp
       INCLUDE ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS} LIBS ${_k1_libs})
     set(PRISMARK_HAVE_K1 ON)
     set(PRISMARK_K1_LLVM_VERSION ${LLVM_PACKAGE_VERSION})

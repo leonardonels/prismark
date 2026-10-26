@@ -140,6 +140,7 @@ QString phaseTitle(const QString &phase) {
       {"st_sustained", "One core, after warming up"}, {"mc_threaded", "All cores, working together"},
       {"mc_instances", "All cores, each on its own"}, {"cold_burst", "Started from rest"},
       {"periodic", "Timer punctuality"},              {"cooldown", "Cooling down"},
+      {"stress", "Stress test"},
       {"done", "Computing the results"}};
   return names.value(phase, phase);
 }
@@ -155,6 +156,7 @@ QString phaseHint(const QString &phase, const QString &kernel) {
       {"mc_instances", "Each step takes up to a few minutes."},
       {"cold_burst", "Each step takes up to a few minutes."},
       {"periodic", "Each step takes about a minute."},
+      {"stress", "Each part runs for the length you chose; the score comes from the 10th minute."},
       {"cooldown", "Waits for the CPU to cool down: up to 2 minutes."},
       {"done", "Measuring is finished; usually a few seconds."}};
   return QObject::tr(qPrintable(hints.value(phase)));
@@ -284,12 +286,22 @@ void MainWindow::buildUi() {
   groups_ = new Segmented; /* items set in refresh(): Simple shows fewer tabs */
   connect(groups_, &Segmented::changed, this, [this](int i) {
     QVector<QString> shown = visibleGroups();
+    shown.removeAll(QStringLiteral("stress"));
     if (i < 0 || i >= shown.size()) return;
     group_ = shown[i];
     metric_ = firstVisible(group_);
     refresh();
   });
   head->addWidget(groups_);
+  /* The stress test in a bubble of its own: minutes of load, run on its own, not one more benchmark tab. */
+  stressTab_ = new Segmented;
+  stressTab_->setItems({tr("Stress test")});
+  connect(stressTab_, &Segmented::changed, this, [this] {
+    group_ = QStringLiteral("stress");
+    metric_ = firstVisible(group_);
+    refresh();
+  });
+  head->addWidget(stressTab_);
   head->addStretch();
   quick_ = new Toggle(tr("Quick"));
   quick_->setToolTip(tr("On: quick runs, a few minutes, for a first look (not comparable).\n"
@@ -466,10 +478,11 @@ QWidget *MainWindow::buildMeasuringWindow() {
   win->setFixedWidth(620);
   win->onClose = [this] {
     if (!proc_) return true;
-    if (QMessageBox::question(measure_, tr("Cancel the run?"),
+    if (!stressOpen_ &&
+        QMessageBox::question(measure_, tr("Cancel the run?"),
                               tr("Closing this window cancels the run. The partial result is kept.")) != QMessageBox::Yes)
       return false;
-    cancelRun();
+    cancelRun(); /* a stress test without a set length asks itself */
     return false; /* the window closes when the runner has stopped */
   };
   auto *l = new QVBoxLayout(win);
@@ -509,10 +522,10 @@ QWidget *MainWindow::buildMeasuringWindow() {
   l->addWidget(fzStatus_);
   fzWarn_ = text(QString(), 9, QFont::Normal, theme().bad);
   l->addWidget(fzWarn_);
-  auto *cancel = new QPushButton(tr("Cancel run"));
-  cancel->setCursor(Qt::PointingHandCursor);
-  connect(cancel, &QPushButton::clicked, this, &MainWindow::cancelRun);
-  l->addWidget(cancel, 0, Qt::AlignLeft);
+  fzCancel_ = new QPushButton(tr("Cancel run"));
+  fzCancel_->setCursor(Qt::PointingHandCursor);
+  connect(fzCancel_, &QPushButton::clicked, this, &MainWindow::cancelRun);
+  l->addWidget(fzCancel_, 0, Qt::AlignLeft);
 
   stallTimer_ = new QTimer(this);
   stallTimer_->setSingleShot(true);
@@ -624,12 +637,16 @@ void MainWindow::refresh() {
   if (!shown.contains(group_)) group_ = shown.value(0);
   if (const Metric *m = findMetric(metric_); !m || !visible(*m) || m->group != group_) metric_ = firstVisible(group_);
   banner_->setVisible(std::any_of(runs_.begin(), runs_.end(), [](const RunSummary &r) { return r.placeholder; }));
+  QVector<QString> main = shown;
+  main.removeAll(QStringLiteral("stress"));
   QStringList names;
-  for (const QString &id : shown)
+  for (const QString &id : main)
     for (const Group &g : groups())
       if (g.id == id) names << QString(g.label).replace("&&", "&");
   groups_->setItems(names);
-  groups_->setCurrent(int(shown.indexOf(group_)));
+  groups_->setCurrent(int(main.indexOf(group_))); /* -1 while the stress test is shown: no tab highlighted */
+  stressTab_->setVisible(shown.contains(QStringLiteral("stress")));
+  stressTab_->setCurrent(group_ == "stress" ? 0 : -1);
   refreshTests();
   refreshRanking();
   refreshDetails();
@@ -685,7 +702,7 @@ void MainWindow::refreshTests() {
 void MainWindow::refreshRunLabels() {
   bool quick = quick_->isChecked();
   runAll_->setText(quick ? tr("▶  Run all quick") : tr("▶  Run all full"));
-  runAll_->setToolTip(advanced_ ? tr("Runs every test.")
+  runAll_->setToolTip(advanced_ ? tr("Runs every test but the stress tests, which run from their own cards.")
                                 : tr("Runs the tests of the Simple view. Switch to Advanced to run every test."));
   for (QAbstractButton *b : cards_.buttons())
     static_cast<TestCard *>(b)->setRunLabel(quick ? tr("Run quick") : tr("Run full"));
@@ -711,7 +728,6 @@ void MainWindow::refreshRanking() {
     row.yours = !r.reference;
     row.name = r.reference ? r.name : tr("This PC · %1").arg(r.name);
     row.detail = r.reference ? QString("%1 · %2").arg(r.machine["os"].toString(), r.machine["isa"].toString()) : r.date;
-    if (m->group == "isa" && !isaPair(r.tiers).isEmpty()) row.detail = isaPair(r.tiers) + " · " + row.detail;
     if (r.placeholder) row.tags << "placeholder";
     if (r.reference && !r.placeholder) row.tags << "reference";
     if (&r == latest && allRuns_->isChecked()) row.tags << "latest";
@@ -722,6 +738,12 @@ void MainWindow::refreshRanking() {
     if (row.value.unsettled && !r.quick) row.tags << "did not settle";
     if (row.value.ofThreads) row.tags << tr("%1 of %2 threads").arg(row.value.threads).arg(row.value.ofThreads);
     if (row.value.clamped) row.tags << tr("throttled");
+    if (m->group == "stress") {
+      const RunSummary::Stress x = r.stress.value(m->context.section(':', 1));
+      if (x.stopped) row.tags << tr("until stopped, %1 min").arg(std::floor(x.durationS / 60));
+      else if (std::isfinite(x.durationS)) row.tags << tr("%1 min").arg(std::round(x.durationS / 60));
+      if (x.errors) row.tags << tr("errors");
+    }
     rows.push_back(row);
   }
   bool shown = std::any_of(rows.begin(), rows.end(), [&](const RankRow &x) { return x.runId == selected_; });
@@ -885,17 +907,73 @@ void MainWindow::refreshContext() {
                                              tr("%1 s").arg(formatValue(build)), 0},
                                             {tr("Compiling the same files in memory"), compile,
                                              tr("%1 s").arg(formatValue(compile)), 2}}));
-  } else if (kind == "isa") {
-    QString pair = isaPair(r->tiers);
-    if (pair.isEmpty()) return;
-    QString base = r->tiers["baseline"].toObject()["level"].toString(),
-            max = r->tiers["max"].toObject()["level"].toString();
-    show(tr("Instruction sets compared"),
-         max.isEmpty() ? tr("For %1: this processor has nothing newer than %2 (%3), so there was no gain to measure.")
-                             .arg(esc(who), esc(isaName(base)), esc(base))
-                       : tr("For %1: <b>%2</b> (%3), the common baseline, against <b>%4</b> (%5), the newest this "
-                            "processor supports. Every row of the ranking shows the pair its computer compared.")
-                             .arg(esc(who), esc(isaName(base)), esc(base), esc(isaName(max)), esc(max)));
+  } else if (kind == "stress" && r->stress.contains(arg)) {
+    const RunSummary::Stress &x = r->stress[arg];
+    /* At most about 60 points: the median of each minute (of several, in a long run). */
+    int per = std::max(1, int(std::lround(60 / x.windowS))), n = int(x.perf.size());
+    per *= std::max(1, int(std::ceil(n / double(per) / 60)));
+    auto median = [&](const QVector<double> &v, int from, int to, double k) {
+      QVector<double> y;
+      for (int i = from; i < to && i < v.size(); i++)
+        if (std::isfinite(v[i]) && v[i] > 0) y.push_back(v[i] * k);
+      if (y.isEmpty()) return double(NAN);
+      std::sort(y.begin(), y.end());
+      return y.size() % 2 ? y[y.size() / 2] : (y[y.size() / 2 - 1] + y[y.size() / 2]) / 2;
+    };
+    /* One slim chart per quantity, on the same minutes: speed, temperature, clock, and power where measured. */
+    ChartLine perf, temp, ghz, watts;
+    perf.name = tr("speed"), perf.color = 0;
+    temp.name = tr("temperature"), temp.color = 3;
+    ghz.name = tr("clock"), ghz.color = 2;
+    watts.name = tr("power"), watts.color = 1;
+    for (int i = 0; i < n; i += per) {
+      double minute = (i + std::min(per, n - i)) * x.windowS / 60;
+      double v = median(x.perf, i, i + per, 1), c = median(x.tempT, i, i + per, 1),
+             g = median(x.mhzT, i, i + per, 1e-3), w = median(x.powerT, i, i + per, 1);
+      if (std::isfinite(v)) perf.pts.push_back({minute, v, NAN, NAN});
+      if (std::isfinite(c)) temp.pts.push_back({minute, c, NAN, NAN});
+      if (std::isfinite(g)) ghz.pts.push_back({minute, g, NAN, NAN});
+      if (std::isfinite(w)) watts.pts.push_back({minute, w, NAN, NAN});
+    }
+    if (perf.pts.size() < 2) return;
+    QStringList facts;
+    const Value score = r->metrics.value(m->id, Value{});
+    facts << (std::isfinite(score.v) ? tr("score (10th minute) <b>%1 %2</b>").arg(formatValue(score.v), esc(x.unit))
+                                     : tr("no score: it ran less than 10 minutes"));
+    if (std::isfinite(x.last.v)) facts << tr("last minute %1 %2").arg(formatValue(x.last.v), esc(x.unit));
+    if (std::isfinite(x.holdUp.v))
+      facts << tr("held <b>%1 %</b> of its first-minute speed").arg(QString::number(x.holdUp.v * 100, 'f', 0));
+    if (std::isfinite(x.tempMax)) facts << tr("hottest %1 °C").arg(QString::number(x.tempMax, 'f', 0));
+    if (x.clamped) facts << tr("%1 windows throttled by the platform").arg(x.clamped);
+    facts << (x.errors ? tr("<b>%1 results came out wrong</b>: the machine is not stable under this load").arg(x.errors)
+                       : tr("every result correct"));
+    facts << (x.stopped ? tr("ran %1 min until stopped").arg(std::floor(x.durationS / 60))
+                        : tr("ran %1 min").arg(std::round(x.durationS / 60)));
+    show(tr("Speed, temperature and clock over the run"),
+         tr("For %1, minute by minute. A speed that falls while the temperature climbs and the clock drops is the "
+            "processor slowing down to stay within its limits.")
+             .arg(esc(who)) +
+             "<br>" + facts.join(QStringLiteral(" · ")));
+    /* Each strip's axis is fitted to its values (never below 0), so a change of a few percent shows. */
+    auto strip = [&](const ChartLine &l, const QString &unit, bool last) {
+      double lo = INFINITY, hi = -INFINITY;
+      for (const auto &pt : l.pts) lo = std::min(lo, pt[1]), hi = std::max(hi, pt[1]);
+      /* four grid steps of a tidy size (1, 2, 2.5 or 5 x a power of ten) around the values */
+      double span = std::max(hi - lo, std::abs(hi) * 0.05), raw = span * 1.6 / 4, mag = std::pow(10, std::floor(std::log10(raw)));
+      double step = mag * (raw <= mag ? 1 : raw <= 2 * mag ? 2 : raw <= 2.5 * mag ? 2.5 : raw <= 5 * mag ? 5 : 10);
+      double y0 = std::max(0.0, std::floor((lo - span * 0.3) / step) * step);
+      while (y0 + 4 * step < hi) y0 += step;
+      auto *ch = new ChartView;
+      ch->setData({l}, false, last ? tr("minutes") : QString(), y0, y0 + 4 * step, false);
+      ch->setYUnit(unit);
+      ch->setAspect(0.3, last ? 170 : 150);
+      contextLayout_->addWidget(ch);
+    };
+    QVector<std::pair<const ChartLine *, QString>> strips{{&perf, x.unit}};
+    if (temp.pts.size() >= 2) strips.push_back({&temp, QStringLiteral("°C")});
+    if (ghz.pts.size() >= 2) strips.push_back({&ghz, tr("GHz")});
+    if (watts.pts.size() >= 2) strips.push_back({&watts, tr("W")});
+    for (int i = 0; i < strips.size(); i++) strip(*strips[i].first, strips[i].second, i == strips.size() - 1);
   } else if (kind == "resp") {
     for (const auto &x : r->ratios)
       if (x.name == "R_resp" && x.kernel == arg) {
@@ -971,7 +1049,6 @@ void MainWindow::refreshDetails() {
       for (const Group &gr : groups())
         if (gr.id == mt.group) {
           QString label = QString(gr.label).replace("&&", "&");
-          if (gr.id == "isa" && !isaPair(r->tiers).isEmpty()) label += " · " + isaPair(r->tiers);
           QLabel *h = text(esc(label), 8.5, QFont::DemiBold, t.faint);
           h->setContentsMargins(0, row ? 6 : 0, 0, 0);
           tg->addWidget(h, row++, 0, 1, 2);
@@ -1137,12 +1214,8 @@ void MainWindow::refreshDetails() {
     kv(tgl, trow, tr("Board"), m["board"].toString());
     if (cpu["llc_bytes"].toDouble() > 0)
       kv(tgl, trow, tr("Largest cache"), QStringLiteral("%1 MiB").arg(cpu["llc_bytes"].toDouble() / (1 << 20)));
-    QJsonObject max = r->tiers["max"].toObject();
-    kv(tgl, trow, tr("Instruction sets"),
-       tr("%1 (%2) → %3").arg(isaName(r->tiers["baseline"].toObject()["level"].toString()),
-                              r->tiers["baseline"].toObject()["level"].toString(),
-                              max["level"].toString().isEmpty() ? tr("none newer")
-                                                                : QStringLiteral("%1 (%2)").arg(isaName(max["level"].toString()), max["level"].toString())));
+    QString level = r->tiers["baseline"].toObject()["level"].toString();
+    if (!level.isEmpty()) kv(tgl, trow, tr("Built for"), QStringLiteral("%1 (%2)").arg(isaName(level), level));
     if (!r->harness.isEmpty())
       kv(tgl, trow, tr("Prismark"), tr("%1, built with %2").arg(r->harness["version"].toString(), r->harness["compiler"].toString()));
     if (!r->frontend.isEmpty()) {
@@ -1282,11 +1355,27 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
   const Metric *m = metricId.isEmpty() ? nullptr : findMetric(metricId);
   bool all = !m;
   QStringList args = {"--progress-json", "--cancel-on-stdin", "--frontend", "gui"};
+  QString stressTime; /* "10m", "30m" or "until-stopped"; a quick run takes a minute per part */
+  if (m && m->group == "stress" && !quick) {
+    QMessageBox box(QMessageBox::Question, tr("Stress test"),
+                    tr("How long should “%1” run? The score is the speed in the 10th minute, so every length from "
+                       "10 minutes on compares; longer runs show how the speed holds up.").arg(m->title),
+                    QMessageBox::Cancel, this);
+    QPushButton *ten = box.addButton(tr("10 minutes"), QMessageBox::AcceptRole);
+    QPushButton *thirty = box.addButton(tr("30 minutes"), QMessageBox::AcceptRole);
+    QPushButton *open = box.addButton(tr("Until I stop it"), QMessageBox::AcceptRole);
+    box.setDefaultButton(ten);
+    box.exec();
+    if (box.clickedButton() == ten) stressTime = "10m";
+    else if (box.clickedButton() == thirty) stressTime = "30m";
+    else if (box.clickedButton() == open) stressTime = "until-stopped";
+    else return;
+  }
   if (m) {
-    if (m->group == "isa") args << "--mode" << "st_sustained" << "--kernels" << "K2,K3,K4,K8";
-    else {
-      args << "--mode" << m->modes.join(",") << "--kernels" << m->kernels;
-      if (m->modes.contains("st_sustained")) args << "--no-isa-uplift";
+    args << "--mode" << m->modes.join(",") << "--kernels" << m->kernels;
+    if (m->group == "stress") {
+      args << "--stress" << m->context.section(':', 1).replace('_', '-');
+      if (!stressTime.isEmpty()) args << "--stress-time" << stressTime;
     }
   }
   if (all && !advanced_) { /* Simple: run what the Simple view shows */
@@ -1298,7 +1387,6 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
         if (!kernels.contains(x.kernels)) kernels << x.kernels;
       }
     args << "--mode" << modes.join(",") << "--kernels" << kernels.join(",");
-    if (!visibleGroups().contains("isa")) args << "--no-isa-uplift"; /* no New instructions test to fill */
   }
   if (quick) args << "--quick";
   /* Compile tests need a snapshot: ask when this run includes one. */
@@ -1352,12 +1440,17 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
   warnings_ = 0;
   part_ = parts_ = runStep_ = runSteps_ = 0;
   inputDuringQuiet_ = cancelling_ = false;
+  stressOpen_ = stressTime == "until-stopped";
+  fzCancel_->setText(stressOpen_ ? tr("Stop stress test") : tr("Cancel run"));
   runStart_ = phaseStart_ = QDateTime::currentDateTime();
   ring_->setProgress(0, 0, QStringLiteral("…"));
   fzState_->setText(tr("STARTING"));
   fzPhase_->setText(tr("Starting the runner"));
-  fzMsg_->setText(QStringLiteral("%1 · %2").arg(m ? tr("%1 only").arg(m->name) : tr("All tests"),
-                                                quick ? tr("quick run") : tr("full run")));
+  fzMsg_->setText(QStringLiteral("%1 · %2").arg(m ? tr("%1 only").arg(m->title) : tr("All tests"),
+                                                quick             ? tr("quick run")
+                                                : stressOpen_     ? tr("until you stop it")
+                                                : !stressTime.isEmpty() ? tr("%1 minutes").arg(stressTime.chopped(1))
+                                                                        : tr("full run")));
   fzTime_->setText(tr("Started at %1").arg(QLocale().toString(runStart_.time(), QLocale::ShortFormat)));
   fzHands_->hide();
   fzStall_->hide();
@@ -1443,7 +1536,7 @@ void MainWindow::showPhase(int step, int steps) {
                                           QStringLiteral("%1/%2").arg(part_).arg(parts_));
   else ring_->setProgress(0, 0, QStringLiteral("…"));
 
-  fzState_->setText(cancelling_ ? tr("CANCELLING")
+  fzState_->setText(cancelling_ ? (stressOpen_ ? tr("STOPPING") : tr("CANCELLING"))
                     : done      ? tr("COMPUTING RESULTS")
                     : phase_ == "cooldown" ? tr("WAITING")
                     : phase_ == "preflight" ? tr("PREPARING")
@@ -1483,13 +1576,23 @@ void MainWindow::onStall() {
 
 void MainWindow::cancelRun() {
   if (!proc_ || cancelling_) return;
+  if (stressOpen_) { /* the normal end of a stress test without a set length: a score needs 10 minutes */
+    double mins = phase_ == "stress" ? phaseStart_.secsTo(QDateTime::currentDateTime()) / 60.0 : 0;
+    if (mins < 10 &&
+        QMessageBox::question(measure_, tr("Stop the stress test?"),
+                              tr("It has run %1 of the 10 minutes a score needs. Stopping now keeps the curve of "
+                                 "speed, clock and temperature, without a score.")
+                                  .arg(QString::number(std::floor(mins)))) != QMessageBox::Yes)
+      return;
+  }
   cancelling_ = true;
   stallTimer_->stop();
   fzStall_->hide();
   fzHands_->hide();
-  fzState_->setText(tr("CANCELLING"));
-  fzPhase_->setText(tr("Cancelling"));
-  fzMsg_->setText(tr("Stopping cleanly and saving the part measured so far."));
+  fzState_->setText(stressOpen_ ? tr("STOPPING") : tr("CANCELLING"));
+  fzPhase_->setText(stressOpen_ ? tr("Stopping the stress test") : tr("Cancelling"));
+  fzMsg_->setText(stressOpen_ ? tr("Stopping cleanly and saving the result.")
+                              : tr("Stopping cleanly and saving the part measured so far."));
   proc_->write("cancel\n"); /* the runner stops cleanly and keeps the partial result */
   proc_->closeWriteChannel();
   /* Ended by force only if the runner stops answering; every event it still sends restarts this. */
@@ -1526,6 +1629,8 @@ void MainWindow::onRunFinished(int code, QProcess::ExitStatus status) {
   if (reason.startsWith(QStringLiteral("prismark: "))) reason.remove(0, 10);
   if (code == -1) {
     QMessageBox::warning(this, tr("Prismark"), tr("Could not start the runner: %1").arg(cliPath()));
+  } else if (cancelling_ && stressOpen_ && code == 0 && status == QProcess::NormalExit) {
+    /* stopped as intended: the result is on the page */
   } else if (cancelling_) {
     QMessageBox::information(this, tr("Run cancelled"),
                              saved ? tr("The run was cancelled. The part measured so far was saved and is shown.")

@@ -32,9 +32,9 @@ const bytes = (b) => (b >= 1 << 20 ? `${num(b / (1 << 20))} MiB` : `${num(b / 10
 const GROUPS = [
   { id: 'mc', label: 'Multi core' },
   { id: 'st', label: 'Single core' },
-  { id: 'resp', label: 'Responsiveness' },
   { id: 'mem', label: 'Memory & jitter' },
-  { id: 'isa', label: 'ISA uplift' },
+  { id: 'resp', label: 'Responsiveness' },
+  { id: 'stress', label: 'Stress test' },
 ];
 
 const series = (d) => d?.analysis?.series ?? [];
@@ -64,11 +64,9 @@ function coldTime(kernel) {
   };
 }
 
-function uplift(kernel, variant) {
-  return (d) => {
-    const r = (d?.analysis?.ratios ?? []).find((x) => x.name === 'U_ISA' && x.kernel === kernel && (x.variant ?? null) === variant);
-    return r ? ci(r.value) : null;
-  };
+/* A stress-test part's score: the speed in its 10th minute (null for a part that ran less than 10 minutes). */
+function stress(part) {
+  return (d) => ci((d?.analysis?.stress ?? []).find((x) => x.part === part)?.score);
 }
 
 function k7(nPick) {
@@ -138,13 +136,13 @@ const METRICS = [
     desc: 'Tail of the lateness of a 1 ms periodic task. Tails are never averaged.', get: periodic('idle') },
   { id: 'j_load', group: 'mem', name: 'Wake-up lateness, loaded', sub: 'K10 periodic · p99.9 with K7 load', unit: 'µs', better: 'lower',
     desc: 'The same tail with K7 loading every other CPU.', get: periodic('loaded') },
+  { id: 's_st', group: 'stress', name: 'K2 render, 1 core', sub: 'stress · 10th minute', unit: 'Msamples/s', better: 'higher',
+    desc: 'One core at full load for 10 minutes or more; speed in the 10th minute.', get: stress('one_core') },
+  { id: 's_mc', group: 'stress', name: 'K2 render, all cores', sub: 'stress · 10th minute', unit: 'Msamples/s', better: 'higher',
+    desc: 'Every CPU at full load for 10 minutes or more; speed in the 10th minute.', get: stress('all_cores') },
+  { id: 's_mem', group: 'stress', name: 'K11 memory bandwidth', sub: 'stress · 10th minute', unit: 'GB/s', better: 'higher',
+    desc: '2 GiB written and checked on every CPU; bandwidth in the 10th minute.', get: stress('memory') },
 
-  { id: 'u_k2', group: 'isa', name: 'K2 render', sub: 'U_ISA = perf_max / perf_baseline', unit: '×', better: 'higher',
-    desc: 'Same source, baseline ISA against the highest supported level.', get: uplift('K2', null) },
-  { id: 'u_k3', group: 'isa', name: 'K3 compression', sub: 'U_ISA', unit: '×', better: 'higher', desc: 'ISA uplift of zstd.', get: uplift('K3', null) },
-  { id: 'u_k4', group: 'isa', name: 'K4 image', sub: 'U_ISA', unit: '×', better: 'higher', desc: 'ISA uplift of decode and resize.', get: uplift('K4', null) },
-  { id: 'u_k8f', group: 'isa', name: 'K8 matmul FP32', sub: 'U_ISA', unit: '×', better: 'higher', desc: 'ISA uplift of FP32 matrix multiply.', get: uplift('K8', 'fp32') },
-  { id: 'u_k8i', group: 'isa', name: 'K8 matmul INT8', sub: 'U_ISA', unit: '×', better: 'higher', desc: 'ISA uplift of INT8 matrix multiply.', get: uplift('K8', 'int8') },
 ];
 
 /* ---------- summaries ---------- */
@@ -367,7 +365,7 @@ function renderDetails() {
       xlabel: 'threads n', ylabel: 'S(n) = T1 / Tn (dashed: ideal)', ymin: 0, ideal: true,
     });
   }
-  const ratios = (r.ratios ?? []).filter((x) => x.name !== 'U_ISA').map((x) =>
+  const ratios = (r.ratios ?? []).map((x) =>
     `<tr><td>${esc(x.name)} ${esc(x.kernel)}${x.variant ? ' ' + esc(x.variant) : ''}${x.n ? ` n=${x.n}` : ''}</td>
      <td class="num">${num(x.value.est)} <span class="muted">[${num(x.value.lo)}, ${num(x.value.hi)}]</span></td></tr>`).join('');
   const unavailable = (r.unavailable ?? []).map((u) => `<li>${esc(u.kernel)}${u.variant ? ' ' + esc(u.variant) : ''} · ${esc(u.mode)}: <span class="muted">${esc(u.reason)}</span></li>`).join('');
@@ -382,7 +380,7 @@ function renderDetails() {
       <dt>OS</dt><dd>${esc(m.os ?? '')} ${esc(m.kernel ?? '')}</dd>
       ${m.board ? `<dt>Board</dt><dd>${esc(m.board)}</dd>` : ''}
       ${m.llc_bytes ? `<dt>LLC</dt><dd>${bytes(m.llc_bytes)}</dd>` : ''}
-      <dt>Tiers</dt><dd>${esc(r.tiers?.baseline?.level ?? 'baseline')}; max ${esc(r.tiers?.max?.level ?? r.tiers?.max?.status ?? '–')}</dd>
+      <dt>Built for</dt><dd>${esc(r.tiers?.baseline?.level ?? '–')}</dd>
       ${r.state?.governor ? `<dt>Governor</dt><dd>${esc(r.state.governor)}</dd>` : ''}
       ${r.state?.power_mode ? `<dt>Power mode</dt><dd>${esc(r.state.power_mode)}</dd>` : ''}
       ${r.harness ? `<dt>Harness</dt><dd class="mono small">${esc(r.harness.version)} · ${esc(r.harness.compiler)} · ${esc(r.harness.git)}</dd>` : ''}

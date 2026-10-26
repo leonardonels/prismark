@@ -78,9 +78,18 @@ class ChartView : public QWidget {
     yUnit_ = unit;
     update();
   }
-  QSize sizeHint() const override { return {320, 200}; }
+  /* Height as a share of the width (default 9/16) and the least height: a slim strip for one of several charts
+     stacked on the same axis. */
+  void setAspect(double aspect, int minHeight) {
+    aspect_ = aspect;
+    minHeight_ = minHeight;
+    updateGeometry();
+  }
+  QSize sizeHint() const override { return {320, std::max(minHeight_, int(320 * aspect_))}; }
+  /* never squeezed below its least height, as a scroll area's layout would otherwise do */
+  QSize minimumSizeHint() const override { return {240, minHeight_}; }
   bool hasHeightForWidth() const override { return true; }
-  int heightForWidth(int w) const override { return std::max(170, w * 9 / 16); }
+  int heightForWidth(int w) const override { return std::max(minHeight_, int(w * aspect_)); }
 
  protected:
   void paintEvent(QPaintEvent *) override;
@@ -88,6 +97,8 @@ class ChartView : public QWidget {
  private:
   QVector<ChartLine> lines_;
   bool logX_ = false, ideal_ = false;
+  double aspect_ = 9.0 / 16;
+  int minHeight_ = 170;
   QString xLabel_, yUnit_;
   double yMin_ = NAN, yMax_ = NAN;
 };

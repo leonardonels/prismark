@@ -27,10 +27,7 @@ bool fromPlaceholder(const QJsonObject &doc, const QString &file, RunSummary &r)
   r.placeholder = doc["placeholder"].toBool(true);
   r.machine = doc["machine"].toObject();
   QString isa = r.machine["isa"].toString();
-  QJsonObject tiers{{"baseline", QJsonObject{{"level", isa == "aarch64" ? "armv8.2-a" : "x86-64-v2"}}}};
-  if (doc.contains("newest_instructions"))
-    tiers["max"] = QJsonObject{{"level", doc["newest_instructions"].toString()}};
-  r.tiers = tiers;
+  r.tiers = QJsonObject{{"baseline", QJsonObject{{"level", isa == "aarch64" ? "armv8.2-a" : "x86-64-v2"}}}};
   QJsonObject results = doc["results"].toObject();
   for (auto it = results.begin(); it != results.end(); ++it) {
     if (!findMetric(it.key())) {

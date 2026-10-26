@@ -78,17 +78,6 @@ std::function<std::optional<Value>(const QJsonObject &)> medianOf(QString kernel
   };
 }
 
-std::function<std::optional<Value>(const QJsonObject &)> uplift(QString kernel, QString variant) {
-  return [=](const QJsonObject &d) -> std::optional<Value> {
-    for (const QJsonValue &v : d["analysis"].toObject()["ratios"].toArray()) {
-      QJsonObject r = v.toObject();
-      if (r["name"].toString() == "U_ISA" && r["kernel"].toString() == kernel && r["variant"].toString() == variant)
-        return ci(r["value"]);
-    }
-    return std::nullopt;
-  };
-}
-
 std::function<std::optional<Value>(const QJsonObject &)> k7(bool all) {
   return [=](const QJsonObject &d) -> std::optional<Value> {
     auto rows = filter(series(d), [](const QJsonObject &r) { return r["kernel"].toString() == "K7"; });
@@ -117,6 +106,17 @@ std::function<std::optional<Value>(const QJsonObject &)> periodic(QString condit
   };
 }
 
+/* A stress-test part's score: the speed in its 10th minute; none for a part that ran less than 10 minutes. */
+std::function<std::optional<Value>(const QJsonObject &)> stress(QString part) {
+  return [=](const QJsonObject &d) -> std::optional<Value> {
+    for (const QJsonValue &v : d["analysis"].toObject()["stress"].toArray()) {
+      QJsonObject r = v.toObject();
+      if (r["part"].toString() == part) return ci(r["score"]);
+    }
+    return std::nullopt;
+  };
+}
+
 /* Files from before ABI 4 may also hold series measured with changed power settings; only "as configured" counts. */
 bool asConfigured(const QJsonObject &r) { return !r.contains("cell") || r["cell"].toString() == "as_shipped"; }
 
@@ -139,32 +139,29 @@ const QVector<Group> &groups() {
        "Heavy jobs that use every core at once, measured after a minute of full load has warmed the CPU up."},
       {"st", "One core",
        "How fast a single core is: short everyday tasks, and long tasks once the core has warmed up."},
-      {"resp", "Responsiveness",
-       "How quickly the computer reacts when work arrives while it is resting. Idle CPUs sleep and slow their "
-       "clock to save power, and waking up costs time."},
       {"mem", "Memory && timing",
        "How long the CPU waits for main memory, and how punctually it wakes up for tasks that run on a fixed "
        "schedule (audio, games, control loops)."},
-      {"isa", "New instructions",
-       "The same code built twice: once for the instructions every processor of its kind has (SSE4.2 on Intel and "
-       "AMD, NEON on Arm), once for the newest this processor supports (AVX2 or AVX-512; dot product or SVE2 on "
-       "Arm). Shows how much the newer instructions help."},
+      {"resp", "Responsiveness",
+       "How quickly the computer reacts when work arrives while it is resting. Idle CPUs sleep and slow their "
+       "clock to save power, and waking up costs time."},
+      {"stress", "Stress test",
+       "Ten minutes or more of full load, as in a long render or a game: how well the speed holds up as the "
+       "computer heats up, and whether every result stays correct. Run each test on its own; Run all leaves them out."},
   };
   return g;
 }
 
 const QVector<Metric> &metrics() {
-  static const QStringList uplift_modes = {"st_sustained"};
   static const QString kSettle =
       "In a full run the processor first works at full load for a minute, so it is as hot (and, if it throttles, as "
       "slow) as long use makes it; then the test is measured for 20 seconds (compiling: 60). Every computer gets "
       "exactly the same warm-up and measurement. Quick runs skip the warm-up and measure a few seconds.";
-  static const QString kUplift =
-      "The same code is built twice: once for the common baseline (SSE4.2 on Intel and AMD, NEON on Arm) and once "
-      "for the newest instructions this processor supports (AVX2 or AVX-512 on Intel and AMD; dot product or SVE2 "
-      "on Arm). Newer sets mostly process more numbers per step: AVX-512 handles four times as many as SSE4.2. Each "
-      "version is measured on one core after the warm-up.";
-  static const QString kUpliftRead = "Higher is better. 1.00× means no gain; 1.50× means 50 % faster.";
+  static const QString kStressHow =
+      "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed, "
+      "clock, temperature and power are recorded every 5 seconds, and every result is checked against the first. "
+      "The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes "
+      "keeps its curve but has no score.";
   static const QString kBurstHow =
       "The task is repeated on a core that is already running, until its time is known to within about 1 %.";
   static const QString kRestHow =
@@ -230,6 +227,32 @@ const QVector<Metric> &metrics() {
        "script starts.",
        kBurstHow, "Lower is better, in milliseconds.", "", false, {"st_burst"}, "K6",
        medianOf("K6", "st_burst", "", 1e-6)},
+      /* Memory & timing */
+      {"m_lat1", "mem", "Memory delay", "Memory delay", "One read from main memory", "ns",
+       "How long the processor waits for one piece of data from main memory (RAM) when it is in none of the caches. "
+       "Programs that jump around large amounts of data, such as databases and games, wait for this often.",
+       "The processor follows a long chain of links through a block of memory larger than all its caches; each step "
+       "has to wait for the previous one to arrive.",
+       "Lower is better, in nanoseconds (billionths of a second).", "", false, {"mc_instances"}, "K7", k7(false)},
+      {"m_latn", "mem", "Memory delay, busy", "Memory delay while every core uses memory", "All cores reading at once",
+       "ns",
+       "The same wait while every other core is also reading main memory, so they all compete for it, as under heavy "
+       "multitasking.",
+       "The same chain of links, followed while every other core runs its own copy.",
+       "Lower is better, in nanoseconds. Compare with “Memory delay”: the difference is the cost of competition.", "",
+       false, {"mc_instances"}, "K7", k7(true)},
+      {"j_idle", "mem", "Timer, idle", "Timer punctuality on an idle computer", "How late a 1 ms timer fires", "µs",
+       "How late a task that asks to wake up every millisecond actually wakes up. It matters for audio, games and "
+       "machine control, where late means a glitch.",
+       "A task wakes up every millisecond for a minute (quick runs: shorter). The result is the lateness of its worst "
+       "1-in-1000 wake-ups, because an average would hide the rare long delays that cause glitches. Keep your hands "
+       "off the keyboard and mouse while it runs.",
+       "Lower is better, in microseconds (millionths of a second).", "", false, {"periodic"}, "K10", periodic("idle")},
+      {"j_load", "mem", "Timer, busy", "Timer punctuality while other cores are busy", "The same, other cores busy",
+       "µs", "The same timer while every other core is kept busy reading memory.",
+       "As on an idle computer, with every other core running a memory-heavy task.",
+       "Lower is better, in microseconds. Compare with “Timer punctuality on an idle computer”.", "", false,
+       {"periodic"}, "K10", periodic("loaded")},
       /* Responsiveness */
       {"r_1ms", "resp", "Wake-up, 1 ms task", "Reacting from rest: a 1 ms task", "A short task started from rest", "%",
        "An idle processor sleeps and slows down to save power. This shows how fast a short task runs when it arrives "
@@ -257,54 +280,24 @@ const QVector<Metric> &metrics() {
        "included.",
        kRestHow, "Lower is better, in milliseconds. Compare with “Starting a small script” under One core.",
        "resp:K6", false, {"cold_burst"}, "K6", medianOf("K6", "cold_burst", "cold", 1e-6)},
-      /* Memory & timing */
-      {"m_lat1", "mem", "Memory delay", "Memory delay", "One read from main memory", "ns",
-       "How long the processor waits for one piece of data from main memory (RAM) when it is in none of the caches. "
-       "Programs that jump around large amounts of data, such as databases and games, wait for this often.",
-       "The processor follows a long chain of links through a block of memory larger than all its caches; each step "
-       "has to wait for the previous one to arrive.",
-       "Lower is better, in nanoseconds (billionths of a second).", "", false, {"mc_instances"}, "K7", k7(false)},
-      {"m_latn", "mem", "Memory delay, busy", "Memory delay while every core uses memory", "All cores reading at once",
-       "ns",
-       "The same wait while every other core is also reading main memory, so they all compete for it, as under heavy "
-       "multitasking.",
-       "The same chain of links, followed while every other core runs its own copy.",
-       "Lower is better, in nanoseconds. Compare with “Memory delay”: the difference is the cost of competition.", "",
-       false, {"mc_instances"}, "K7", k7(true)},
-      {"j_idle", "mem", "Timer, idle", "Timer punctuality on an idle computer", "How late a 1 ms timer fires", "µs",
-       "How late a task that asks to wake up every millisecond actually wakes up. It matters for audio, games and "
-       "machine control, where late means a glitch.",
-       "A task wakes up every millisecond for a minute (quick runs: shorter). The result is the lateness of its worst "
-       "1-in-1000 wake-ups, because an average would hide the rare long delays that cause glitches. Keep your hands "
-       "off the keyboard and mouse while it runs.",
-       "Lower is better, in microseconds (millionths of a second).", "", false, {"periodic"}, "K10", periodic("idle")},
-      {"j_load", "mem", "Timer, busy", "Timer punctuality while other cores are busy", "The same, other cores busy",
-       "µs", "The same timer while every other core is kept busy reading memory.",
-       "As on an idle computer, with every other core running a memory-heavy task.",
-       "Lower is better, in microseconds. Compare with “Timer punctuality on an idle computer”.", "", false,
-       {"periodic"}, "K10", periodic("loaded")},
-      /* New instructions */
-      {"u_k2", "isa", "3D rendering", "3D rendering: gain from the newest instructions", "Gain from newest instructions",
-       "×", "How much faster the renderer runs when built for the newest instructions this processor supports.",
-       kUplift, kUpliftRead, "isa", true, uplift_modes, "K2", uplift("K2", "")},
-      {"u_k3", "isa", "Compression", "Compression: gain from the newest instructions", "Gain from newest instructions",
-       "×", "How much faster compressing a file gets when built for the newest instructions this processor supports.",
-       kUplift, kUpliftRead, "isa", true, uplift_modes, "K3", uplift("K3", "")},
-      {"u_k4", "isa", "Opening a photo", "Opening a photo: gain from the newest instructions",
-       "Gain from newest instructions", "×",
-       "How much faster opening and resizing a photo gets when built for the newest instructions this processor "
-       "supports.",
-       kUplift, kUpliftRead, "isa", true, uplift_modes, "K4", uplift("K4", "")},
-      {"u_k8f", "isa", "Maths, decimal", "Matrix maths with decimal numbers: gain from the newest instructions",
-       "Decimal numbers, as in graphics", "×",
-       "Multiplying large tables of decimal numbers is the core of graphics and of training AI models. Newer vector "
-       "instructions often help a lot here.",
-       kUplift, kUpliftRead, "isa", true, uplift_modes, "K8", uplift("K8", "fp32")},
-      {"u_k8i", "isa", "Maths, integer", "Matrix maths with small whole numbers: gain from the newest instructions",
-       "Small integers, as in AI", "×",
-       "Multiplying large tables of small whole numbers is how AI models run on a device. Some processors add "
-       "instructions just for this.",
-       kUplift, kUpliftRead, "isa", true, uplift_modes, "K8", uplift("K8", "int8")},
+      /* Stress test */
+      {"s_st", "stress", "One core", "One core under stress", "One core at full load for 10 minutes or more",
+       "M samples/s",
+       "How fast one core renders after minutes of full load. A single busy core keeps its highest clock only while "
+       "the cooling and the power limits allow it.",
+       kStressHow, "Higher is better, in million light samples per second in the 10th minute.", "stress:one_core",
+       true, {"stress"}, "K2", stress("one_core")},
+      {"s_mc", "stress", "All cores", "All cores under stress", "Every core at full load for 10 minutes or more",
+       "M samples/s",
+       "How fast every core together renders after minutes of full load, when the processor is as hot as long use "
+       "makes it. Laptops in particular slow down here as their power limits and cooling take over.",
+       kStressHow, "Higher is better, in million light samples per second in the 10th minute.", "stress:all_cores",
+       true, {"stress"}, "K2", stress("all_cores")},
+      {"s_mem", "stress", "Memory", "Memory under stress", "2 GiB written and checked, on every core", "GB/s",
+       "Every core writes 2 GiB of memory and checks every word on the next pass, over and over: how much data the "
+       "memory moves when it is kept busy and warm, and whether any of it comes back wrong.",
+       kStressHow, "Higher is better, in gigabytes per second (read and written) in the 10th minute. Any wrong word "
+       "is reported as an error.", "stress:memory", true, {"stress"}, "K11", stress("memory")},
   };
   return m;
 }
@@ -389,6 +382,38 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
   }
   for (const QJsonValue &v : an["checksums"].toArray())
     if (!v.toObject()["consistent"].toBool()) s.checksumsOk = false;
+  /* The stress test: its figures, and its windows over time for the chart. */
+  for (const QJsonValue &v : an["stress"].toArray()) {
+    QJsonObject r = v.toObject();
+    RunSummary::Stress &x = s.stress[r["part"].toString()];
+    x.unit = r["unit"].toString();
+    x.threads = r["n"].toInt();
+    x.durationS = r["duration_s"].toDouble(NAN);
+    x.stopped = r["stopped"].toBool();
+    if (auto c = ci(r["first_minute"])) x.first = *c;
+    if (auto c = ci(r["last_minute"])) x.last = *c;
+    if (auto c = ci(r["hold_up"])) x.holdUp = *c;
+    x.tempMax = r["temp_max_c"].toDouble(NAN);
+    x.mhz = r["mhz"].toDouble(NAN);
+    x.watts = r["power_w"].toDouble(NAN);
+    x.clamped = r["clamped_windows"].toInt();
+    x.errors = qint64(r["checksum_errors"].toDouble());
+  }
+  for (const QJsonValue &v : doc["results"].toArray()) {
+    QJsonObject r = v.toObject(), p = r["params"].toObject();
+    if (r["mode"].toString() != "stress" || !s.stress.contains(p["part"].toString())) continue;
+    RunSummary::Stress &x = s.stress[p["part"].toString()];
+    x.windowS = p["window_ms"].toDouble(5000) / 1e3;
+    auto nums = [](const QJsonArray &a) {
+      QVector<double> out;
+      for (const QJsonValue &e : a) out.push_back(e.isDouble() ? e.toDouble() : NAN);
+      return out;
+    };
+    x.perf = nums(r["samples"].toArray());
+    x.mhzT = nums(r["mhz"].toArray());
+    x.tempT = nums(r["temp_c"].toArray());
+    x.powerT = nums(r["power_w"].toArray());
+  }
   return true;
 }
 
@@ -405,7 +430,7 @@ QString plainKernel(const QString &kernel, const QString &variant) {
       {"K1", "Compiling code"},    {"K1x", "Full software build"}, {"K2", "3D rendering"},
       {"K3", "Compression"},       {"K4", "Opening a photo"},     {"K5", "Reading JSON"},
       {"K6", "Starting a script"}, {"K7", "Memory delay"},        {"K8", "Matrix maths"},
-      {"K9", "Wake-up test"},      {"K10", "Timer punctuality"}};
+      {"K9", "Wake-up test"},      {"K10", "Timer punctuality"},   {"K11", "Memory bandwidth"}};
   QString n = names.value(kernel, kernel);
   if (variant == "fp32") n += ", decimals";
   else if (variant == "int8") n += ", small integers";
@@ -419,7 +444,7 @@ QString plainMode(const QString &mode) {
       {"st_burst", "one core, short task"},           {"st_sustained", "one core, after warming up"},
       {"mc_threaded", "all cores, working together"}, {"mc_instances", "all cores, each on its own"},
       {"cold_burst", "started from rest"},            {"periodic", "timer punctuality"},
-      {"isa_uplift", "new-instruction gain"},          {"all", "every test"}};
+      {"stress", "stress test"},                      {"all", "every test"}};
   return names.value(mode, mode);
 }
 
@@ -507,12 +532,12 @@ QString plainText(QString text) {
 
 bool isSimple(const QString &metricId) {
   static const QStringList simple = {
-      "mc_k2", "mc_k1",  /* All cores: rendering, and compiling (desktop only, one-time setup); the full build is
-                            for experts */
-      "b_k4", "st_k2",   /* One core: an everyday short task, and one core after warming up */
-      "r_1ms", "c_k4",   /* Responsiveness: the penalty in %, and the photo job of One core started from rest */
-      /* None from Memory & timing or New instructions: they describe the processor's insides rather than something
-       * people do, and their effect already shows in the tests above. Those tabs appear only in Advanced. */
+      "mc_k2", "mc_k1",   /* All cores: rendering, and compiling (desktop only, one-time setup); the full build is
+                             for experts */
+      "b_k4", "st_k2",    /* One core: an everyday short task, and one core after warming up */
+      "m_lat1", "j_idle", /* Memory & timing: how long a read from main memory takes, and how punctual a timer is */
+      /* None from Responsiveness or Stress test: waking from rest depends on power settings more than on the
+       * processor, and a stress test takes ten minutes or more. Those tabs appear only in Advanced. */
   };
   return simple.contains(metricId);
 }
@@ -523,13 +548,6 @@ QString isaName(const QString &level) {
       {"armv8.2-a", "NEON"},     {"armv8.2-a+dotprod+fp16", "NEON + dot product"},
       {"armv9-a+sve2", "SVE2"}};
   return names.value(level, level);
-}
-
-QString isaPair(const QJsonObject &tiers) {
-  QString base = isaName(tiers["baseline"].toObject()["level"].toString());
-  QString max = tiers["max"].toObject()["level"].toString();
-  if (base.isEmpty()) return QString();
-  return max.isEmpty() ? QStringLiteral("%1 only").arg(base) : QStringLiteral("%1 → %2").arg(base, isaName(max));
 }
 
 bool offeredOn(const QString &kernel, const QString &os) {

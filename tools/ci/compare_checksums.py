@@ -2,7 +2,7 @@
 """
 Gate 2: kernel output checksums must be identical across ISAs. Compares the
 `prismark checksums -o FILE` reports of two or more builds. Every report must
-be repeatable and internally consistent (max tier == baseline), and every
+be repeatable and internally consistent, and every
 kernel/size present in all reports must have the same input hash and output
 checksum everywhere. Kernels unavailable on a host (K1 without a snapshot)
 are skipped, never estimated.
@@ -28,8 +28,8 @@ def entries(path):
             bad.append(f"{path}: {key} is not repeatable")
         prev = out.get(key)
         val = (k["input_hash"], k["checksum"])
-        if prev and prev != val:  # the max tier must reproduce the baseline exactly
-            bad.append(f"{path}: {key} differs between tiers {prev} vs {val}")
+        if prev and prev != val:  # a kernel listed twice must agree with itself
+            bad.append(f"{path}: {key} is listed twice with different values {prev} vs {val}")
         out[key] = val
     return doc.get("baseline_level"), out, bad
 

@@ -15,13 +15,13 @@
 #include "jparse.h"
 #include "prismark/prismark.h"
 
-typedef enum { THROUGHPUT, K1X, MEDIAN, RRESP, K7, PERIODIC, UPLIFT } how;
+typedef enum { THROUGHPUT, K1X, MEDIAN, RRESP, K7, PERIODIC, STRESS } how;
 
 static const struct metric {
   const char *key, *group, *name, *unit;
   int higher_better;
   how how;
-  const char *kernel, *mode, *arg; /* MEDIAN: start; UPLIFT: variant; K7: "all"; PERIODIC: condition */
+  const char *kernel, *mode, *arg; /* MEDIAN: start; K7: "all"; PERIODIC: condition; STRESS: part */
   double k;                        /* MEDIAN: scale; RRESP: W in ms */
 } METRICS[] = {
     {"mc_k2", "All cores", "3D rendering on all cores", "M samples/s", 1, THROUGHPUT, "K2", "mc_threaded", NULL, 0},
@@ -33,19 +33,17 @@ static const struct metric {
     {"b_k4", "One core", "Opening a photo", "ms", 0, MEDIAN, "K4", "st_burst", NULL, 1e-6},
     {"b_k5", "One core", "Reading structured data (JSON)", "ms", 0, MEDIAN, "K5", "st_burst", NULL, 1e-6},
     {"b_k6", "One core", "Starting a small script", "ms", 0, MEDIAN, "K6", "st_burst", NULL, 1e-6},
-    {"r_1ms", "Responsiveness", "Reacting from rest: a 1 ms task", "%", 1, RRESP, "K9", NULL, NULL, 1},
-    {"r_10ms", "Responsiveness", "Reacting from rest: a 10 ms task", "%", 1, RRESP, "K9", NULL, NULL, 10},
-    {"c_k4", "Responsiveness", "Opening a photo from rest", "ms", 0, MEDIAN, "K4", "cold_burst", "cold", 1e-6},
-    {"c_k6", "Responsiveness", "Starting a small script from rest", "ms", 0, MEDIAN, "K6", "cold_burst", "cold", 1e-6},
     {"m_lat1", "Memory & timing", "Memory delay", "ns", 0, K7, "K7", NULL, NULL, 0},
     {"m_latn", "Memory & timing", "Memory delay while every core uses memory", "ns", 0, K7, "K7", NULL, "all", 0},
     {"j_idle", "Memory & timing", "Timer punctuality, idle (worst 1 in 1000)", "us", 0, PERIODIC, "K10", NULL, "idle", 0},
     {"j_load", "Memory & timing", "Timer punctuality, other cores busy", "us", 0, PERIODIC, "K10", NULL, "loaded", 0},
-    {"u_k2", "New instructions", "3D rendering: gain", "x", 1, UPLIFT, "K2", NULL, NULL, 0},
-    {"u_k3", "New instructions", "Compression: gain", "x", 1, UPLIFT, "K3", NULL, NULL, 0},
-    {"u_k4", "New instructions", "Opening a photo: gain", "x", 1, UPLIFT, "K4", NULL, NULL, 0},
-    {"u_k8f", "New instructions", "Matrix maths, decimal numbers: gain", "x", 1, UPLIFT, "K8", NULL, "fp32", 0},
-    {"u_k8i", "New instructions", "Matrix maths, small integers: gain", "x", 1, UPLIFT, "K8", NULL, "int8", 0},
+    {"r_1ms", "Responsiveness", "Reacting from rest: a 1 ms task", "%", 1, RRESP, "K9", NULL, NULL, 1},
+    {"r_10ms", "Responsiveness", "Reacting from rest: a 10 ms task", "%", 1, RRESP, "K9", NULL, NULL, 10},
+    {"c_k4", "Responsiveness", "Opening a photo from rest", "ms", 0, MEDIAN, "K4", "cold_burst", "cold", 1e-6},
+    {"c_k6", "Responsiveness", "Starting a small script from rest", "ms", 0, MEDIAN, "K6", "cold_burst", "cold", 1e-6},
+    {"s_st", "Stress test", "One core under stress (10th minute)", "M samples/s", 1, STRESS, "K2", NULL, "one_core", 0},
+    {"s_mc", "Stress test", "All cores under stress (10th minute)", "M samples/s", 1, STRESS, "K2", NULL, "all_cores", 0},
+    {"s_mem", "Stress test", "Memory under stress (10th minute)", "GB/s", 1, STRESS, "K11", NULL, "memory", 0},
 };
 #define NMETRICS (sizeof METRICS / sizeof *METRICS)
 
@@ -151,13 +149,10 @@ static value read_result(const jv *root, const struct metric *m) {
       }
       return none;
     }
-    case UPLIFT: {
-      const jv *ra = jv_get(an, "ratios");
-      for (size_t i = 0; i < jv_len(ra); i++) {
-        const jv *r = &ra->items[i];
-        if (is(r, "name", "U_ISA") && is(r, "kernel", m->kernel) && is(r, "variant", m->arg))
-          return ci(jv_get(r, "value"), 1);
-      }
+    case STRESS: { /* the score; null for a part that ran less than 10 minutes */
+      const jv *st = jv_get(an, "stress");
+      for (size_t i = 0; i < jv_len(st); i++)
+        if (is(&st->items[i], "part", m->arg)) return ci(jv_get(&st->items[i], "score"), 1);
       return none;
     }
   }
