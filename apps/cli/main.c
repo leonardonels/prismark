@@ -1139,6 +1139,8 @@ static void help_main(FILE *f) {
           "  --stress LIST            stress-test parts: one-core,all-cores,memory (default: all three)\n"
           "  --stress-time T          length of each stress-test part: 10m (default), 30m, 1h, or until-stopped\n"
           "                           (Ctrl+C ends it and keeps the result; scored from 10 minutes on)\n"
+          "  --stress-on-error X      stop (default) or continue the stress test after a wrong result\n"
+          "  --stress-max-temp C      end the stress test once the CPU reaches C degrees (default: no limit)\n"
           "  --k1-data DIR            prepared snapshot for Compiling code and Full software build\n"
           "                           (default: the one the desktop app or tools/k1x/prepare.py prepared)\n"
           "\n%swhere it runs:%s\n"
@@ -1153,7 +1155,8 @@ static void help_main(FILE *f) {
           "\nA full run takes about 30 minutes on a 4-core laptop. Ctrl+C stops it and keeps what was measured.\n"
           "Results go to %s%s.\n"
           "\nExit status: 0 done, 1 failed, 2 wrong usage, 3 machine too busy to measure (another program is\n"
-          "working; nothing was measured), 130 stopped with Ctrl+C (what was measured is saved).\n",
+          "working; nothing was measured), 4 the stress test found wrong results, 130 stopped with Ctrl+C (what was\n"
+          "measured is saved).\n",
           o(BOLD), pmk_version(), o(RESET), o(BOLD), o(RESET), o(BOLD), o(RESET), o(BOLD), o(RESET), o(BOLD),
           o(RESET), o(BOLD), o(RESET), has_dir ? pretty_path(pd, sizeof pd, dir) : "the current folder",
           has_dir ? ",\nwhich the desktop app reads too (the current folder when run as root)" : "");
@@ -1230,7 +1233,7 @@ static void help_cmd(FILE *f, const char *cmd) {
 }
 
 /* Exit status, as help lists it. */
-enum { EXIT_FAILED = 1, EXIT_USAGE = 2, EXIT_BUSY = 3, EXIT_CANCELLED = 130 };
+enum { EXIT_FAILED = 1, EXIT_USAGE = 2, EXIT_BUSY = 3, EXIT_UNSTABLE = 4, EXIT_CANCELLED = 130 };
 
 static int is_help(const char *a) { return !strcmp(a, "-h") || !strcmp(a, "--help"); }
 
@@ -1670,7 +1673,7 @@ static int cmd_completion(int argc, char **argv) {
          "_prismark() {\n"
          "  local cur=${COMP_WORDS[COMP_CWORD]} prev=${COMP_WORDS[COMP_CWORD-1]} prog=${COMP_WORDS[0]}\n"
          "  local cmds='run tests list show compare references profiles checksums info help completion'\n"
-         "  local runopts='--quick --tests --mode --stress --stress-time --k1-data --cpu --max-threads -o --output\n"
+         "  local runopts='--quick --tests --mode --stress --stress-time --stress-on-error --stress-max-temp --k1-data --cpu --max-threads -o --output\n"
          "    -q --quiet --no-color --version --seed --min-reps --max-reps --cold-max-reps --warmup --settle --measure\n"
          "    --window-ms --cooldown --period-ms --periodic-seconds --k1x-reps --skip-preflight --max-load'\n"
          "  local list\n"
@@ -1683,6 +1686,7 @@ static int cmd_completion(int argc, char **argv) {
          "      local pre=''; [[ $cur == *,* ]] && pre=${cur%%,*},\n"
          "      COMPREPLY=($(compgen -P \"$pre\" -W 'one-core all-cores memory' -- \"${cur##*,}\")); return ;;\n"
          "    --stress-time) COMPREPLY=($(compgen -W '10m 30m until-stopped' -- \"$cur\")); return ;;\n"
+         "    --stress-on-error) COMPREPLY=($(compgen -W 'stop continue' -- \"$cur\")); return ;;\n"
          "    -o|--output|--k1-data|--profiles|--dir) COMPREPLY=($(compgen -f -- \"$cur\")); return ;;\n"
          "    --cpu|--max-threads|--seed|--min-reps|--max-reps|--cold-max-reps|--warmup|--settle|--measure|\\\n"
          "    --window-ms|--period-ms|--periodic-seconds|--k1x-reps|--max-load) return ;;\n"
@@ -1768,6 +1772,24 @@ static int cmd_run(int argc, char **argv) {
     else if (!strcmp(a, "--stress-time")) {
       NEED_ARG;
       if (parse_stress_time(v, &cfg.stress_s)) return 2;
+      stress_opt = a;
+    }
+    else if (!strcmp(a, "--stress-max-temp")) {
+      NEED_ARG;
+      NUM(cfg.stress_max_temp_c, 0, 1);
+      if (cfg.stress_max_temp_c >= 150) {
+        fprintf(stderr, "prismark: --stress-max-temp is in degrees Celsius, below 150, not '%s'\n", v);
+        return 2;
+      }
+      stress_opt = a;
+    }
+    else if (!strcmp(a, "--stress-on-error")) {
+      NEED_ARG;
+      if (strcmp(v, "stop") && strcmp(v, "continue")) {
+        fprintf(stderr, "prismark: --stress-on-error takes stop or continue, not '%s'\n", v);
+        return 2;
+      }
+      cfg.stress_stop_on_error = !strcmp(v, "stop");
       stress_opt = a;
     }
     else if (!strcmp(a, "--cpu")) { NEED_ARG; INT(cfg.cpu, 0, 65535); }
@@ -1895,11 +1917,17 @@ static int cmd_run(int argc, char **argv) {
   char *json = NULL, *summary = NULL;
   int rc = pmk_start(&cfg, on_event, &prog, &json, &summary);
   g_live_signal = 0;
+  int unstable = json && strstr(json, "\"verdict\":\"failed\""); /* the stress test found wrong results */
   if (live) status_clear(&prog);
   char el[16];
   fmt_duration(el, sizeof el, now_s() - prog.t0);
   if (rc == PMK_ERR_CANCELLED) fprintf(stderr, "%sCancelled after %s.%s%s\n", e(YELLOW), el, e(RESET), json ? " The part measured so far is saved." : "");
   else if (rc != PMK_OK) fprintf(stderr, "%sprismark: %s%s\n", e(RED), pmk_strerror(rc), e(RESET));
+  else if (unstable)
+    fprintf(stderr, "%sStress test FAILED after %s: wrong results (the summary says when and on which CPU).%s\n",
+            e(RED), el, e(RESET));
+  else if (out_mode == OUT_TEXT && json && strstr(json, "\"stop_reason\":\"temperature\""))
+    fprintf(stderr, "%sStress test stopped at the temperature limit after %s.%s\n", e(YELLOW), el, e(RESET));
   else if (out_mode == OUT_TEXT && json && strstr(json, "\"stopped\":true"))
     fprintf(stderr, "%sStress test stopped after %s.%s\n", e(GREEN), el, e(RESET));
   else if (out_mode == OUT_TEXT) fprintf(stderr, "%sFinished in %s.%s\n", e(GREEN), el, e(RESET));
@@ -1933,7 +1961,7 @@ static int cmd_run(int argc, char **argv) {
   pmk_free(summary);
   if (rc == PMK_ERR_CANCELLED) return EXIT_CANCELLED;
   if (rc == PMK_ERR_BUSY) return EXIT_BUSY;
-  return rc == PMK_OK ? 0 : EXIT_FAILED;
+  return rc != PMK_OK ? EXIT_FAILED : unstable ? EXIT_UNSTABLE : 0;
 }
 
 /* ---------- menu ---------- */

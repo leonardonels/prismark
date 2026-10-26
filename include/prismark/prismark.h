@@ -92,6 +92,8 @@ typedef struct pmk_config {
   double stress_s;           /* seconds per part (default 600); 0 runs until pmk_cancel, which then ends the run
                                 normally (at most 24 h) */
   uint32_t stress_parts;     /* PMK_STRESS_* bits; 0 means all */
+  int32_t stress_stop_on_error; /* end the stress test at the first wrong result (default 1) */
+  double stress_max_temp_c;  /* end it once the CPU reaches this temperature, 0 for no limit (default 0) */
 } pmk_config;
 
 /* Fills cfg with defaults. */

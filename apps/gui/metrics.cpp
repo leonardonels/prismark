@@ -397,7 +397,13 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
     x.mhz = r["mhz"].toDouble(NAN);
     x.watts = r["power_w"].toDouble(NAN);
     x.clamped = r["clamped_windows"].toInt();
-    x.errors = qint64(r["checksum_errors"].toDouble());
+    x.errors = qint64(r["checksum_errors"].toDouble() + r["wrong_tasks"].toDouble());
+    x.verdict = r["verdict"].toString(x.errors ? "failed" : "stable"); /* older results have no verdict */
+    x.stopReason = r["stop_reason"].toString();
+    x.firstErrorS = r["first_error_s"].toDouble(NAN);
+    x.firstErrorCpu = r["first_error_cpu"].toInt(-1);
+    QJsonObject byCpu = r["wrong_by_cpu"].toObject();
+    for (auto it = byCpu.begin(); it != byCpu.end(); ++it) x.wrongByCpu[it.key().toInt()] = qint64(it.value().toDouble());
   }
   for (const QJsonValue &v : doc["results"].toArray()) {
     QJsonObject r = v.toObject(), p = r["params"].toObject();

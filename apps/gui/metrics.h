@@ -94,7 +94,11 @@ struct RunSummary {
     Value first, last, holdUp; /* speed in the first and the last minute, and last / first */
     double tempMax = NAN, mhz = NAN, watts = NAN;
     int clamped = 0;
-    qint64 errors = 0;    /* jobs whose result differed from the first */
+    qint64 errors = 0;    /* wrong results: jobs and tasks */
+    QString verdict, stopReason; /* "stable", "failed", "too_hot"; "time", "user", "error", "temperature" */
+    double firstErrorS = NAN;
+    int firstErrorCpu = -1;
+    QMap<int, qint64> wrongByCpu;
     QVector<double> perf, mhzT, tempT, powerT;
   };
   QMap<QString, Stress> stress;

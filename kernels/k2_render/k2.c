@@ -339,6 +339,12 @@ static uint64_t k2_input_hash(const void *p) {
   return pmk_hash_bytes(dims, sizeof dims, h);
 }
 
+/* Job checksums of both inputs, the same on every host (prismark checksums; CI compares x86-64 and ARM64). */
+static uint64_t k2_expected(const void *p) {
+  uint64_t in = k2_input_hash(p);
+  return in == 0xb908533b4659393bull ? 0xf82bb13c3d6c2e30ull : in == 0x27cde2916c01829dull ? 0x8edd32ad4dc631d0ull : 0;
+}
+
 const pmk_tk PMK_SYM(pmk_k2_tk) = {
     .id = "K2",
     .name = "path tracer",
@@ -352,4 +358,5 @@ const pmk_tk PMK_SYM(pmk_k2_tk) = {
     .scratch_free = free,
     .task = k2_task,
     .input_hash = k2_input_hash,
+    .expected = k2_expected,
 };

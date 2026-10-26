@@ -87,7 +87,9 @@ static int stress_part(pmk_ctx *c, int i, const int *order, uint32_t step, uint3
     r->part = PARTS[i].name;
     r->type = ctx_type_of_cpu(c, cpus[0]);
     r->cpu = n == 1 ? cpus[0] : -1;
-    sus_spec s = {tk, inst, n, cpus, 0, 0, part_seconds(c), PMK_STRESS_WINDOW_MS, open_ended};
+    sus_spec s = {.tk = tk, .inst = inst, .nthreads = n, .cpus = cpus, .measure_s = part_seconds(c),
+                  .window_ms = PMK_STRESS_WINDOW_MS, .open_ended = open_ended, .check_tasks = 1,
+                  .stop_on_error = c->cfg.stress_stop_on_error, .max_temp_c = c->cfg.stress_max_temp_c};
     rc = wl_sustained(c, &s, r);
     if (r->stopped) c->stopped = 1;
   }

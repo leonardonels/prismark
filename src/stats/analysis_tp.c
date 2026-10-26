@@ -107,6 +107,13 @@ static size_t windows_in(const pmk_result *r, double lo, double hi, size_t *from
   return b > a ? b - a : 0;
 }
 
+/* "failed" (a wrong result), "too_hot" (ended at the temperature limit) or "stable". */
+static const char *stress_verdict(const pmk_result *r) {
+  if (r->errors || r->wrong_tasks) return "failed";
+  if (r->stop_reason && !strcmp(r->stop_reason, "temperature")) return "too_hot";
+  return "stable";
+}
+
 static void compute_stress(pmk_ctx *c, stress_row *row) {
   const pmk_result *r = row->r;
   pmk_rng *rng = &c->stat_rng;
@@ -455,6 +462,18 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
     jw_int(w, "clamped_windows", r->clamped);
     jw_int(w, "jobs", (int64_t)r->job_ns.n);
     jw_int(w, "checksum_errors", (int64_t)r->errors);
+    jw_str(w, "verdict", stress_verdict(r));
+    jw_str(w, "stop_reason", r->stop_reason);
+    jw_int(w, "wrong_tasks", (int64_t)r->wrong_tasks);
+    jw_num(w, "first_error_s", r->first_wrong_s);
+    jw_int(w, "first_error_cpu", r->first_wrong_cpu);
+    jw_obj_begin(w, "wrong_by_cpu");
+    for (int k = 0; k < r->nwrong_cpu; k++) {
+      char key[16];
+      snprintf(key, sizeof key, "%d", r->wrong_cpu[k]);
+      jw_int(w, key, (int64_t)r->wrong_cpu_n[k]);
+    }
+    jw_obj_end(w);
     jw_obj_end(w);
   }
   jw_arr_end(w);
@@ -575,6 +594,22 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
     for (size_t i = 0; i < a->nst; i++) {
       const stress_row *x = &a->st[i];
       const pmk_result *r = x->r;
+      double ran = (double)r->n * r->window_ms / 1e3;
+      const char *v = stress_verdict(r);
+      if (!strcmp(v, "failed")) {
+        buf_printf(b, "  %s: FAILED: wrong results", r->part);
+        if (isfinite(r->first_wrong_s)) buf_printf(b, ", the first after %d:%02d", (int)r->first_wrong_s / 60, (int)r->first_wrong_s % 60);
+        if (r->first_wrong_cpu >= 0) buf_printf(b, " on CPU %d", r->first_wrong_cpu);
+        buf_printf(b, " (%llu wrong task%s, %llu wrong job%s)", (unsigned long long)r->wrong_tasks,
+                   r->wrong_tasks == 1 ? "" : "s", (unsigned long long)r->errors, r->errors == 1 ? "" : "s");
+        for (int k = 0; k < r->nwrong_cpu; k++) buf_printf(b, "%s CPU %d: %llu", k ? "," : ";", r->wrong_cpu[k], (unsigned long long)r->wrong_cpu_n[k]);
+        buf_printf(b, "\n");
+      } else if (!strcmp(v, "too_hot")) {
+        buf_printf(b, "  %s: STOPPED at the temperature limit after %d:%02d, no wrong results\n", r->part, (int)ran / 60, (int)ran % 60);
+      } else {
+        buf_printf(b, "  %s: stable for %d:%02d, no wrong results%s\n", r->part, (int)ran / 60, (int)ran % 60,
+                   r->stopped ? " (stopped by you)" : "");
+      }
       char score[64], dur[32];
       if (isfinite(x->score.est))
         snprintf(score, sizeof score, "%.4g [%.4g, %.4g]", x->score.est, x->score.lo, x->score.hi);
@@ -585,7 +620,7 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
       buf_printf(b, "  %-10s %-12s %3d thr  %-28s %s  hold-up %.3f", r->part, pmk_display_name(r->kernel),
                  r->nthreads ? r->nthreads : 1, score, unit_of(r), x->hold_up.est);
       if (isfinite(x->temp_max)) buf_printf(b, "  max %.0f C", x->temp_max);
-      buf_printf(b, "  (%s)%s\n", dur, r->errors ? "  ERRORS: some jobs came out wrong" : "");
+      buf_printf(b, "  (%s)\n", dur);
     }
   }
   int bad = 0;

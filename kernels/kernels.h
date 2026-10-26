@@ -18,7 +18,7 @@
 #define PMK_SYM(name) PMK_SYM2(name, PMK_TIER)
 
 /* Bumped whenever pmk_kernels or pmk_tk changes layout; modules with another value are refused. */
-#define PMK_KERNELS_ABI 2
+#define PMK_KERNELS_ABI 3
 
 /* K7: one node per cache line, linked into a single random cycle. */
 typedef struct pmk_k7_node {
@@ -63,6 +63,9 @@ typedef struct pmk_tk {
   void (*scratch_free)(void *s);
   uint64_t (*task)(const void *inst, void *scratch, size_t i);
   uint64_t (*input_hash)(const void *inst);
+  /* Optional: the job checksum a correct machine produces for this instance, 0 if not known. Outputs are
+     bit-identical on every host, so it can be known in advance; the stress test checks every job against it. */
+  uint64_t (*expected)(const void *inst);
 } pmk_tk;
 
 typedef struct pmk_kernels {

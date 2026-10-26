@@ -250,6 +250,7 @@ const pmk_tk PMK_SYM(pmk_k1_tk) = {
     k1_scratch_free,
     k1_task,
     k1_input_hash,
+    nullptr, /* expected: depends on the snapshot */
 };
 
 }  // extern "C"

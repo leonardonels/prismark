@@ -80,6 +80,14 @@ static uint64_t k11_input_hash(const void *p) {
   return pmk_hash_bytes(h, sizeof h, 11);
 }
 
+/* What every job returns when no word was wrong: it follows from the chunk count alone. */
+static uint64_t k11_expected(const void *p) {
+  const k11 *s = p;
+  uint64_t acc = 0;
+  for (size_t i = 0; i < s->nchunks; i++) acc = pmk_job_combine(acc, i, pmk_mix64((uint64_t)i * K11_STEP));
+  return acc;
+}
+
 const pmk_tk PMK_SYM(pmk_k11_tk) = {
     .id = "K11",
     .name = "memory bandwidth",
@@ -91,4 +99,5 @@ const pmk_tk PMK_SYM(pmk_k11_tk) = {
     .task_work = k11_task_work,
     .task = k11_task,
     .input_hash = k11_input_hash,
+    .expected = k11_expected,
 };

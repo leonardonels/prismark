@@ -68,8 +68,22 @@ typedef struct shared {
   /* job records, written by worker 0 */
   pmk_dvec job_ns;
   atomic_size_t njobs;
-  uint64_t checksum, checksum_bad; /* checksum_bad: jobs whose checksum differed from the first */
+  uint64_t checksum, checksum_bad; /* checksum_bad: jobs whose checksum differed from the reference */
+  uint64_t expected;               /* the known-good job checksum (pmk_tk.expected), 0 if unknown */
   int checksum_set;
+
+  /* Wrong results by task: each task's checksum against its own from the first job, so the CPU that computed a
+     wrong one is known. A task index is never run twice at once (a job starts when the last one is done). */
+  uint64_t *ref;
+  unsigned char *ref_set;
+  _Atomic uint64_t wrong_tasks;
+  _Atomic uint64_t *wrong_by_cpu; /* by CPU id, ncpu_ids entries */
+  int ncpu_ids;
+  _Atomic uint64_t first_wrong_ns; /* since t0_raw, plus 1 (0: none yet) */
+  atomic_int first_wrong_cpu;
+  uint64_t fault_after;            /* PRISMARK_STRESS_FAULT=CPU:SECONDS, tests only: one wrong task then, 0 if unset */
+  int fault_cpu;
+  atomic_int fault_done;
 } shared;
 
 typedef struct worker {
@@ -98,12 +112,21 @@ static void account(shared *sh, int w, uint64_t t_start, uint64_t work) {
   }
 }
 
+/* The first wrong result: when (since the start) and on which CPU (-1 if not known). */
+static void note_wrong(shared *sh, int cpu) {
+  uint64_t none = 0, t = pal_now_raw_ns() - sh->t0_raw + 1;
+  if (atomic_compare_exchange_strong(&sh->first_wrong_ns, &none, t)) atomic_store(&sh->first_wrong_cpu, cpu);
+}
+
 static void record_job(shared *sh, uint64_t ns, uint64_t sum) {
+  /* Against the known-good checksum where the kernel has one, else against the first job. */
   if (!sh->checksum_set) {
-    sh->checksum = sum;
+    sh->checksum = sh->expected ? sh->expected : sum;
     sh->checksum_set = 1;
-  } else if (sum != sh->checksum) {
+  }
+  if (sum != sh->checksum) {
     sh->checksum_bad++;
+    note_wrong(sh, -1);
   }
   if (dvec_push(&sh->job_ns, (double)ns)) atomic_store(&sh->failed, 1);
   atomic_fetch_add(&sh->njobs, 1);
@@ -120,6 +143,20 @@ static void work_tasks(shared *sh, int w, const void *inst, void *scratch) {
       uint64_t t_start = pal_now_raw_ns();
       uint64_t h = sh->tk->task(inst, scratch, i);
       atomic_fetch_add(&sh->job_sum, pmk_job_combine(0, i, h));
+      if (sh->ref && sh->fault_after && pal_current_cpu() == sh->fault_cpu &&
+          pal_now_raw_ns() - sh->t0_raw > sh->fault_after && !atomic_exchange(&sh->fault_done, 1))
+        h ^= 1; /* PRISMARK_STRESS_FAULT: one wrong result, for testing the checks */
+      if (sh->ref) {
+        if (!sh->ref_set[i]) {
+          sh->ref[i] = h;
+          sh->ref_set[i] = 1;
+        } else if (h != sh->ref[i]) {
+          int cpu = pal_current_cpu();
+          atomic_fetch_add(&sh->wrong_tasks, 1);
+          if (cpu >= 0 && cpu < sh->ncpu_ids) atomic_fetch_add(&sh->wrong_by_cpu[cpu], 1);
+          note_wrong(sh, cpu);
+        }
+      }
       account(sh, w, t_start, sh->tk->task_work(inst, i));
     }
     if (atomic_fetch_add(&sh->done, 1) + 1 == sh->ntasks) {
@@ -258,6 +295,7 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
     free(wk);
     return PMK_ERR_NOMEM;
   }
+  int rc = PMK_OK;
   sh->c = c;
   sh->s = s;
   sh->tk = tk;
@@ -267,8 +305,20 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   sh->work = calloc((size_t)s->nthreads * sh->maxwin, sizeof *sh->work);
   sh->lock = pal_lock_new();
   sh->ntasks = tk->ntasks(s->inst);
+  sh->expected = tk->expected ? tk->expected(s->inst) : 0;
+  if (s->check_tasks) {
+    for (int i = 0; i < c->m.ncpu; i++)
+      if (c->m.cpus[i].id >= sh->ncpu_ids) sh->ncpu_ids = c->m.cpus[i].id + 1;
+    sh->ref = calloc(sh->ntasks, sizeof *sh->ref);
+    sh->ref_set = calloc(sh->ntasks, 1);
+    sh->wrong_by_cpu = calloc((size_t)sh->ncpu_ids, sizeof *sh->wrong_by_cpu);
+    if (!sh->ref || !sh->ref_set || !sh->wrong_by_cpu) rc = PMK_ERR_NOMEM;
+    const char *fault = getenv("PRISMARK_STRESS_FAULT");
+    double after;
+    if (fault && sscanf(fault, "%d:%lf", &sh->fault_cpu, &after) == 2 && after > 0)
+      sh->fault_after = (uint64_t)(after * 1e9);
+  }
   atomic_store(&sh->cpu0, -1);
-  int rc = PMK_OK;
   if (!sh->work || !sh->lock) rc = PMK_ERR_NOMEM;
 
   int started = 0;
@@ -309,7 +359,8 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
         int k = pal_cpu_cur_khz(s->cpus ? s->cpus[i] : c->m.cpus[i % c->m.ncpu].id);
         if (k > 0) khz += k, nk++, dkhz[dom[i]] += k, dn[dom[i]]++;
       }
-      if (dvec_push(&r->temps, pal_cpu_temp_c()) || dvec_push(&r->mhz, nk ? khz / nk / 1000 : 0) ||
+      double temp = pal_cpu_temp_c();
+      if (dvec_push(&r->temps, temp) || dvec_push(&r->mhz, nk ? khz / nk / 1000 : 0) ||
           dvec_push(&r->power, pal_power_read(&pw)))
         rc = PMK_ERR_NOMEM;
       /* An idle domain's clock: the average of all its CPUs. */
@@ -320,6 +371,15 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
         }
       for (int d = 0; d < r->nclock_dom; d++)
         if (dvec_push(&r->mhz_dom[d], dn[d] ? dkhz[d] / dn[d] / 1000 : 0)) rc = PMK_ERR_NOMEM;
+      /* Stress test: a wrong result, or the temperature limit, ends it there (this window counts: it ran whole). */
+      int wrong = atomic_load(&sh->first_wrong_ns) != 0;
+      if (rc == PMK_OK && ((s->stop_on_error && wrong) || (s->max_temp_c > 0 && temp >= s->max_temp_c))) {
+        atomic_store(&sh->stop, 1);
+        r->stopped = 1;
+        r->stop_reason = s->stop_on_error && wrong ? "error" : "temperature";
+        w++;
+        break;
+      }
       if (ctx_cancelled() && s->open_ended && w + 1 > warm_w) {
         /* The end of a run without a set length: the windows before this one are the measurement. This one is
            left out, as the workers stopped when the cancel arrived during it. They stop before the cancel is
@@ -327,6 +387,7 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
         atomic_store(&sh->stop, 1);
         ctx_uncancel();
         r->stopped = 1;
+        r->stop_reason = "user";
         break;
       }
       if (ctx_cancelled()) rc = PMK_ERR_CANCELLED;
@@ -385,13 +446,26 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
              tk->id, s->nthreads, r->lowest_mhz, limit / 0.9, r->clamped, r->n - r->steady_from);
   r->job_ns = sh->job_ns;
   r->checksum = sh->checksum;
-  r->checksum_ok = sh->checksum_set && !sh->checksum_bad;
+  r->checksum_ok = sh->checksum_set && !sh->checksum_bad && !atomic_load(&sh->wrong_tasks);
   r->errors = sh->checksum_bad;
+  r->wrong_tasks = atomic_load(&sh->wrong_tasks);
+  uint64_t fw = atomic_load(&sh->first_wrong_ns);
+  r->first_wrong_s = fw ? (double)(fw - 1) * 1e-9 : NAN;
+  r->first_wrong_cpu = fw ? atomic_load(&sh->first_wrong_cpu) : -1;
+  for (int i = 0; sh->wrong_by_cpu && i < sh->ncpu_ids; i++)
+    if (atomic_load(&sh->wrong_by_cpu[i]) && r->nwrong_cpu < PMK_MAX_WRONG_CPUS) {
+      r->wrong_cpu[r->nwrong_cpu] = i;
+      r->wrong_cpu_n[r->nwrong_cpu++] = atomic_load(&sh->wrong_by_cpu[i]);
+    }
+  if (!r->stop_reason && s->check_tasks) r->stop_reason = "time";
   if (rc == PMK_OK && sh->checksum_bad)
     ctx_emit(c, PMK_EV_WARNING, r->mode, tk->id, 0, 0, "%s: %llu of %zu jobs produced a different checksum", tk->id,
              (unsigned long long)sh->checksum_bad, atomic_load(&sh->njobs));
   pal_lock_free(sh->lock);
   free(sh->work);
+  free(sh->ref);
+  free(sh->ref_set);
+  free(sh->wrong_by_cpu);
   free(sh);
   free(wk);
   return rc;

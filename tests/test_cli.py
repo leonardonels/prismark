@@ -7,8 +7,8 @@ data folder (XDG_DATA_HOME, HOME), so the user's results are never touched.
     tests/test_cli.py PATH/TO/prismark [SOURCE_DIR]
 
 The bundled reference systems come from SOURCE_DIR/references (compiled into the program for builds run from
-the build folder). Takes about 30 s: one short run, one stopped with Ctrl+C, one refused as too busy, and a stress
-test stopped after 12 s.
+the build folder). Takes about 30 s: one short run, one stopped with Ctrl+C, one refused as too busy, a stress
+test stopped after 12 s and one ended by a wrong result.
 
 Copyright 2026 The Prismark Authors. Apache-2.0.
 """
@@ -114,6 +114,8 @@ class Cli(unittest.TestCase):
             (["--mode", "stress", "--stress-time", "25h"], "--stress-time takes a length"),
             (["--stress-time", "10m"], "--stress-time needs --mode stress"),
             (["--quick", "--mode", "stress"], "the stress test has no quick run"),
+            (["--mode", "stress", "--stress-on-error", "maybe"], "--stress-on-error takes stop or continue"),
+            (["--mode", "stress", "--stress-max-temp", "200"], "--stress-max-temp is in degrees Celsius"),
         ]:
             with self.subTest(args=args):
                 _, err = self.run_cli("run", *args, code=2)
@@ -241,6 +243,19 @@ class Cli(unittest.TestCase):
         self.assertTrue(part["stopped"])
         self.assertIsNone(part["score"])  # a score needs 10 minutes
         self.assertEqual(part["checksum_errors"], 0)
+
+    def test_stress_wrong_result_exits_4(self):
+        out = os.path.join(self.home, "fault.json")
+        env = dict(self.env, PRISMARK_STRESS_FAULT="0:2")  # one wrong result on CPU 0 after 2 s
+        p = subprocess.run([PRISMARK, "run", "--skip-preflight", "--mode", "stress", "--stress", "all-cores",
+                            "--stress-time", "1m", "-o", out], env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                           text=True, timeout=120)
+        self.assertEqual(p.returncode, 4, p.stderr)
+        self.assertIn("Stress test FAILED", p.stderr)
+        with open(out) as f:
+            (part,) = json.load(f)["analysis"]["stress"]
+        self.assertEqual((part["verdict"], part["stop_reason"], part["first_error_cpu"]), ("failed", "error", 0))
+        self.assertEqual(part["wrong_by_cpu"], {"0": 1})
 
     def test_too_busy_exits_3(self):
         _, err = self.run_cli("run", "--quick", "--max-load", "0", "--tests", "json", "--mode", "short-task",
