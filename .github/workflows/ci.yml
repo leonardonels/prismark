@@ -145,11 +145,12 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - { arch: x86_64, runner: ubuntu-24.04, qt_host: linux, qt_arch: linux_gcc_64 }
-          - { arch: aarch64, runner: ubuntu-24.04-arm, qt_host: linux_arm64, qt_arch: linux_gcc_arm64 }
+          - { arch: x86_64, runner: ubuntu-24.04, qt_host: linux, qt_arch: linux_gcc_64, qt_source: false }
+          # Qt's own ARM64 build needs glibc 2.38: built from source here (tools/build-qt-linux.sh).
+          - { arch: aarch64, runner: ubuntu-24.04-arm, qt_host: linux_arm64, qt_arch: linux_gcc_arm64, qt_source: true }
     runs-on: ${{ matrix.runner }}
     container: ubuntu:22.04
-    timeout-minutes: 120
+    timeout-minutes: 240
     env:
       QT_VERSION: "6.8.3"
       CLANG_VERSION: "19"
@@ -191,11 +192,23 @@ jobs:
         uses: actions/cache@v4
         with:
           path: Qt
-          key: qt-${{ env.QT_VERSION }}-${{ matrix.qt_arch }}-jammy
+          key: qt-${{ env.QT_VERSION }}-${{ matrix.qt_arch }}-jammy${{ matrix.qt_source && format('-src-{0}', hashFiles('tools/build-qt-linux.sh')) || '' }}
 
       - name: Install Qt
-        if: steps.qt.outputs.cache-hit != 'true'
+        if: steps.qt.outputs.cache-hit != 'true' && !matrix.qt_source
         run: aqt install-qt ${{ matrix.qt_host }} desktop "$QT_VERSION" ${{ matrix.qt_arch }} -O Qt
+
+      - name: Build Qt
+        if: steps.qt.outputs.cache-hit != 'true' && matrix.qt_source
+        run: |
+          apt-get install -y --no-install-recommends g++ pkg-config zlib1g-dev libfontconfig1-dev libfreetype-dev \
+            libdbus-1-dev libglib2.0-dev libgl-dev libegl-dev libx11-dev libx11-xcb-dev libxext-dev libxrender-dev \
+            libxi-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-xkb-dev libxcb-icccm4-dev \
+            libxcb-image0-dev libxcb-keysyms1-dev libxcb-render-util0-dev libxcb-randr0-dev libxcb-shape0-dev \
+            libxcb-sync-dev libxcb-xfixes0-dev libxcb-xinerama0-dev libxcb-xinput-dev libxcb-glx0-dev \
+            libxcb-shm0-dev libxcb-render0-dev libxcb-util-dev libxcb-cursor-dev libwayland-dev libwayland-bin
+          tools/build-qt-linux.sh "Qt/$QT_VERSION/gcc_arm64" "$RUNNER_TEMP/qt-work"
+          rm -rf "$RUNNER_TEMP/qt-work"
 
       - name: Cache the compile-test snapshot
         id: k1x
