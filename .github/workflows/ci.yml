@@ -178,14 +178,14 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
-      # Packaging an earlier release: its sources as they were, with this workflow's packaging script (the
+      # Packaging an earlier release: its sources as they were, with this workflow's packaging scripts (the
       # commit the result records stays the release's).
-      - name: Use this workflow's packaging script
+      - name: Use this workflow's packaging scripts
         if: inputs.ref != ''
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch --depth=1 origin ${{ github.sha }}
-          git checkout FETCH_HEAD -- tools/package-linux.sh
+          git checkout FETCH_HEAD -- tools/package-linux.sh tools/build-qt-linux.sh
 
       - name: Cache Qt
         id: qt
