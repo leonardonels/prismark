@@ -135,12 +135,19 @@ jobs:
           name: prismark-windows-x86_64-portable
           path: dist/*.zip
 
-  # Linux x86-64 portable package (tools/package-linux.sh), built in an Ubuntu 22.04 container: glibc and the
-  # libraries it bundles come from the build system, so this sets the oldest distribution it runs on. The job
-  # fails when anything in the package needs a glibc newer than 22.04's (2.35). The snapshot is the Windows
-  # job's cached one, so both packages do the same work.
+  # Linux portable packages for x86-64 and ARM64 (tools/package-linux.sh; ARM64 covers Jetson boards on
+  # JetPack 6 and other ARM64 boards), built in an Ubuntu 22.04 container: glibc and the libraries it bundles
+  # come from the build system, so this sets the oldest distribution they run on. The job fails when anything
+  # in a package needs a glibc newer than 22.04's (2.35). The snapshot is the Windows job's cached one, so every
+  # package does the same work.
   linux-portable:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04, qt_host: linux, qt_arch: linux_gcc_64 }
+          - { arch: aarch64, runner: ubuntu-24.04-arm, qt_host: linux_arm64, qt_arch: linux_gcc_arm64 }
+    runs-on: ${{ matrix.runner }}
     container: ubuntu:22.04
     timeout-minutes: 120
     env:
@@ -170,16 +177,25 @@ jobs:
         with:
           ref: ${{ inputs.ref }}
 
+      # Packaging an earlier release: its sources as they were, with this workflow's packaging script (the
+      # commit the result records stays the release's).
+      - name: Use this workflow's packaging script
+        if: inputs.ref != ''
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch --depth=1 origin ${{ github.sha }}
+          git checkout FETCH_HEAD -- tools/package-linux.sh
+
       - name: Cache Qt
         id: qt
         uses: actions/cache@v4
         with:
           path: Qt
-          key: qt-${{ env.QT_VERSION }}-linux_gcc_64-jammy
+          key: qt-${{ env.QT_VERSION }}-${{ matrix.qt_arch }}-jammy
 
       - name: Install Qt
         if: steps.qt.outputs.cache-hit != 'true'
-        run: aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 -O Qt
+        run: aqt install-qt ${{ matrix.qt_host }} desktop "$QT_VERSION" ${{ matrix.qt_arch }} -O Qt
 
       - name: Cache the compile-test snapshot
         id: k1x
@@ -195,12 +211,12 @@ jobs:
           rm -rf "$RUNNER_TEMP/k1x-work"
 
       - name: Build and package
-        run: K1X_SNAPSHOT=k1x-snapshot tools/package-linux.sh "Qt/$QT_VERSION/gcc_64" dist
+        run: K1X_SNAPSHOT=k1x-snapshot tools/package-linux.sh "$(ls -d Qt/"$QT_VERSION"/gcc_*64 | head -1)" dist
 
       - name: Check the package
         run: |
-          tar -xzf dist/prismark-*-linux-x86_64.tar.gz -C "$RUNNER_TEMP"
-          d=$(echo "$RUNNER_TEMP"/prismark-*-linux-x86_64)
+          tar -xzf dist/prismark-*-linux-${{ matrix.arch }}.tar.gz -C "$RUNNER_TEMP"
+          d=$(echo "$RUNNER_TEMP"/prismark-*-linux-${{ matrix.arch }})
           "$d/prismark" --version
           "$d/prismark" tests > /dev/null
           newest=$(find "$d" -path "$d/k1x" -prune -o -type f \( -name '*.so*' -o -perm -u+x \) -print |
@@ -211,8 +227,52 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: prismark-linux-x86_64-portable
+          name: prismark-linux-${{ matrix.arch }}-portable
           path: dist/*.tar.gz
+
+  # Each Linux package on the newest Fedora, as a user would get it: unpacked into a system that has only what a
+  # Fedora desktop has. Every program and library must find what it needs, the runner must measure, and the
+  # desktop app must start (on a virtual X display).
+  fedora-check:
+    needs: linux-portable
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04 }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    container: fedora:latest
+    steps:
+      - name: Install what a Fedora desktop has
+        run: >
+          dnf install -y --setopt=install_weak_deps=False file findutils tar gzip binutils
+          mesa-libGL mesa-libEGL libglvnd-opengl libX11 libX11-xcb libxcb libXext libXrender libXi
+          libxkbcommon libxkbcommon-x11 libwayland-client libwayland-cursor libwayland-egl
+          fontconfig freetype dejavu-sans-fonts dbus-libs glib2 xorg-x11-server-Xvfb
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prismark-linux-${{ matrix.arch }}-portable
+
+      - name: Run the package
+        run: |
+          cat /etc/fedora-release
+          tar -xzf prismark-*-linux-${{ matrix.arch }}.tar.gz
+          d=$(echo "$PWD"/prismark-*-linux-${{ matrix.arch }})
+          missing=$(find "$d" -path "$d/k1x" -prune -o -type f \( -name '*.so*' -o -perm -u+x \) -print |
+            while read -r f; do file -b "$f" | grep -q '^ELF' && ldd "$f" 2>/dev/null | grep 'not found' | sed "s|^|${f#"$d"/}: |"; done)
+          [ -z "$missing" ] || { echo "$missing"; exit 1; }
+          "$d/prismark" --version
+          "$d/prismark" tests > /dev/null
+          "$d/prismark" --quick --skip-preflight --max-threads 2 --mode st_burst --kernels K2,K3,K5 -o "$RUNNER_TEMP/smoke.json"
+
+      - name: Start the desktop app
+        run: |
+          Xvfb :99 -screen 0 1280x800x24 & sleep 2
+          d=$(echo "$PWD"/prismark-*-linux-${{ matrix.arch }})
+          rc=0; DISPLAY=:99 QT_QPA_PLATFORM=xcb timeout 10 "$d/prismark-gui" || rc=$?
+          [ "$rc" = 124 ] || { echo "prismark-gui exited with $rc instead of running"; exit 1; }
 
   # Gate 2: kernel outputs identical on x86-64 and ARM64.
   checksum-gate:
@@ -237,10 +297,10 @@ jobs:
           python3 -m py_compile tools/k1x/prepare.py tools/ci/compare_checksums.py
           cd analyzer && uv run --with . python -c "import prismark_analyzer"
 
-  # A pushed v* tag: both packages go to its GitHub release (a draft is made when there is none yet).
+  # A pushed v* tag: every package goes to its GitHub release (a draft is made when there is none yet).
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux-portable, windows-portable]
+    needs: [linux-portable, fedora-check, windows-portable]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

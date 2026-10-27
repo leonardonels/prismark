@@ -387,3 +387,4 @@
 2026-10-09 08:19:02,631 - aqt.updater - INFO - updater 123930960369472 Patching /home/leo/prismark_dev/src/prismark/build/windows/Qt/6.8.3/gcc_64/lib/libQt6UiTools.prl
 2026-10-09 08:19:02,631 - aqt.main - INFO - installer 123930960369472 Finished installation
 2026-10-09 08:19:02,632 - aqt.main - INFO - installer 123930960369472 Time elapsed: 21.23861809 second
+2026-10-27 18:15:55,722 - aqt.helper - DEBUG - helper 134703181903168 Attempt to download checksum at https://download.qt.io/online/qtsdkrepository/linux_arm64/desktop/qt6_683/qt6_683/Updates.xml.sha256
