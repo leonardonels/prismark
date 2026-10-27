@@ -297,7 +297,19 @@ K1X_SNAPSHOT=~/.local/share/prismark/k1x tools/package-linux.sh Qt/6.8.3/gcc_64
 ```
 
 It refuses to pack a folder in which a program or plugin would take a
-library from the system that is not on every desktop.
+library from the system that is not on every desktop. It packages for the
+machine it runs on, x86-64 or ARM64. For ARM64, Qt's own binaries need a newer
+glibc than Ubuntu 22.04's, so Qt is built from source first
+(`tools/build-qt-linux.sh build/qt-6.8.3`, then `tools/package-linux.sh
+build/qt-6.8.3`). The ARM64 package covers Jetson Orin boards on JetPack 6 and
+other ARM64 boards with Ubuntu 22.04, Debian 12 or later.
+
+CI builds both packages in an Ubuntu 22.04 container on every push
+(`linux-portable`), and fails if anything in them needs a glibc newer than
+22.04's. It then runs each one on the newest Fedora (`fedora-check`): every
+library must resolve, the runner must measure and the app must start. When a
+`v*` tag is pushed, every package is attached to its GitHub release. To
+repackage an earlier release, run the workflow by hand with that tag as `ref`.
 
 ## Running
 
