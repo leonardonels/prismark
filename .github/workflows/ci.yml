@@ -3,7 +3,14 @@ name: ci
 on:
   push:
     branches: [main]
+    tags: ['v*']
   pull_request:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Tag or commit to package (default the branch it runs on), e.g. to rebuild a release
+        required: false
+        default: ''
 
 # Build, unit tests and the cross-ISA checksum gate. Shared runners are too
 # noisy for timing; performance is measured on controlled hardware.
@@ -65,6 +72,8 @@ jobs:
       CLANG_VERSION: "19"
     steps:
       - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
 
       - name: Free disk space
         run: sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
@@ -126,6 +135,158 @@ jobs:
           name: prismark-windows-x86_64-portable
           path: dist/*.zip
 
+  # Linux portable packages for x86-64 and ARM64 (tools/package-linux.sh; ARM64 covers Jetson boards on
+  # JetPack 6 and other ARM64 boards), built in an Ubuntu 22.04 container: glibc and the libraries it bundles
+  # come from the build system, so this sets the oldest distribution they run on. The job fails when anything
+  # in a package needs a glibc newer than 22.04's (2.35). The snapshot is the Windows job's cached one, so every
+  # package does the same work.
+  linux-portable:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04, qt_host: linux, qt_arch: linux_gcc_64, qt_source: false }
+          # Qt's own ARM64 build needs glibc 2.38: built from source here (tools/build-qt-linux.sh).
+          - { arch: aarch64, runner: ubuntu-24.04-arm, qt_host: linux_arm64, qt_arch: linux_gcc_arm64, qt_source: true }
+    runs-on: ${{ matrix.runner }}
+    container: ubuntu:22.04
+    timeout-minutes: 240
+    env:
+      QT_VERSION: "6.8.3"
+      CLANG_VERSION: "19"
+      GLIBC_MAX: "2.35"
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      - name: Install the build tools
+        run: |
+          apt-get update
+          apt-get install -y --no-install-recommends ca-certificates curl wget gnupg lsb-release \
+            software-properties-common git file unzip xz-utils zstd binutils python3 python3-pip ninja-build \
+            libgl-dev libegl-dev libopengl0 libxkbcommon-dev libxkbcommon-x11-0 libfontconfig1 libfreetype6 \
+            libdbus-1-3 libglib2.0-0 libx11-xcb1 libxcb1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
+            libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxcb-randr0 libxcb-shape0 \
+            libxcb-sync1 libxcb-xfixes0 libxcb-xinput0 libxcb-glx0 libxcb-shm0 libwayland-client0 \
+            libwayland-cursor0 libwayland-egl1
+          wget -q https://apt.llvm.org/llvm.sh
+          bash llvm.sh "$CLANG_VERSION"
+          apt-get install -y --no-install-recommends "libclang-$CLANG_VERSION-dev" "llvm-$CLANG_VERSION-dev"
+          # 22.04 ships CMake 3.22; the build needs 3.25 or later.
+          python3 -m pip install --no-cache-dir "cmake>=3.25,<4" aqtinstall
+          cmake --version
+
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      # Packaging an earlier release: its sources as they were, with this workflow's packaging scripts (the
+      # commit the result records stays the release's).
+      - name: Use this workflow's packaging scripts
+        if: inputs.ref != ''
+        run: |
+          git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          git fetch --depth=1 origin ${{ github.sha }}
+          git checkout FETCH_HEAD -- tools/package-linux.sh tools/build-qt-linux.sh
+
+      - name: Cache Qt
+        id: qt
+        uses: actions/cache@v4
+        with:
+          path: Qt
+          key: qt-${{ env.QT_VERSION }}-${{ matrix.qt_arch }}-jammy${{ matrix.qt_source && format('-src-{0}', hashFiles('tools/build-qt-linux.sh')) || '' }}
+
+      - name: Install Qt
+        if: steps.qt.outputs.cache-hit != 'true' && !matrix.qt_source
+        run: aqt install-qt ${{ matrix.qt_host }} desktop "$QT_VERSION" ${{ matrix.qt_arch }} -O Qt
+
+      - name: Build Qt
+        if: steps.qt.outputs.cache-hit != 'true' && matrix.qt_source
+        run: |
+          apt-get install -y --no-install-recommends g++ pkg-config zlib1g-dev libfontconfig1-dev libfreetype-dev \
+            libdbus-1-dev libglib2.0-dev libgl-dev libegl-dev libx11-dev libx11-xcb-dev libxext-dev libxrender-dev \
+            libxi-dev libxkbcommon-dev libxkbcommon-x11-dev libxcb1-dev libxcb-xkb-dev libxcb-icccm4-dev \
+            libxcb-image0-dev libxcb-keysyms1-dev libxcb-render-util0-dev libxcb-randr0-dev libxcb-shape0-dev \
+            libxcb-sync-dev libxcb-xfixes0-dev libxcb-xinerama0-dev libxcb-xinput-dev libxcb-glx0-dev \
+            libxcb-shm0-dev libxcb-render0-dev libxcb-util-dev libxcb-cursor-dev libwayland-dev libwayland-bin
+          tools/build-qt-linux.sh "Qt/$QT_VERSION/gcc_arm64" "$RUNNER_TEMP/qt-work"
+          rm -rf "$RUNNER_TEMP/qt-work"
+
+      - name: Cache the compile-test snapshot
+        id: k1x
+        uses: actions/cache@v4
+        with:
+          path: k1x-snapshot
+          key: k1x-snapshot-${{ hashFiles('tools/k1x/prepare.py') }}
+
+      - name: Prepare the compile-test snapshot
+        if: steps.k1x.outputs.cache-hit != 'true'
+        run: |
+          python3 tools/k1x/prepare.py --out k1x-snapshot --work "$RUNNER_TEMP/k1x-work"
+          rm -rf "$RUNNER_TEMP/k1x-work"
+
+      - name: Build and package
+        run: K1X_SNAPSHOT=k1x-snapshot tools/package-linux.sh "$(ls -d Qt/"$QT_VERSION"/gcc_*64 | head -1)" dist
+
+      - name: Check the package
+        run: |
+          tar -xzf dist/prismark-*-linux-${{ matrix.arch }}.tar.gz -C "$RUNNER_TEMP"
+          d=$(echo "$RUNNER_TEMP"/prismark-*-linux-${{ matrix.arch }})
+          "$d/prismark" --version
+          "$d/prismark" tests > /dev/null
+          newest=$(find "$d" -path "$d/k1x" -prune -o -type f \( -name '*.so*' -o -perm -u+x \) -print |
+            while read -r f; do file -b "$f" | grep -q '^ELF' && objdump -T "$f"; done |
+            grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)
+          echo "newest glibc needed: $newest (allowed: $GLIBC_MAX)"
+          [ "$(printf '%s\n' "$newest" "$GLIBC_MAX" | sort -V | tail -1)" = "$GLIBC_MAX" ]
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prismark-linux-${{ matrix.arch }}-portable
+          path: dist/*.tar.gz
+
+  # Each Linux package on the newest Fedora, as a user would get it: unpacked into a system that has only what a
+  # Fedora desktop has. Every program and library must find what it needs, the runner must measure, and the
+  # desktop app must start (on a virtual X display).
+  fedora-check:
+    needs: linux-portable
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { arch: x86_64, runner: ubuntu-24.04 }
+          - { arch: aarch64, runner: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.runner }}
+    container: fedora:latest
+    steps:
+      - name: Install what a Fedora desktop has
+        run: >
+          dnf install -y --setopt=install_weak_deps=False file findutils tar gzip binutils
+          mesa-libGL mesa-libEGL libglvnd-opengl libX11 libX11-xcb libxcb libXext libXrender libXi
+          libxkbcommon libxkbcommon-x11 libwayland-client libwayland-cursor libwayland-egl
+          fontconfig freetype dejavu-sans-fonts dbus-libs glib2 xorg-x11-server-Xvfb
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: prismark-linux-${{ matrix.arch }}-portable
+
+      - name: Run the package
+        run: |
+          cat /etc/fedora-release
+          tar -xzf prismark-*-linux-${{ matrix.arch }}.tar.gz
+          d=$(echo "$PWD"/prismark-*-linux-${{ matrix.arch }})
+          missing=$(find "$d" -path "$d/k1x" -prune -o -type f \( -name '*.so*' -o -perm -u+x \) -print |
+            while read -r f; do file -b "$f" | grep -q '^ELF' && ldd "$f" 2>/dev/null | grep 'not found' | sed "s|^|${f#"$d"/}: |"; done)
+          [ -z "$missing" ] || { echo "$missing"; exit 1; }
+          "$d/prismark" --version
+          "$d/prismark" tests > /dev/null
+          "$d/prismark" --quick --skip-preflight --max-threads 2 --mode st_burst --kernels K2,K3,K5 -o "$RUNNER_TEMP/smoke.json"
+
+      - name: Start the desktop app
+        run: |
+          Xvfb :99 -screen 0 1280x800x24 & sleep 2
+          d=$(echo "$PWD"/prismark-*-linux-${{ matrix.arch }})
+          rc=0; DISPLAY=:99 QT_QPA_PLATFORM=xcb timeout 10 "$d/prismark-gui" || rc=$?
+          [ "$rc" = 124 ] || { echo "prismark-gui exited with $rc instead of running"; exit 1; }
+
   # Gate 2: kernel outputs identical on x86-64 and ARM64.
   checksum-gate:
     needs: build
@@ -148,3 +309,27 @@ jobs:
         run: |
           python3 -m py_compile tools/k1x/prepare.py tools/ci/compare_checksums.py
           cd analyzer && uv run --with . python -c "import prismark_analyzer"
+
+  # A pushed v* tag: every package goes to its GitHub release (a draft is made when there is none yet).
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [linux-portable, fedora-check, windows-portable]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: prismark-*-portable
+          merge-multiple: true
+          path: dist
+      - name: Attach the packages to the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          tag=$GITHUB_REF_NAME
+          gh release view "$tag" > /dev/null 2>&1 ||
+            gh release create "$tag" --draft --prerelease --title "Prismark ${tag#v} (beta)" --generate-notes
+          gh release upload "$tag" dist/* --clobber
+          (cd dist && sha256sum *)

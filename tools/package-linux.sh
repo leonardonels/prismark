@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Builds Prismark for Linux x86-64 and packs a portable folder: unpack and run ./prismark-gui, nothing to
+# Builds Prismark for Linux (x86-64 or ARM64, the machine's own) and packs a portable folder: unpack and run ./prismark-gui, nothing to
 # install (a live USB session is enough). It holds the desktop app, the runner, Qt and every library they need
 # that a desktop distribution may lack, and the compile tests with everything they need: Clang built into the
 # runner (Compiling code), and for Full software build the prepared snapshot (k1x/) and the build tools (tools/:
@@ -25,6 +25,20 @@ OUT=$(realpath -m "${2:-$SRC/build}")
 BUILD=$(realpath -m "${PRISMARK_BUILD_DIR:-$SRC/build/linux-bundle}")
 COMPILE=${PRISMARK_COMPILE_TESTS:-1}
 LLVM=${PRISMARK_K1_LLVM_DIR:-/usr/lib/llvm-19}
+# The package is for the machine it is built on; the pinned build tools are the same versions for both.
+case $(uname -m) in
+  x86_64)
+    ARCH=x86_64 ARCH_NAME=x86-64 NINJA_ZIP=ninja-linux.zip
+    CMAKE_SHA=5a1133ff103c71eb5120e2cc3de922733e7d8a26a98ae716397e8676adb367bf
+    NINJA_SHA=6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255
+    PATCHELF_SHA=ce84f2447fb7a8679e58bc54a20dc2b01b37b5802e12c57eece772a6f14bf3f0 ;;
+  aarch64)
+    ARCH=aarch64 ARCH_NAME=ARM64 NINJA_ZIP=ninja-linux-aarch64.zip
+    CMAKE_SHA=b4cc788d63112b2749b40627e719eb5d3b8ed8f00c36d77189f4019cfe64bc9e
+    NINJA_SHA=5c25c6570b0155e95fce5918cb95f1ad9870df5768653afe128db822301a05a1
+    PATCHELF_SHA=ae13e2effe077e829be759182396b931d8f85cfb9cfe9d49385516ea367ef7b2 ;;
+  *) echo "no portable package for $(uname -m)"; exit 2 ;;
+esac
 
 K1_ARGS=(-DPRISMARK_K1=OFF)
 if [ "$COMPILE" != 0 ]; then
@@ -46,7 +60,7 @@ cmake --build "$BUILD"
 grep -q 'Qt6' "$BUILD/CMakeCache.txt" || { echo "the desktop app was not built with Qt 6 from $QT"; exit 1; }
 
 VERSION=$(sed -n 's/^project(prismark VERSION \([0-9.]*\).*/\1/p' "$SRC/CMakeLists.txt")
-NAME=prismark-$VERSION-linux-x86_64
+NAME=prismark-$VERSION-linux-$ARCH
 STAGE=$OUT/$NAME
 rm -rf "$STAGE" "$OUT/$NAME.tar.gz"
 mkdir -p "$STAGE"/lib "$STAGE"/plugins
@@ -76,13 +90,13 @@ if [ "$COMPILE" != 0 ]; then
   cp -r "$K1X_SNAPSHOT" "$STAGE"/k1x
   T=$BUILD/tools-unpacked
   rm -rf "$T" && mkdir -p "$T" "$STAGE"/tools/bin "$STAGE"/tools/share
-  tar -xzf "$(fetch https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-x86_64.tar.gz \
-    5a1133ff103c71eb5120e2cc3de922733e7d8a26a98ae716397e8676adb367bf cmake-3.31.6-linux-x86_64.tar.gz)" -C "$T"
-  unzip -q "$(fetch https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-linux.zip \
-    6f98805688d19672bd699fbbfa2c2cf0fc054ac3df1f0e6a47664d963d530255 ninja-linux-1.12.1.zip)" -d "$T"
+  tar -xzf "$(fetch https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-linux-$ARCH.tar.gz \
+    $CMAKE_SHA cmake-3.31.6-linux-$ARCH.tar.gz)" -C "$T"
+  unzip -q "$(fetch https://github.com/ninja-build/ninja/releases/download/v1.12.1/$NINJA_ZIP \
+    $NINJA_SHA "${NINJA_ZIP%.zip}-1.12.1.zip")" -d "$T"
   cp "$T"/ninja "$STAGE"/tools/bin/
-  cp "$T"/cmake-3.31.6-linux-x86_64/bin/cmake "$STAGE"/tools/bin/
-  cp -r "$T"/cmake-3.31.6-linux-x86_64/share/cmake-3.31 "$STAGE"/tools/share/
+  cp "$T"/cmake-3.31.6-linux-$ARCH/bin/cmake "$STAGE"/tools/bin/
+  cp -r "$T"/cmake-3.31.6-linux-$ARCH/share/cmake-3.31 "$STAGE"/tools/share/
   # The snapshot's toolchain asks for clang-19 and clang++-19, and CMake's compiler check for llvm-ar; the
   # measured build itself only compiles. The real programs are in tools/llvm/bin and take their mode from the
   # name they are started by, so tools/bin holds links to them under each name. They find LLVM and Clang's
@@ -99,7 +113,7 @@ fi
 
 # Every library a program or plugin needs goes to lib/, except those every desktop Linux has (glibc, the C++
 # runtime, graphics, X11 and Wayland, D-Bus, fonts, GLib). Repeated until nothing new is added.
-SYSTEM='^(linux-vdso|ld-linux-x86-64|libc|libm|libdl|libpthread|librt|libresolv|libutil|libstdc\+\+|libgcc_s|libGL|libGLX|libGLdispatch|libEGL|libdrm|libgbm|libX11|libX11-xcb|libXext|libXrender|libXi|libXfixes|libXau|libXdmcp|libxcb|libxcb-(glx|shm|render|randr|xfixes|shape|sync|xkb|xinput|dri2|dri3|present)|libxkbcommon|libxkbcommon-x11|libwayland-(client|cursor|egl|server)|libdbus-1|libfontconfig|libfreetype|libexpat|libuuid|libglib-2\.0|libgthread-2\.0|libgobject-2\.0|libgio-2\.0|libgmodule-2\.0|libsystemd|libudev|libcap|libgcrypt|libgpg-error|liblz4|libselinux|libpcre2-8|libpcre|libmount|libblkid|libffi)\.so'
+SYSTEM='^(linux-vdso|ld-linux-x86-64|ld-linux-aarch64|libc|libm|libdl|libpthread|librt|libresolv|libutil|libstdc\+\+|libgcc_s|libGL|libGLX|libGLdispatch|libEGL|libdrm|libgbm|libX11|libX11-xcb|libXext|libXrender|libXi|libXfixes|libXau|libXdmcp|libxcb|libxcb-(glx|shm|render|randr|xfixes|shape|sync|xkb|xinput|dri2|dri3|present)|libxkbcommon|libxkbcommon-x11|libwayland-(client|cursor|egl|server)|libdbus-1|libfontconfig|libfreetype|libexpat|libuuid|libglib-2\.0|libgthread-2\.0|libgobject-2\.0|libgio-2\.0|libgmodule-2\.0|libsystemd|libudev|libcap|libgcrypt|libgpg-error|liblz4|libselinux|libpcre2-8|libpcre|libmount|libblkid|libffi)\.so'
 for round in 1 2 3 4 5 6; do
   added=0
   while read -r bin; do
@@ -116,8 +130,8 @@ done
 
 # A bundled library without a search path of its own would look for its dependencies only in the system (where
 # libxcb-cursor finds no libxcb-util, libxml2 no ICU 70): each gets RUNPATH $ORIGIN, its own folder.
-tar -xzf "$(fetch https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-x86_64.tar.gz \
-  ce84f2447fb7a8679e58bc54a20dc2b01b37b5802e12c57eece772a6f14bf3f0 patchelf-0.18.0-x86_64.tar.gz)" -C "$BUILD" ./bin/patchelf
+tar -xzf "$(fetch https://github.com/NixOS/patchelf/releases/download/0.18.0/patchelf-0.18.0-$ARCH.tar.gz \
+  $PATCHELF_SHA patchelf-0.18.0-$ARCH.tar.gz)" -C "$BUILD" ./bin/patchelf
 for f in "$STAGE"/lib/*.so*; do
   [ -n "$("$BUILD"/bin/patchelf --print-rpath "$f")" ] || "$BUILD"/bin/patchelf --set-rpath '$ORIGIN' "$f"
 done
@@ -146,7 +160,7 @@ else
 lists them as unavailable.'
 fi
 cat > "$STAGE"/README.txt <<TXT
-Prismark $VERSION for Linux x86-64, portable
+Prismark $VERSION for Linux $ARCH_NAME, portable
 
 Unpack anywhere and start ./prismark-gui (the desktop app). Nothing is installed and
 nothing else is needed: everything it uses is in this folder. Runs on Ubuntu 22.04 or
