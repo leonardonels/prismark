@@ -32,7 +32,7 @@ int main(int argc, char **argv) {
   QApplication::setApplicationVersion(PMK_VERSION);
   MainWindow w;
   /* The window and taskbar icon, drawn from vectors at each size the system may ask for; 32 px and below use
-   * the bolder version with fewer rays, which stays legible. */
+   * the simpler version (prism and one bar), which stays legible. */
   QIcon icon;
   QSvgRenderer appIcon(QStringLiteral(":/prismark-app.svg")), smallIcon(QStringLiteral(":/prismark-app-small.svg"));
   for (int s : {16, 24, 32, 48, 64, 128, 256, 512}) {

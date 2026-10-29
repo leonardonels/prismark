@@ -37,6 +37,25 @@ if(PRISMARK_DESKTOP AND NOT PRISMARK_GUI STREQUAL "OFF")
         message(WARNING "Inter ${w} not fetched (${st}); the app falls back to the system font")
       endif()
     endforeach()
+    # Saira (variable: width and weight) for scores and headings, IBM Plex Mono for units and IDs (both SIL OFL
+    # 1.1), from the Google Fonts repository at a pinned commit.
+    set(_gf https://raw.githubusercontent.com/google/fonts/6157dfaa640ca5738b4d1a7070fe389c3036d7fc/ofl)
+    foreach(f IN ITEMS "saira/Saira%5Bwdth,wght%5D.ttf|Saira.ttf|9d050fc5a01c85f74c4257c207d50b55d1e40c37308c642f974a2c5003231dde"
+                       "ibmplexmono/IBMPlexMono-Regular.ttf|IBMPlexMono-Regular.ttf|6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46"
+                       "ibmplexmono/IBMPlexMono-Medium.ttf|IBMPlexMono-Medium.ttf|a9b4c49bb299e05b5f6c481e7fb5e78943d2793249a0c8874ab574a2d1ea6755"
+                       "ibmplexmono/IBMPlexMono-SemiBold.ttf|IBMPlexMono-SemiBold.ttf|d3c38e55c78f5b0f28009fddba4834ec503278936a5986032424c9bd2d23aa46")
+      string(REPLACE "|" ";" parts "${f}")
+      list(GET parts 0 src)
+      list(GET parts 1 name)
+      list(GET parts 2 h)
+      file(DOWNLOAD ${_gf}/${src} ${_inter_dir}/${name} EXPECTED_HASH SHA256=${h} STATUS st)
+      list(GET st 0 code)
+      if(code EQUAL 0)
+        string(APPEND _inter_files "    <file alias=\"fonts/${name}\">${_inter_dir}/${name}</file>\n")
+      else()
+        message(WARNING "${name} not fetched (${st}); the app falls back to Inter or the system font")
+      endif()
+    endforeach()
     # Reference systems: every file in references/ (references/README.md). The glob re-runs at build time,
     # so adding or removing a file needs no reconfigure.
     file(GLOB _reference_files CONFIGURE_DEPENDS ${PROJECT_SOURCE_DIR}/references/*.json)

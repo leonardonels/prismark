@@ -481,7 +481,7 @@ Once [installed](#install-adds-prismark-to-the-applications-menu), it is also
 started from the applications menu like any other app.
 
 - Built automatically when Qt Widgets and Svg are found (Qt 6, or Qt 5.15;
-  the packages are in [Building](#building)); `-DPRISMARK_GUI=OFF` skips it. The Inter typeface is fetched at a pinned version and compiled in.
+  the packages are in [Building](#building)); `-DPRISMARK_GUI=OFF` skips it. Its typefaces (Inter, Saira and IBM Plex Mono) are fetched at pinned versions and compiled in.
 - **Isolation.** Runs execute in the `prismark` runner next to the app, as a
   separate process. During a run the main window closes and only a small
   measuring window remains, static except when a new phase begins (spec 7.1);

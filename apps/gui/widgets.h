@@ -60,19 +60,19 @@ class RankingView : public QWidget {
 struct ChartLine {
   QString name;
   QVector<std::array<double, 4>> pts; /* x, value, lo, hi */
-  /* An overlay line has its own unit: it is scaled to the chart's height instead of using the y axis, and each
-     point is labelled with its value and unit. */
-  bool overlay = false;
   QString unit;
   int color = -1; /* seriesColor index; -1: the line's position */
-  QSet<double> muted; /* x of points drawn greyed out (an idle core type's clock), with the segments touching them */
+  QSet<double> muted; /* x of points drawn hollow and grey (an idle core type's clock) */
 };
 
 class ChartView : public QWidget {
   Q_OBJECT
  public:
   explicit ChartView(QWidget *parent = nullptr);
-  void setData(QVector<ChartLine> lines, bool logX, const QString &xLabel, double yMin, double yMax, bool ideal);
+  /* Columns, one group per x (thread counts, task lengths, minutes: each x a step of its own, evenly spaced) and
+     one column per line in it, each labelled with its value where there is room. ideal: an outline at y = x on
+     each step, the perfect speed-up the column is measured against. */
+  void setData(QVector<ChartLine> lines, const QString &xLabel, double yMin, double yMax, bool ideal);
   /* Unit after the y-axis values, e.g. "W" */
   void setYUnit(const QString &unit) {
     yUnit_ = unit;
@@ -96,7 +96,7 @@ class ChartView : public QWidget {
 
  private:
   QVector<ChartLine> lines_;
-  bool logX_ = false, ideal_ = false;
+  bool ideal_ = false;
   double aspect_ = 9.0 / 16;
   int minHeight_ = 170;
   QString xLabel_, yUnit_;
@@ -132,7 +132,7 @@ class TestCard : public QAbstractButton {
                   const QString &note);
   void setRunLabel(const QString &label); /* "Run quick" or "Run full" */
   QString id() const { return id_; }
-  QSize sizeHint() const override { return {300, 92}; }
+  QSize sizeHint() const override { return {300, 100}; }
 
  signals:
   void runRequested(const QString &id);
@@ -154,7 +154,7 @@ class TestCard : public QAbstractButton {
   bool hover_ = false, hoverRun_ = false;
 };
 
-/* Pill-shaped segmented control. */
+/* Square tabs; numbered ones carry their number ("01") above the name. */
 class Segmented : public QWidget {
   Q_OBJECT
  public:
@@ -162,6 +162,7 @@ class Segmented : public QWidget {
   void setItems(const QStringList &items);
   void setCurrent(int i);
   int current() const { return cur_; }
+  void setNumbered(int first); /* the first item's number; 0: none */
   QSize sizeHint() const override;
 
  signals:
@@ -175,6 +176,7 @@ class Segmented : public QWidget {
   QVector<QRectF> rects() const;
   QStringList items_;
   int cur_ = 0;
+  int numbered_ = 0;
 };
 
 /* A switch with a label. */
@@ -188,7 +190,7 @@ class Toggle : public QAbstractButton {
   void paintEvent(QPaintEvent *) override;
 };
 
-/* Static step indicator for the measuring page: an arc for step/steps, redrawn only when set. */
+/* Static step indicator for the measuring page: a block with the step and a strip of parts, redrawn only when set. */
 class StepRing : public QWidget {
   Q_OBJECT
  public:

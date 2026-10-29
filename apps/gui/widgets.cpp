@@ -13,7 +13,7 @@
 #include "theme.h"
 
 namespace {
-constexpr int kRowH = 64, kPad = 4, kRankW = 34; /* row tall enough for name, bar and detail line */
+constexpr int kRowH = 70, kPad = 4, kRankW = 26; /* row tall enough for name, bar and detail line */
 
 QPointF mousePos(QMouseEvent *e) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -25,8 +25,9 @@ QPointF mousePos(QMouseEvent *e) {
 }  // namespace
 
 QColor seriesColor(int i) {
-  static const QColor fixed[] = {QColor(240, 118, 108), QColor(74, 196, 140), QColor(139, 108, 255), QColor(78, 163, 255)};
-  return i == 0 ? theme().accent : fixed[(i - 1) % 4];
+  static const QColor fixed[] = {QColor(242, 120, 12), QColor(0, 163, 137), QColor(138, 99, 255)};
+  if (i == 0) return theme().link;
+  return i % 4 == 0 ? theme().text : fixed[(i - 1) % 4];
 }
 
 void paintLogo(QPainter &p, const QRectF &r) {
@@ -117,98 +118,99 @@ void RankingView::paintEvent(QPaintEvent *) {
   for (const RankRow &r : rows_)
     if (r.runId == selected_) refRow = &r;
 
-  QFont fName = uiFont(10.5, QFont::Medium), fNameBold = uiFont(10.5, QFont::DemiBold), fVal = uiFont(11.5, QFont::DemiBold);
-  QFont fSmall = uiFont(8.5, QFont::Medium), fRank = uiFont(10, QFont::DemiBold);
-  QFontMetrics mName(fName), mVal(fVal), mSmall(fSmall);
+  QFont fName = uiFont(10.5, QFont::Medium), fNameBold = uiFont(10.5, QFont::Bold),
+        fVal = displayFont(17, QFont::DemiBold, 75);
+  QFont fSmall = monoFont(8.5), fTag = labelFont(7.5), fRank = monoFont(9.5, QFont::Medium);
+  QFontMetrics mName(fName), mVal(fVal), mSmall(fSmall), mTag(fTag);
   int w = width();
   for (int i = 0; i < rows_.size(); i++) {
     const RankRow &r = rows_[i];
-    QRectF row(kPad, kPad + i * kRowH, w - 2 * kPad, kRowH - 6);
+    QRectF row(kPad, kPad + i * kRowH, w - 2 * kPad, kRowH - 2);
     bool sel = r.runId == selected_;
+    /* the highlighted result is a volt block; everything on it is ink */
+    QColor fg = sel ? t.onAccent : t.text, fgMuted = sel ? t.onAccent : t.muted;
     if (sel || i == hover_) {
-      p.setPen(sel ? QPen(t.accent, 1.2) : Qt::NoPen);
-      QColor bg = sel ? t.accentSoft : t.raised;
-      if (!sel) bg.setAlpha(170);
-      p.setBrush(bg);
-      p.drawRoundedRect(row.adjusted(0.5, 0.5, -0.5, -0.5), 12, 12);
+      p.setPen(Qt::NoPen);
+      p.setBrush(sel ? t.accentSoft : t.raised);
+      p.drawRect(row);
     }
-    /* rank badge */
-    QRectF badge(row.left() + 8, row.center().y() - 13, 26, 26);
-    p.setPen(Qt::NoPen);
-    p.setBrush(r.yours ? t.accent : t.track);
-    p.drawEllipse(badge);
-    p.setPen(r.yours ? t.onAccent : t.muted);
+    if (!sel && i > 0 && i - 1 != hover_ && i != hover_ && rows_[i - 1].runId != selected_) {
+      p.setPen(QPen(t.border, 1));
+      p.drawLine(QPointF(row.left(), row.top() - 1), QPointF(row.right(), row.top() - 1));
+    }
+    /* rank */
     p.setFont(fRank);
-    p.drawText(badge, Qt::AlignCenter, QString::number(i + 1));
+    p.setPen(fgMuted);
+    p.drawText(QRectF(row.left() + 8, row.top(), kRankW, row.height()), Qt::AlignVCenter | Qt::AlignLeft,
+               QStringLiteral("%1").arg(i + 1, 2, 10, QLatin1Char('0')));
 
     double x0 = row.left() + kRankW + 14, x1 = row.right() - 12;
-    double ty = row.top() + 8 + mName.ascent();
+    double ty = row.top() + 9 + mName.ascent();
     /* value and relative difference */
     QString val = formatValue(r.value.v), unit = unit_.isEmpty() ? QString() : " " + unit_;
     QString rel;
     if (refRow && refRow != &r) {
       double d = 100.0 * (speed(r.value.v) / speed(refRow->value.v) - 1);
-      rel = QString("%1%2%").arg(d >= 0 ? "+" : "").arg(formatValue(d));
+      rel = QString("%1%2%").arg(d >= 0 ? "+" : "−").arg(formatValue(std::abs(d)));
     }
-    double relW = rel.isEmpty() ? 0 : mSmall.horizontalAdvance(rel) + 10;
+    double relW = rel.isEmpty() ? 0 : mSmall.horizontalAdvance(rel) + 12;
     double unitW = mSmall.horizontalAdvance(unit);
     double valW = mVal.horizontalAdvance(val);
+    double vy = row.center().y() + mVal.ascent() / 2.0 - 2;
     if (!rel.isEmpty()) {
       p.setFont(fSmall);
-      p.setPen(rel.startsWith('+') ? t.good : t.bad);
-      p.drawText(QPointF(x1 - relW + 10, ty), rel);
+      p.setPen(sel ? t.onAccent : rel.startsWith('+') ? t.good : t.bad);
+      p.drawText(QPointF(x1 - relW + 12, vy), rel);
     }
     p.setFont(fSmall);
-    p.setPen(t.muted);
-    p.drawText(QPointF(x1 - relW - unitW, ty), unit);
+    p.setPen(fgMuted);
+    p.drawText(QPointF(x1 - relW - unitW, vy), unit);
     p.setFont(fVal);
-    p.setPen(t.text);
-    p.drawText(QPointF(x1 - relW - unitW - valW, ty), val);
+    p.setPen(fg);
+    p.drawText(QPointF(x1 - relW - unitW - valW, vy), val);
 
     /* name, then tags */
     double nameMax = x1 - relW - unitW - valW - 18 - x0;
-    QString tagsText = r.tags.join(" · ").toUpper();
-    double tagsW = tagsText.isEmpty() ? 0 : mSmall.horizontalAdvance(tagsText) + 16;
+    QString tagsText = r.tags.join(" · ");
+    double tagsW = tagsText.isEmpty() ? 0 : mTag.horizontalAdvance(tagsText.toUpper()) + 16;
     p.setFont(r.yours ? fNameBold : fName);
     QFontMetrics fm(p.font());
     QString name = fm.elidedText(r.name, Qt::ElideRight, int(std::max(50.0, nameMax - tagsW - 8))); /* 8: gap before the tag */
-    p.setPen(t.text);
+    p.setPen(fg);
     p.drawText(QPointF(x0, ty), name);
     double nx = x0 + fm.horizontalAdvance(name) + 8;
     if (tagsW && nx + tagsW <= x0 + nameMax + 4) {
-      QRectF tr(nx, ty - mSmall.ascent() - 3, tagsW - 6, mSmall.height() + 4);
-      p.setPen(Qt::NoPen);
+      QRectF tr(nx, ty - mTag.ascent() - 3, tagsW - 6, mTag.height() + 4);
       bool warn = r.tags.contains("placeholder") || r.tags.contains("did not settle");
-      p.setBrush(warn ? t.warnBg : t.track);
-      p.drawRoundedRect(tr, 6, 6);
-      p.setFont(fSmall);
-      p.setPen(warn ? t.warnText : t.muted);
+      p.setPen(sel ? QPen(t.onAccent, 1) : Qt::NoPen);
+      p.setBrush(sel ? Qt::transparent : warn ? t.warnBg : t.track);
+      p.drawRect(tr);
+      p.setFont(fTag);
+      p.setPen(sel ? t.onAccent : warn ? t.warnText : t.muted);
       p.drawText(tr, Qt::AlignCenter, tagsText);
     }
 
-    /* bar */
-    QRectF bar(x0, row.top() + 30, x1 - x0, 9);
-    p.setPen(Qt::NoPen);
-    p.setBrush(t.track);
-    p.drawRoundedRect(bar, 4.5, 4.5);
+    /* bar: square, on no track; yours in ink or volt, references in signal blue */
+    QRectF bar(x0, row.top() + 31, x1 - x0 - relW - unitW - valW - 18, 10);
     QRectF fill = bar;
-    fill.setWidth(std::max(9.0, bar.width() * speed(r.value.v) / top));
-    p.setBrush(r.yours ? t.accent : t.ref);
-    p.drawRoundedRect(fill, 4.5, 4.5);
+    fill.setWidth(std::max(3.0, bar.width() * speed(r.value.v) / top));
+    p.setPen(Qt::NoPen);
+    p.setBrush(sel ? t.onAccent : r.yours ? t.mine : t.ref);
+    p.drawRect(fill);
     if (r.value.hasCi()) {
       double a = bar.left() + bar.width() * speed(r.value.lo) / top, b = bar.left() + bar.width() * speed(r.value.hi) / top;
-      QColor wc = t.text;
-      wc.setAlphaF(0.6);
-      p.setPen(QPen(wc, 1.4, Qt::SolidLine, Qt::RoundCap));
-      double cy = bar.center().y();
+      QColor wc = sel ? t.onAccent : t.text;
+      wc.setAlphaF(0.7);
+      p.setPen(QPen(wc, 1.4, Qt::SolidLine, Qt::FlatCap));
+      double cy = bar.center().y() + 9;
       p.drawLine(QPointF(std::min(a, b), cy), QPointF(std::max(a, b), cy));
-      p.drawLine(QPointF(a, cy - 4), QPointF(a, cy + 4));
-      p.drawLine(QPointF(b, cy - 4), QPointF(b, cy + 4));
+      p.drawLine(QPointF(a, cy - 3), QPointF(a, cy + 3));
+      p.drawLine(QPointF(b, cy - 3), QPointF(b, cy + 3));
     }
     if (!r.detail.isEmpty()) {
       p.setFont(fSmall);
-      p.setPen(t.faint);
-      p.drawText(QPointF(x0, bar.bottom() + mSmall.ascent() + 3), r.detail);
+      p.setPen(sel ? t.onAccent : t.faint);
+      p.drawText(QPointF(x0, bar.bottom() + mSmall.ascent() + 6), r.detail);
     }
   }
 }
@@ -221,9 +223,8 @@ ChartView::ChartView(QWidget *parent) : QWidget(parent) {
   setSizePolicy(sp);
 }
 
-void ChartView::setData(QVector<ChartLine> lines, bool logX, const QString &xLabel, double yMin, double yMax, bool ideal) {
+void ChartView::setData(QVector<ChartLine> lines, const QString &xLabel, double yMin, double yMax, bool ideal) {
   lines_ = std::move(lines);
-  logX_ = logX;
   xLabel_ = xLabel;
   yMin_ = yMin;
   yMax_ = yMax;
@@ -245,179 +246,140 @@ void ChartView::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
   const Theme &t = theme();
-  QFont small = uiFont(8.5);
-  p.setFont(small);
-  QFontMetrics fm(small);
+  QFont small = monoFont(8), val = displayFont(11, QFont::DemiBold, 75);
+  QFontMetrics fm(small), fv(val);
 
-  /* The y axis belongs to the ordinary lines; overlay lines are scaled to the chart (or, with only overlays, each
-     to 100 % of its own peak). */
-  QVector<ChartLine> lines = lines_;
-  bool base = std::any_of(lines.begin(), lines.end(), [](const ChartLine &l) { return !l.overlay; });
-  double x0 = INFINITY, x1 = -INFINITY, y0 = INFINITY, y1 = -INFINITY, e0 = INFINITY, e1 = -INFINITY;
+  /* the steps, in order, and the value range */
   QVector<double> xs;
-  for (const ChartLine &l : lines)
+  double y0 = INFINITY, y1 = -INFINITY, e0 = INFINITY, e1 = -INFINITY;
+  for (const ChartLine &l : lines_)
     for (const auto &pt : l.pts) {
-      x0 = std::min(x0, pt[0]);
-      x1 = std::max(x1, pt[0]);
       if (!xs.contains(pt[0])) xs.push_back(pt[0]);
-      if (l.overlay) continue;
       if (std::isfinite(pt[1])) y0 = std::min(y0, pt[1]), y1 = std::max(y1, pt[1]);
       for (int k = 2; k < 4; k++)
         if (std::isfinite(pt[k])) e0 = std::min(e0, pt[k]), e1 = std::max(e1, pt[k]);
     }
-  if (!std::isfinite(x0)) return;
+  if (xs.isEmpty() || !std::isfinite(y1)) return;
+  std::sort(xs.begin(), xs.end());
   /* Intervals widen the axis by at most half the values' span: one wild interval (a run disturbed by throttling)
-     would otherwise squash every value into the bottom of the chart. Bars beyond it are clipped. */
-  if (std::isfinite(y0)) {
-    double room = std::max(y1 - y0, std::abs(y1)) * 0.5;
-    if (std::isfinite(e0)) y0 = std::min(y0, std::max(e0, y0 - room));
-    if (std::isfinite(e1)) y1 = std::max(y1, std::min(e1, y1 + room));
-  }
-  if (base) {
-    y0 = std::isfinite(yMin_) ? yMin_ : std::min(0.0, y0);
-    y1 = std::isfinite(yMax_) ? yMax_ : niceCeil(y1 * 1.05);
-    if (ideal_) y1 = std::max(y1, x1);
-  } else {
-    y0 = 0, y1 = 125; /* room above 100 % for the labels */
-  }
-  if (x1 == x0) x1 = x0 + 1;
-  if (y1 == y0) y1 = y0 + 1;
-  double overlayTop = base ? y0 + (y1 - y0) * 0.85 : 100;
-  for (ChartLine &l : lines) {
-    if (!l.overlay) continue;
-    double peak = 0; /* overlays with one unit (the clocks of several core types) share a scale */
-    for (const ChartLine &o : lines_)
-      if (o.overlay && (&o == &lines_[&l - lines.data()] || (!l.unit.isEmpty() && o.unit == l.unit)))
-        for (const auto &pt : o.pts) peak = std::max(peak, pt[1]);
-    if (peak > 0)
-      for (auto &pt : l.pts)
-        for (int k = 1; k < 4; k++) pt[k] = y0 + pt[k] / peak * (overlayTop - y0);
-  }
+     would otherwise squash every column. Whiskers beyond it are clipped. */
+  double room = std::max(y1 - y0, std::abs(y1)) * 0.5;
+  if (std::isfinite(e1)) y1 = std::max(y1, std::min(e1, y1 + room));
+  y0 = std::isfinite(yMin_) ? yMin_ : std::min(0.0, y0);
+  if (ideal_) y1 = std::max(y1, xs.last());
+  /* four grid steps of a tidy size */
+  y1 = std::isfinite(yMax_) ? yMax_ : y0 + 4 * niceCeil((y1 * 1.05 - y0) / 4);
+  if (y1 <= y0) y1 = y0 + 1;
 
-  double legendH = fm.height() + 10,
-         left = fm.horizontalAdvance("00.00" + (yUnit_.isEmpty() ? QString() : " " + yUnit_)) + 10;
-  QRectF plot(left, legendH, width() - left - 10, height() - legendH - 2 * fm.height() - 10);
-  auto fx = [&](double x) {
-    double u = logX_ ? std::log(x / x0) / std::log(x1 / x0) : (x - x0) / (x1 - x0);
-    return plot.left() + u * plot.width();
-  };
-  auto fy = [&](double y) { return plot.bottom() - (y - y0) / (y1 - y0) * plot.height(); };
-
-  /* grid */
-  QColor grid = t.border;
   /* a whole number without decimals (128, not 128.0) */
   auto tick = [](double v) { return v == std::round(v) && std::abs(v) < 1e9 ? QString::number(qint64(v)) : formatValue(v); };
+  QString unit = yUnit_.isEmpty() ? QString() : " " + yUnit_;
+  bool legend = lines_.size() > 1;
+  double legendH = legend || ideal_ ? fm.height() + 10 : 4, labelH = fv.height() + 2;
+  double left = 0; /* the unit only on the top line */
+  for (int k = 0; k <= 4; k++) left = std::max(left, double(fm.horizontalAdvance(tick(y0 + (y1 - y0) * k / 4) + (k == 4 ? unit : QString()))));
+  left += 12;
+  QRectF plot(left, legendH + labelH, width() - left - 4, height() - legendH - labelH - fm.height() * (xLabel_.isEmpty() ? 1 : 2) - 12);
+  auto fy = [&](double y) { return plot.bottom() - (std::clamp(y, y0, y1) - y0) / (y1 - y0) * plot.height(); };
+
+  /* grid: four steps, thin; the axis does not start at 0 when the strip is fitted to its values */
+  p.setFont(small);
   for (int k = 0; k <= 4; k++) {
-    double yv = base ? y0 + (y1 - y0) * k / 4 : 25.0 * k;
-    p.setPen(QPen(grid, 1, k ? Qt::DotLine : Qt::SolidLine));
+    double yv = y0 + (y1 - y0) * k / 4;
+    p.setPen(QPen(k ? t.border : t.muted, k ? 1 : 1.5));
     p.drawLine(QPointF(plot.left(), fy(yv)), QPointF(plot.right(), fy(yv)));
-    {
-      QString s = base ? tick(yv) + (yUnit_.isEmpty() ? QString() : " " + yUnit_)
-                       : QString::number(yv, 'f', 0) + " %";
-      p.setPen(t.faint);
-      p.drawText(QPointF(plot.left() - fm.horizontalAdvance(s) - 6, fy(yv) + fm.ascent() / 2.6), s);
-    }
-  }
-  std::sort(xs.begin(), xs.end());
-  p.setPen(t.faint);
-  double lastRight = -1e9;
-  for (int i = 0; i < xs.size(); i++) {
-    QString s = tick(xs[i]);
-    double tw = fm.horizontalAdvance(s);
-    double x = fx(xs[i]) - (i == xs.size() - 1 ? tw : i == 0 ? 0 : tw / 2.0);
-    if (x < lastRight + 4) continue; /* skip labels that would overlap */
-    p.drawText(QPointF(x, plot.bottom() + fm.ascent() + 4), s);
-    lastRight = x + tw;
-  }
-  p.drawText(QRectF(plot.left(), height() - fm.height() - 2, plot.width(), fm.height()), Qt::AlignCenter, xLabel_);
-  if (ideal_) {
-    p.setPen(QPen(t.muted, 1, Qt::DashLine));
-    p.drawLine(QPointF(fx(x0), fy(x0)), QPointF(fx(x1), fy(std::min(x1, y1))));
-  }
-  double lx = plot.left();
-  for (int i = 0; i < lines.size(); i++) {
-    const ChartLine &l = lines[i];
-    QColor c = seriesColor(l.color >= 0 ? l.color : i);
-    /* soft area under the first series */
-    QPainterPath path;
-    for (int k = 0; k < l.pts.size(); k++) {
-      QPointF q(fx(l.pts[k][0]), fy(l.pts[k][1]));
-      k ? path.lineTo(q) : path.moveTo(q);
-    }
-    if (i == 0 && l.pts.size() > 1 && !l.overlay) {
-      QPainterPath area = path;
-      area.lineTo(fx(l.pts.last()[0]), plot.bottom());
-      area.lineTo(fx(l.pts.first()[0]), plot.bottom());
-      area.closeSubpath();
-      QColor a = c;
-      a.setAlpha(28);
-      p.setPen(Qt::NoPen);
-      p.setBrush(a);
-      p.drawPath(area);
-    }
-    p.setBrush(Qt::NoBrush);
-    if (l.muted.isEmpty()) {
-      p.setPen(QPen(c, 2, Qt::SolidLine, Qt::RoundCap, Qt::RoundJoin));
-      p.drawPath(path);
-    } else { /* segments touching a muted point: thin, dashed, grey */
-      for (int k = 1; k < l.pts.size(); k++) {
-        bool grey = l.muted.contains(l.pts[k - 1][0]) || l.muted.contains(l.pts[k][0]);
-        p.setPen(grey ? QPen(t.faint, 1.5, Qt::DashLine, Qt::RoundCap) : QPen(c, 2, Qt::SolidLine, Qt::RoundCap));
-        p.drawLine(QPointF(fx(l.pts[k - 1][0]), fy(l.pts[k - 1][1])), QPointF(fx(l.pts[k][0]), fy(l.pts[k][1])));
-      }
-    }
-    for (const auto &pt : l.pts) {
-      if (std::isfinite(pt[2]) && std::isfinite(pt[3])) {
-        p.setPen(QPen(c, 1.2));
-        p.setClipRect(plot);
-        p.drawLine(QPointF(fx(pt[0]), fy(pt[2])), QPointF(fx(pt[0]), fy(pt[3])));
-        p.setClipping(false);
-      }
-      p.setPen(QPen(t.card, 1.5));
-      p.setBrush(l.muted.contains(pt[0]) ? t.faint : c);
-      p.drawEllipse(QPointF(fx(pt[0]), fy(pt[1])), 3.2, 3.2);
-    }
-    p.setPen(Qt::NoPen);
-    p.setBrush(c);
-    p.drawRoundedRect(QRectF(lx, 3 + fm.height() / 2.0 - 4, 10, 8), 3, 3);
-    p.setPen(t.muted);
-    p.drawText(QPointF(lx + 14, 3 + fm.ascent()), l.name);
-    lx += 14 + fm.horizontalAdvance(l.name) + 16;
+    QString s = tick(yv) + (k == 4 ? unit : QString());
+    p.setPen(t.faint);
+    p.drawText(QPointF(plot.left() - fm.horizontalAdvance(s) - 8, fy(yv) + fm.ascent() / 2.6), s);
   }
 
-  /* Overlays: each point labelled with its value, above it, nudged apart where lines meet at the same x. */
-  {
-    struct Tag { double x, y; QString s; QColor c; int line; };
-    QMap<double, QVector<Tag>> byX;
-    for (int i = 0; i < lines.size(); i++)
-      for (int k = 0; lines[i].overlay && k < lines[i].pts.size(); k++) {
-        double v = lines_[i].pts[k][1];
-        if (!std::isfinite(v)) continue;
-        QString s = formatValue(v) + (lines_[i].unit.isEmpty() ? QString() : " " + lines_[i].unit);
-        QColor c = lines[i].muted.contains(lines[i].pts[k][0]) ? t.faint
-                                                               : seriesColor(lines[i].color >= 0 ? lines[i].color : i);
-        byX[lines[i].pts[k][0]].push_back({fx(lines[i].pts[k][0]), fy(lines[i].pts[k][1]) - 7, s, c, i});
+  /* one group per step: columns side by side, a gap between groups */
+  int n = int(xs.size()), m = int(lines_.size());
+  double slot = plot.width() / n, gap = std::max(2.0, std::min(slot * 0.28, 24.0));
+  double colW = std::max(1.0, (slot - gap) / m - (m > 1 ? 2 : 0));
+  bool labelAll = colW >= fv.horizontalAdvance(QStringLiteral("00.0")) + 4;
+  /* with narrow columns, values only on the first, the last, the lowest and the highest step of each line */
+  auto keyPoints = [&](const ChartLine &l) {
+    QSet<double> keep;
+    if (l.pts.isEmpty()) return keep;
+    keep << l.pts.first()[0] << l.pts.last()[0];
+    auto lo = std::min_element(l.pts.begin(), l.pts.end(), [](const auto &a, const auto &b) { return a[1] < b[1]; });
+    auto hi = std::max_element(l.pts.begin(), l.pts.end(), [](const auto &a, const auto &b) { return a[1] < b[1]; });
+    keep << (*lo)[0] << (*hi)[0];
+    return keep;
+  };
+  for (int li = 0; li < m; li++) {
+    const ChartLine &l = lines_[li];
+    QColor c = seriesColor(l.color >= 0 ? l.color : li);
+    QSet<double> keep = labelAll ? QSet<double>() : keyPoints(l);
+    for (const auto &pt : l.pts) {
+      if (!std::isfinite(pt[1])) continue;
+      int xi = int(xs.indexOf(pt[0]));
+      double x = plot.left() + xi * slot + gap / 2 + li * (colW + (m > 1 ? 2 : 0));
+      QRectF col(x, fy(pt[1]), colW, plot.bottom() - fy(pt[1]));
+      if (ideal_) { /* the perfect speed-up for this many threads: an outline above the column */
+        p.setPen(QPen(t.muted, 1.2, Qt::DashLine));
+        p.setBrush(Qt::NoBrush);
+        p.drawRect(QRectF(x, fy(pt[0]), colW, plot.bottom() - fy(pt[0])));
       }
-    QMap<int, double> lastRight; /* per line: where its previous label ended; closer points go unlabelled */
-    for (auto it = byX.begin(); it != byX.end(); ++it) {
-      QVector<Tag> &tags = it.value();
-      /* stacked upwards from the lowest, so no label sits on a line below its own point */
-      std::sort(tags.begin(), tags.end(), [](const Tag &a, const Tag &b) { return a.y > b.y; });
-      for (int k = 1; k < tags.size(); k++) tags[k].y = std::min(tags[k].y, tags[k - 1].y - fm.height());
-      for (const Tag &g : tags) {
-        double tw = fm.horizontalAdvance(g.s);
-        double x = std::clamp(g.x - tw / 2, plot.left(), plot.right() - tw);
-        if (lastRight.contains(g.line) && x < lastRight[g.line] + 4) continue;
-        lastRight[g.line] = x + tw;
-        QColor bg = t.card;
-        bg.setAlpha(220);
-        p.setPen(Qt::NoPen);
-        p.setBrush(bg);
-        p.drawRoundedRect(QRectF(x - 3, g.y - fm.ascent(), tw + 6, fm.height()), 3, 3);
-        p.setPen(g.c);
-        p.drawText(QPointF(x, g.y), g.s);
+      bool muted = l.muted.contains(pt[0]);
+      p.setPen(muted ? QPen(t.faint, 1.2) : Qt::NoPen);
+      p.setBrush(muted ? Qt::transparent : c);
+      p.drawRect(muted ? col.adjusted(0.6, 0.6, -0.6, 0) : col);
+      if (std::isfinite(pt[2]) && std::isfinite(pt[3]) && colW >= 6) { /* uncertainty: a whisker through the top */
+        QColor wc = t.text;
+        wc.setAlphaF(0.75);
+        p.setPen(QPen(wc, 1.3));
+        p.setClipRect(plot.adjusted(0, -labelH, 0, 0));
+        double cx = col.center().x(), a = fy(pt[2]), b = fy(pt[3]);
+        p.drawLine(QPointF(cx, a), QPointF(cx, b));
+        p.drawLine(QPointF(cx - 3, a), QPointF(cx + 3, a));
+        p.drawLine(QPointF(cx - 3, b), QPointF(cx + 3, b));
+        p.setClipping(false);
+      }
+      if (labelAll || keep.contains(pt[0])) {
+        QString s = tick(pt[1]);
+        double tw = fv.horizontalAdvance(s);
+        double top = std::min(col.top(), std::isfinite(pt[3]) ? fy(pt[3]) : col.top());
+        if (ideal_) top = std::min(top, fy(pt[0]));
+        double tx = std::clamp(col.center().x() - tw / 2, plot.left(), plot.right() - tw);
+        p.setFont(val);
+        p.setPen(muted ? t.faint : t.text);
+        p.drawText(QPointF(tx, top - 4), s);
       }
     }
+  }
+
+  /* step names under the groups, skipping those that would collide */
+  p.setFont(small);
+  p.setPen(t.muted);
+  double lastRight = -1e9;
+  for (int i = 0; i < n; i++) {
+    QString s = tick(xs[i]);
+    double tw = fm.horizontalAdvance(s), x = plot.left() + (i + 0.5) * slot - tw / 2;
+    if (x < lastRight + 6 && i != n - 1) continue;
+    p.drawText(QPointF(x, plot.bottom() + fm.ascent() + 5), s);
+    lastRight = x + tw;
+  }
+  if (!xLabel_.isEmpty())
+    p.drawText(QRectF(plot.left(), height() - fm.height() - 2, plot.width(), fm.height()), Qt::AlignLeft, xLabel_.toUpper());
+
+  /* legend: only for several lines */
+  if (legend) {
+    double lx = plot.left();
+    for (int i = 0; i < m; i++) {
+      p.setPen(Qt::NoPen);
+      p.setBrush(seriesColor(lines_[i].color >= 0 ? lines_[i].color : i));
+      p.drawRect(QRectF(lx, 2 + fm.height() / 2.0 - 4, 10, 8));
+      p.setPen(t.muted);
+      p.drawText(QPointF(lx + 14, 2 + fm.ascent()), lines_[i].name);
+      lx += 14 + fm.horizontalAdvance(lines_[i].name) + 18;
+    }
+  }
+  if (ideal_) {
+    QString s = QObject::tr("dashed: perfect scaling");
+    p.setPen(t.faint);
+    p.drawText(QPointF(plot.right() - fm.horizontalAdvance(s), legend ? 2 + fm.ascent() : fm.ascent()), s);
   }
 }
 
@@ -429,7 +391,7 @@ BarsView::BarsView(QVector<Bar> bars, QWidget *parent) : QWidget(parent), bars_(
 }
 
 QSize BarsView::sizeHint() const {
-  QFontMetrics fm(uiFont(9));
+  QFontMetrics fm(monoFont(9));
   return {320, int(bars_.size() * (fm.height() * 2 + 14))};
 }
 
@@ -437,7 +399,7 @@ void BarsView::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
   const Theme &t = theme();
-  QFont f = uiFont(9);
+  QFont f = monoFont(9);
   p.setFont(f);
   QFontMetrics fm(f);
   double top = 0;
@@ -450,7 +412,7 @@ void BarsView::paintEvent(QPaintEvent *) {
     QRectF bar(0, y + fm.height() + 4, std::max(w, 2.0), fm.height());
     p.setPen(Qt::NoPen);
     p.setBrush(seriesColor(b.color));
-    p.drawRoundedRect(bar, 3, 3);
+    p.drawRect(bar);
     p.setPen(t.text);
     p.drawText(QPointF(bar.right() + 8, bar.top() + fm.ascent()), b.text);
     y += rowH;
@@ -465,7 +427,7 @@ TestCard::TestCard(const QString &id, QWidget *parent) : QAbstractButton(parent)
   setMouseTracking(true);
   setCursor(Qt::PointingHandCursor);
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  setFixedHeight(96);
+  setFixedHeight(100);
 }
 
 void TestCard::setContent(const QString &name, const QString &sub, const QString &score, const QString &unit,
@@ -485,8 +447,8 @@ void TestCard::setRunLabel(const QString &label) {
 }
 
 QRectF TestCard::runRect() const {
-  double w = QFontMetrics(uiFont(9.5, QFont::DemiBold)).horizontalAdvance(runLabel_) + 44;
-  return QRectF(width() - 12 - w, height() / 2.0 - 17, w, 34);
+  double w = QFontMetrics(displayFont(9.5, QFont::ExtraBold, 125)).horizontalAdvance(runLabel_.toUpper()) + 46;
+  return QRectF(width() - 14 - w, height() / 2.0 - 22, w, 44);
 }
 
 void TestCard::mousePressEvent(QMouseEvent *e) {
@@ -524,57 +486,54 @@ void TestCard::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
   const Theme &t = theme();
-  QRectF r = QRectF(rect()).adjusted(1, 1, -1, -3);
+  QRectF r = QRectF(rect()).adjusted(0, 0, 0, -2);
   bool on = isChecked();
-  p.setPen(QPen(on ? t.accent : t.border, on ? 1.5 : 1));
-  p.setBrush(on ? t.accentSoft : hover_ ? t.raised : t.card);
-  p.drawRoundedRect(r, 14, 14);
-  if (on) { /* accent edge */
-    p.setPen(Qt::NoPen);
-    p.setBrush(t.accent);
-    p.drawRoundedRect(QRectF(r.left() + 6, r.top() + 14, 4, r.height() - 28), 2, 2);
-  }
-  double x = r.left() + 20, right = runRect().left() - 10;
-  p.setFont(uiFont(11, QFont::DemiBold));
-  p.setPen(t.text);
+  /* the open test is a volt block, the others panels */
+  QColor fg = on ? t.onAccent : t.text, fgMuted = on ? t.onAccent : t.muted;
+  p.setPen(Qt::NoPen);
+  p.setBrush(on ? t.accent : hover_ ? t.raised : t.card);
+  p.drawRect(r);
+  double x = r.left() + 18, right = runRect().left() - 10;
+  p.setFont(uiFont(10.5, QFont::Bold));
+  p.setPen(fg);
   QFontMetrics fn(p.font());
   p.drawText(QPointF(x, r.top() + 12 + fn.ascent()), fn.elidedText(name_, Qt::ElideRight, int(right - x)));
   p.setFont(uiFont(8.5));
   QFontMetrics fs(p.font());
-  p.setPen(t.muted);
-  p.drawText(QPointF(x, r.top() + 34 + fs.ascent()), fs.elidedText(sub_, Qt::ElideRight, int(right - x)));
+  p.setPen(fgMuted);
+  p.drawText(QPointF(x, r.top() + 33 + fs.ascent()), fs.elidedText(sub_, Qt::ElideRight, int(right - x)));
   if (!score_.isEmpty()) {
-    p.setFont(uiFont(15, QFont::Bold));
+    p.setFont(displayFont(24, QFont::DemiBold, 60));
     QFontMetrics fv(p.font());
-    p.setPen(t.text);
-    double by = r.bottom() - 12;
+    p.setPen(fg);
+    double by = r.bottom() - 11;
     p.drawText(QPointF(x, by), score_);
-    p.setFont(uiFont(8.5, QFont::Medium));
-    p.setPen(t.muted);
-    p.drawText(QPointF(x + fv.horizontalAdvance(score_) + 5, by), unit_);
+    p.setFont(monoFont(8.5, QFont::Medium));
+    p.setPen(fgMuted);
+    p.drawText(QPointF(x + fv.horizontalAdvance(score_) + 6, by), unit_);
   } else {
-    p.setFont(uiFont(8.5, QFont::Medium));
-    p.setPen(t.faint);
+    p.setFont(monoFont(8.5));
+    p.setPen(on ? t.onAccent : t.faint);
     p.drawText(QPointF(x, r.bottom() - 14), note_);
   }
-  /* run button */
+  /* run button: on the open test an ink block with volt type; elsewhere recessed, so only one action is loud */
   QRectF b = runRect();
-  p.setPen(QPen(hoverRun_ ? t.accent : t.border, 1));
-  p.setBrush(hoverRun_ ? t.accent : t.raised);
-  p.drawRoundedRect(b, 10, 10);
-  QColor fg = hoverRun_ ? t.onAccent : t.text;
+  QColor bbg = on ? t.onAccent : hoverRun_ ? t.accent : t.raised, bfg = on ? t.accent : hoverRun_ ? t.onAccent : t.text;
+  if (on && hoverRun_) bbg = bbg.lighter(160);
+  p.setPen(Qt::NoPen);
+  p.setBrush(bbg);
+  p.drawRect(b);
   QPainterPath tri;
   double cx = b.left() + 18, cy = b.center().y();
   tri.moveTo(cx - 4, cy - 6);
   tri.lineTo(cx + 6, cy);
   tri.lineTo(cx - 4, cy + 6);
   tri.closeSubpath();
-  p.setPen(Qt::NoPen);
-  p.setBrush(hoverRun_ ? fg : t.accent);
+  p.setBrush(on || hoverRun_ ? bfg : t.link);
   p.drawPath(tri);
-  p.setPen(fg);
-  p.setFont(uiFont(9.5, QFont::DemiBold));
-  p.drawText(b.adjusted(28, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, runLabel_);
+  p.setPen(bfg);
+  p.setFont(displayFont(9.5, QFont::ExtraBold, 125));
+  p.drawText(b.adjusted(30, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, runLabel_.toUpper());
 }
 
 /* ---------- Segmented ---------- */
@@ -582,7 +541,7 @@ void TestCard::paintEvent(QPaintEvent *) {
 Segmented::Segmented(QWidget *parent) : QWidget(parent) {
   setCursor(Qt::PointingHandCursor);
   setSizePolicy(QSizePolicy::Maximum, QSizePolicy::Fixed);
-  setFixedHeight(40);
+  setFixedHeight(44);
 }
 
 void Segmented::setItems(const QStringList &items) {
@@ -596,21 +555,28 @@ void Segmented::setCurrent(int i) {
   update();
 }
 
+void Segmented::setNumbered(int first) {
+  numbered_ = first;
+  setFixedHeight(first ? 54 : 44);
+  updateGeometry();
+  update();
+}
+
 QVector<QRectF> Segmented::rects() const {
-  QFontMetrics fm(uiFont(10, QFont::DemiBold));
+  QFontMetrics fm(uiFont(10, QFont::Bold));
   QVector<QRectF> out;
-  double x = 4;
+  double x = 0;
   for (const QString &s : items_) {
-    double w = fm.horizontalAdvance(s) + 28;
-    out.push_back(QRectF(x, 4, w, height() - 8));
-    x += w + 2;
+    double w = std::max(fm.horizontalAdvance(s) + 32, numbered_ ? 96 : 0);
+    out.push_back(QRectF(x, 0, w, height()));
+    x += w + 4;
   }
   return out;
 }
 
 QSize Segmented::sizeHint() const {
   auto r = rects();
-  return {r.isEmpty() ? 100 : int(r.last().right()) + 4, 40};
+  return {r.isEmpty() ? 100 : int(r.last().right()), height()};
 }
 
 void Segmented::mousePressEvent(QMouseEvent *e) {
@@ -623,23 +589,30 @@ void Segmented::mousePressEvent(QMouseEvent *e) {
     }
 }
 
+/* Square tabs: the current one a panel with a volt foot, the others recessed. */
 void Segmented::paintEvent(QPaintEvent *) {
   QPainter p(this);
-  p.setRenderHint(QPainter::Antialiasing);
   const Theme &t = theme();
-  p.setPen(QPen(t.border, 1));
-  p.setBrush(t.card);
-  p.drawRoundedRect(QRectF(rect()).adjusted(0.5, 0.5, -0.5, -0.5), height() / 2.0, height() / 2.0);
   auto r = rects();
   for (int i = 0; i < r.size(); i++) {
-    if (i == cur_) {
-      p.setPen(Qt::NoPen);
+    bool on = i == cur_;
+    p.setPen(Qt::NoPen);
+    p.setBrush(on ? t.card : t.raised);
+    p.drawRect(r[i]);
+    if (on) {
       p.setBrush(t.accent);
-      p.drawRoundedRect(r[i], r[i].height() / 2, r[i].height() / 2);
+      p.drawRect(QRectF(r[i].left(), r[i].bottom() - 4, r[i].width(), 5));
     }
-    p.setFont(uiFont(10, QFont::DemiBold));
-    p.setPen(i == cur_ ? t.onAccent : t.muted);
-    p.drawText(r[i], Qt::AlignCenter, items_[i]);
+    QRectF tr = r[i].adjusted(14, 0, -10, -4);
+    if (numbered_) {
+      p.setFont(monoFont(8));
+      p.setPen(on ? t.text : t.muted);
+      p.drawText(tr.adjusted(0, 8, 0, 0), Qt::AlignTop | Qt::AlignLeft, QStringLiteral("%1").arg(numbered_ + i, 2, 10, QLatin1Char('0')));
+    }
+    p.setFont(uiFont(10, on ? QFont::Bold : QFont::DemiBold));
+    p.setPen(on ? t.text : t.muted);
+    p.drawText(tr.adjusted(0, 0, 0, numbered_ ? -6 : 0), (numbered_ ? Qt::AlignBottom : Qt::AlignVCenter) | Qt::AlignLeft,
+               items_[i]);
   }
 }
 
@@ -652,28 +625,31 @@ Toggle::Toggle(const QString &text, QWidget *parent) : QAbstractButton(parent) {
 }
 
 QSize Toggle::sizeHint() const {
-  return {QFontMetrics(uiFont(10)).horizontalAdvance(text()) + 56, 30};
+  return {QFontMetrics(uiFont(10, QFont::Medium)).horizontalAdvance(text()) + 70, 32};
 }
 
+/* A square switch that states its position: OFF on a recessed track with the knob on the left, ON on volt with an
+   ink knob on the right. The knob is solid in both, so off reads as a setting, not as disabled. */
 void Toggle::paintEvent(QPaintEvent *) {
   QPainter p(this);
-  p.setRenderHint(QPainter::Antialiasing);
   const Theme &t = theme();
-  QRectF track(0, height() / 2.0 - 10, 38, 20);
-  if (isChecked()) {
-    p.setBrush(t.accent);
-    p.setPen(Qt::NoPen);
-  } else {
-    p.setBrush(t.track);
-    p.setPen(QPen(t.border, 1));
-  }
-  p.drawRoundedRect(track, 10, 10);
+  bool on = isChecked();
+  QRectF track(0, height() / 2.0 - 13, 58, 26);
   p.setPen(Qt::NoPen);
-  p.setBrush(isChecked() ? t.onAccent : t.muted);
-  p.drawEllipse(QPointF(isChecked() ? track.right() - 10 : track.left() + 10, track.center().y()), 7.5, 7.5);
+  p.setBrush(on ? t.accent : t.raised);
+  p.drawRect(track);
+  QRectF knob(0, 0, 20, 20);
+  knob.moveCenter(QPointF(on ? track.right() - 13 : track.left() + 13, track.center().y()));
+  p.setBrush(on ? t.onAccent : t.text);
+  p.drawRect(knob);
+  p.setFont(monoFont(7.5, QFont::DemiBold));
+  p.setPen(on ? t.onAccent : t.muted);
+  QRectF word = on ? QRectF(track.left() + 4, track.top(), knob.left() - track.left() - 4, track.height())
+                   : QRectF(knob.right(), track.top(), track.right() - knob.right() - 2, track.height());
+  p.drawText(word, Qt::AlignCenter, on ? tr("ON") : tr("OFF"));
   p.setPen(t.text);
-  p.setFont(uiFont(10));
-  p.drawText(QRectF(48, 0, width() - 48, height()), Qt::AlignVCenter | Qt::AlignLeft, text());
+  p.setFont(uiFont(10, QFont::Medium));
+  p.drawText(QRectF(68, 0, width() - 68, height()), Qt::AlignVCenter | Qt::AlignLeft, text());
 }
 
 /* ---------- StepRing ---------- */
@@ -687,18 +663,40 @@ void StepRing::setProgress(int step, int steps, const QString &centre) {
   update();
 }
 
+/* A volt block with the step in large condensed figures, and the run as a strip of parts along its foot. */
 void StepRing::paintEvent(QPaintEvent *) {
   QPainter p(this);
-  p.setRenderHint(QPainter::Antialiasing);
   const Theme &t = theme();
-  QRectF r = QRectF(rect()).adjusted(10, 10, -10, -10);
-  p.setPen(QPen(t.track, 10, Qt::SolidLine, Qt::RoundCap));
-  p.drawArc(r, 0, 360 * 16);
-  if (steps_ > 0 && step_ > 0) {
-    p.setPen(QPen(t.accent, 10, Qt::SolidLine, Qt::RoundCap));
-    p.drawArc(r, 90 * 16, -int(360.0 * 16 * std::min(step_, steps_) / steps_));
+  QRectF r = rect();
+  p.setPen(Qt::NoPen);
+  p.setBrush(t.accent);
+  p.drawRect(r);
+  p.setBrush(t.onAccent);
+  p.drawRect(QRectF(r.left(), r.top(), r.width(), 8));
+  QRectF strip(r.left() + 12, r.bottom() - 24, r.width() - 24, 10);
+  if (steps_ > 0 && steps_ <= 40) {
+    double gap = 3, w = (strip.width() - gap * (steps_ - 1)) / steps_;
+    for (int i = 0; i < steps_; i++) {
+      QRectF seg(strip.left() + i * (w + gap), strip.top(), w, strip.height());
+      if (i < step_) {
+        p.setPen(Qt::NoPen);
+        p.setBrush(t.onAccent);
+      } else {
+        p.setPen(QPen(t.onAccent, 1.2));
+        p.setBrush(Qt::NoBrush);
+      }
+      p.drawRect(i < step_ ? seg : seg.adjusted(0.6, 0.6, -0.6, -0.6));
+    }
+  } else if (steps_ > 0) {
+    p.setPen(QPen(t.onAccent, 1.2));
+    p.setBrush(Qt::NoBrush);
+    p.drawRect(strip.adjusted(0.6, 0.6, -0.6, -0.6));
+    p.setPen(Qt::NoPen);
+    p.setBrush(t.onAccent);
+    p.drawRect(QRectF(strip.left(), strip.top(), strip.width() * std::min(step_, steps_) / steps_, strip.height()));
   }
-  p.setPen(t.text);
-  p.setFont(uiFont(18, QFont::Bold));
-  p.drawText(r, Qt::AlignCenter, centre_);
+  p.setPen(t.onAccent);
+  double pt = centre_.size() <= 3 ? 50 : centre_.size() <= 5 ? 38 : 28;
+  p.setFont(displayFont(pt, QFont::DemiBold, 50));
+  p.drawText(r.adjusted(12, 12, -12, -34), Qt::AlignLeft | Qt::AlignBottom, centre_);
 }

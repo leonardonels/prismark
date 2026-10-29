@@ -178,7 +178,7 @@ PrepareDialog::PrepareDialog(QWidget *parent) : QDialog(parent) {
   l->setContentsMargins(24, 22, 24, 20);
   l->setSpacing(12);
   auto *title = new QLabel(tr("Preparing the compile tests"));
-  title->setFont(uiFont(15, QFont::Bold));
+  title->setFont(displayFont(18, QFont::Bold, 112));
   l->addWidget(title);
   auto *intro = new QLabel(tr("A pinned LLVM subset and a pinned aarch64 sysroot are downloaded and checked, generated "
                               "sources are built once, and every translation unit is measured. This runs once per "

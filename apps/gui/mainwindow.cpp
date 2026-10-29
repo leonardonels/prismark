@@ -69,16 +69,17 @@ QLabel *text(const QString &s, double pt, int weight = QFont::Normal, const QCol
 }
 
 QLabel *sectionLabel(const QString &s) {
-  auto *l = text(s.toUpper(), 8.5, QFont::DemiBold, theme().faint);
+  auto *l = text(esc(s), 8, QFont::Normal, theme().muted);
+  l->setFont(labelFont(8));
   l->setContentsMargins(0, 14, 0, 4);
   return l;
 }
 
-/* A rounded pill, e.g. "quick" or "✓ pinning". */
+/* A square tag in mono capitals, e.g. "quick" or "✓ pinning". */
 QLabel *pill(const QString &s, const QColor &fg, const QColor &bg) {
   auto *l = new QLabel(s);
-  l->setFont(uiFont(8.5, QFont::Medium));
-  l->setStyleSheet(QStringLiteral("color:%1; background:%2; border-radius:9px; padding:3px 9px;").arg(fg.name(), bg.name()));
+  l->setFont(labelFont(7.5));
+  l->setStyleSheet(QStringLiteral("color:%1; background:%2; padding:4px 9px;").arg(fg.name(), bg.name()));
   return l;
 }
 
@@ -100,12 +101,14 @@ QFrame *card() {
 
 class Logo : public QWidget {
  public:
-  Logo() { setFixedSize(42, 42); }
+  Logo() { setFixedSize(52, 52); }
 
  protected:
-  void paintEvent(QPaintEvent *) override {
+  void paintEvent(QPaintEvent *) override { /* ink mark on a volt tile, in both themes */
     QPainter p(this);
-    paintLogo(p, QRectF(rect()).adjusted(2, 2, -2, -2));
+    p.setRenderHint(QPainter::Antialiasing);
+    p.fillRect(rect(), theme().accent);
+    paintLogo(p, QRectF(rect()).adjusted(9, 9, -9, -9));
   }
 };
 
@@ -178,7 +181,7 @@ void addStrip(QVBoxLayout *to, const QVector<ChartLine> &lines, const QString &u
   double y0 = std::max(0.0, std::floor((lo - span * 0.3) / step) * step);
   while (y0 + 4 * step < hi) y0 += step;
   auto *ch = new ChartView;
-  ch->setData(lines, false, xLabel, y0, y0 + 4 * step, false);
+  ch->setData(lines, xLabel, y0, y0 + 4 * step, false);
   ch->setYUnit(unit);
   ch->setAspect(0.3, xLabel.isEmpty() ? 150 : 170);
   to->addWidget(ch);
@@ -299,13 +302,18 @@ void MainWindow::buildUi() {
   head->addWidget(new Logo);
   auto *brand = new QVBoxLayout;
   brand->setSpacing(0);
-  brand->addWidget(text(QStringLiteral("Prismark"), 18, QFont::Bold));
+  QLabel *name = text(QStringLiteral("PRISMARK"), 17);
+  name->setFont(displayFont(17, QFont::ExtraBold, 125));
+  name->setWordWrap(false);
+  brand->addWidget(name);
   QLabel *sub = text(tr("Each test is ranked on its own · there is no overall score"), 9, QFont::Normal, theme().muted);
+  sub->setFont(monoFont(8));
   sub->setWordWrap(false);
   brand->addWidget(sub);
   head->addLayout(brand);
   head->addStretch();
   groups_ = new Segmented; /* items set in refresh(): Simple shows fewer tabs */
+  groups_->setNumbered(1);
   connect(groups_, &Segmented::changed, this, [this](int i) {
     QVector<QString> shown = visibleGroups();
     shown.removeAll(QStringLiteral("stress"));
@@ -314,7 +322,7 @@ void MainWindow::buildUi() {
     metric_ = firstVisible(group_);
     refresh();
   });
-  head->addWidget(groups_);
+  head->addWidget(groups_, 0, Qt::AlignBottom);
   /* The stress test in a bubble of its own: minutes of load, run on its own, not one more benchmark tab. */
   stressTab_ = new Segmented;
   stressTab_->setItems({tr("Stress test")});
@@ -323,7 +331,7 @@ void MainWindow::buildUi() {
     metric_ = firstVisible(group_);
     refresh();
   });
-  head->addWidget(stressTab_);
+  head->addWidget(stressTab_, 0, Qt::AlignBottom);
   head->addStretch();
   quick_ = new Toggle(tr("Quick"));
   quick_->setToolTip(tr("On: quick runs, a few minutes, for a first look. Their numbers are rough, so they are not "
@@ -341,7 +349,7 @@ void MainWindow::buildUi() {
   runAll_ = new QPushButton;
   runAll_->setObjectName("primary");
   runAll_->setCursor(Qt::PointingHandCursor);
-  runAll_->setFont(uiFont(10.5, QFont::DemiBold));
+  runAll_->setFont(displayFont(10.5, QFont::ExtraBold, 125));
   connect(runAll_, &QPushButton::clicked, this, [this] { runTest(QString(), quick_->isChecked()); });
   head->addWidget(runAll_);
   head->addWidget(buildMenuButton());
@@ -350,12 +358,12 @@ void MainWindow::buildUi() {
   banner_ = text(tr("Reference systems show <b>placeholder values</b>, not measurements, until real reference results "
                     "are added."),
                  9.5, QFont::Normal, theme().warnText);
-  banner_->setStyleSheet(QStringLiteral("color:%1; background:%2; border-radius:10px; padding:8px 14px;")
+  banner_->setStyleSheet(QStringLiteral("color:%1; background:%2; padding:10px 14px;")
                              .arg(theme().warnText.name(), theme().warnBg.name()));
   outer->addWidget(banner_);
 
   auto *body = new QHBoxLayout;
-  body->setSpacing(16);
+  body->setSpacing(6);
   outer->addLayout(body, 1);
 
   /* tests column */
@@ -379,7 +387,7 @@ void MainWindow::buildUi() {
   groupDesc_->setContentsMargins(4, 0, 4, 6);
   ll->addWidget(groupDesc_);
   cardsLayout_ = new QVBoxLayout;
-  cardsLayout_->setSpacing(10);
+  cardsLayout_->setSpacing(6);
   ll->addLayout(cardsLayout_);
   moreTests_ = text(QString(), 9, QFont::Normal, theme().faint);
   moreTests_->setContentsMargins(4, 2, 4, 0);
@@ -412,6 +420,7 @@ void MainWindow::buildUi() {
   pl->setContentsMargins(20, 16, 20, 8);
   pl->setSpacing(6);
   title_ = text(QString(), 17, QFont::Bold);
+  title_->setFont(displayFont(22, QFont::Bold, 112));
   desc_ = text(QString(), 10.5);
   pl->addWidget(title_);
   pl->addWidget(desc_);
@@ -427,8 +436,8 @@ void MainWindow::buildUi() {
   pl->addWidget(sectionLabel(tr("Ranking")));
   auto *legend = new QHBoxLayout;
   legend->setContentsMargins(0, 0, 0, 4);
-  legend->addWidget(pill(tr("● Your runs"), theme().accent, theme().accentSoft));
-  legend->addWidget(pill(tr("● Reference"), theme().muted, theme().track));
+  legend->addWidget(pill(tr("■ Your runs"), theme().onAccent, theme().accentSoft));
+  legend->addWidget(pill(tr("■ Reference"), theme().ref, theme().track));
   legend->addStretch();
   QLabel *ciNote = text(tr("thin line on a bar = measurement uncertainty"), 8.5, QFont::Normal, theme().faint);
   ciNote->setWordWrap(false);
@@ -475,7 +484,7 @@ void MainWindow::buildUi() {
   foot->addWidget(rel);
   foot->addSpacing(14);
   QLabel *help = text(QStringLiteral("<a href='#' style='color:%1; text-decoration:none'>%2</a>")
-                          .arg(theme().accent.name(), tr("What do these terms mean?")),
+                          .arg(theme().link.name(), tr("What do these terms mean?")),
                       8.5, QFont::DemiBold);
   help->setWordWrap(false);
   help->setCursor(Qt::PointingHandCursor);
@@ -529,9 +538,11 @@ QWidget *MainWindow::buildMeasuringWindow() {
   top->addWidget(ring_);
   auto *tv = new QVBoxLayout;
   tv->addStretch();
-  fzState_ = text(tr("MEASURING"), 9, QFont::DemiBold, theme().accent);
+  fzState_ = text(tr("MEASURING"), 9, QFont::DemiBold, theme().link);
+  fzState_->setFont(labelFont(9));
   tv->addWidget(fzState_);
   fzPhase_ = text(QString(), 19, QFont::Bold);
+  fzPhase_->setFont(displayFont(22, QFont::Bold, 112));
   tv->addWidget(fzPhase_);
   fzMsg_ = text(QString(), 10, QFont::Normal, theme().muted);
   tv->addWidget(fzMsg_);
@@ -541,12 +552,12 @@ QWidget *MainWindow::buildMeasuringWindow() {
   top->addLayout(tv, 1);
   l->addLayout(top);
   fzStall_ = text(QString(), 10, QFont::Medium, theme().warnText);
-  fzStall_->setStyleSheet(QStringLiteral("color:%1; background:%2; border-radius:10px; padding:10px 14px;")
+  fzStall_->setStyleSheet(QStringLiteral("color:%1; background:%2; padding:10px 14px;")
                               .arg(theme().warnText.name(), theme().warnBg.name()));
   fzStall_->hide();
   l->addWidget(fzStall_);
   fzHands_ = text(QString(), 10, QFont::Medium, theme().warnText);
-  fzHands_->setStyleSheet(QStringLiteral("color:%1; background:%2; border-radius:10px; padding:10px 14px;")
+  fzHands_->setStyleSheet(QStringLiteral("color:%1; background:%2; padding:10px 14px;")
                               .arg(theme().warnText.name(), theme().warnBg.name()));
   l->addWidget(fzHands_);
   l->addWidget(text(tr("The benchmark runs as a separate process. This window changes only when a new step begins, "
@@ -681,6 +692,7 @@ void MainWindow::refresh() {
   groups_->setItems(names);
   groups_->setCurrent(int(main.indexOf(group_))); /* -1 while the stress test is shown: no tab highlighted */
   stressTab_->setVisible(shown.contains(QStringLiteral("stress")));
+  stressTab_->setNumbered(int(names.size()) + 1);
   stressTab_->setCurrent(group_ == "stress" ? 0 : -1);
   refreshTests();
   refreshRanking();
@@ -735,7 +747,7 @@ void MainWindow::refreshTests() {
     cardsLayout_->addWidget(c);
   }
   const QString link =
-      QStringLiteral("<a href='#' style='color:%1; text-decoration:none'>%2</a>").arg(theme().accent.name(), tr("Advanced"));
+      QStringLiteral("<a href='#' style='color:%1; text-decoration:none'>%2</a>").arg(theme().link.name(), tr("Advanced"));
   moreTests_->setText(hidden == 1 ? tr("1 more test on this tab in %1").arg(link)
                       : hidden    ? tr("%1 more tests on this tab in %2").arg(hidden).arg(link)
                                   : QString());
@@ -810,7 +822,7 @@ void MainWindow::refreshRanking() {
   }
   if (quick) {
     const QString link = QStringLiteral("<a href='%1' style='color:%2; text-decoration:none'>%3</a>")
-                             .arg(quick->id, theme().accent.name(),
+                             .arg(quick->id, theme().link.name(),
                                   quick->id == selected_ ? tr("Shown on the right") : tr("Show its report"));
     if (!part.isEmpty() && !quick->metrics.contains(m->id)) {
       const RunSummary::Stress x = quick->stress.value(part);
@@ -871,7 +883,7 @@ void MainWindow::refreshContext() {
          tr("For %1: how fast tasks of different lengths run when they arrive while the processor rests, in % of a "
             "busy core. Short tasks suffer most from the wake-up delay; 100 % means no penalty.").arg(esc(who)));
     auto *ch = new ChartView;
-    ch->setData({l}, true, tr("task length (ms)"), 0, 100, false);
+    ch->setData({l}, tr("task length (ms)"), 0, 100, false);
     contextLayout_->addWidget(ch);
   } else if (kind == "scaling") {
     auto byN = [](const auto &a, const auto &b) { return a[0] < b[0]; };
@@ -941,7 +953,7 @@ void MainWindow::refreshContext() {
                     : QString()));
     if (speedup.pts.size() >= 2) {
       auto *ch = new ChartView;
-      ch->setData({speedup}, false, power || clock ? QString() : tr("threads"), 0, NAN, true);
+      ch->setData({speedup}, power || clock ? QString() : tr("threads"), 0, NAN, true);
       ch->setYUnit(QStringLiteral("×"));
       ch->setAspect(0.4, 190);
       contextLayout_->addWidget(ch);
@@ -958,7 +970,7 @@ void MainWindow::refreshContext() {
            tr("For %1: time of the full build divided by the time of compiling the same files in memory. 1.0 means "
               "the tools add nothing; 2.0 means the build takes twice as long as the compiling alone.").arg(esc(who)));
       auto *ch = new ChartView;
-      ch->setData({l}, false, tr("threads"), 0, NAN, false);
+      ch->setData({l}, tr("threads"), 0, NAN, false);
       contextLayout_->addWidget(ch);
       return;
     }
@@ -1104,7 +1116,7 @@ void MainWindow::refreshDetails() {
   detailsLayout_->addWidget(text(esc(r->name), 14, QFont::Bold));
   QVector<QLabel *> meta;
   if (r->placeholder) meta << pill(tr("example values"), t.warnText, t.warnBg);
-  meta << pill(r->reference ? tr("reference") : tr("your run"), r->reference ? t.muted : t.accent,
+  meta << pill(r->reference ? tr("reference") : tr("your run"), r->reference ? t.muted : t.onAccent,
                r->reference ? t.track : t.accentSoft);
   if (!r->date.isEmpty()) meta << pill(r->date, t.muted, t.track);
   if (r->quick) meta << pill(tr("quick run"), t.muted, t.track);
@@ -1157,7 +1169,7 @@ void MainWindow::refreshDetails() {
     const Value &v = r->metrics[mt.id];
     bool current = mt.id == metric_;
     QLabel *name = text(QStringLiteral("<a href='%1' style='color:%2; text-decoration:none'>%3</a>")
-                            .arg(mt.id, (current ? t.accent : t.text).name(), esc(mt.name)),
+                            .arg(mt.id, (current ? t.link : t.text).name(), esc(mt.name)),
                         9.5, current ? QFont::DemiBold : QFont::Normal);
     name->setCursor(Qt::PointingHandCursor);
     name->setToolTip(esc(mt.title));
@@ -1408,7 +1420,7 @@ bool MainWindow::confirmCompileTests(bool needK1, bool needK1x, bool all, QStrin
     if (!st.snapshot.isEmpty())
       row(true, tr("Snapshot prepared: %1").arg(st.snapshot));
     else if (canPrepare)
-      mark(theme().accent, "→", tr("Last step: prepare the snapshot of the LLVM sources. Press “Prepare now” to start it."),
+      mark(theme().link, "→", tr("Last step: prepare the snapshot of the LLVM sources. Press “Prepare now” to start it."),
            QFont::Medium);
     else
       row(false, tr("Last step: prepare the snapshot of the LLVM sources. Once the commands above have run, "
