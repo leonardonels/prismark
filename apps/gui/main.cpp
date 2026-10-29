@@ -14,6 +14,7 @@
 #include <QApplication>
 #include <QDir>
 #include <QFileInfo>
+#include <QImage>
 #include <QPainter>
 #include <QSvgRenderer>
 #include <QTimer>
@@ -45,6 +46,24 @@ int main(int argc, char **argv) {
     icon.addPixmap(pm);
   }
   QApplication::setWindowIcon(icon);
+  /* PRISMARK_GUI_ICONSET=<dir.iconset> writes the macOS app icon's sizes for iconutil and exits (used by
+   * tools/package-macos.sh). The tile sits in the middle 80 % of the canvas, as macOS icons do. */
+  QByteArray iconset = qgetenv("PRISMARK_GUI_ICONSET");
+  if (!iconset.isEmpty()) {
+    QDir().mkpath(QString::fromLocal8Bit(iconset));
+    for (int s : {16, 32, 128, 256, 512})
+      for (int k : {1, 2}) {
+        int px = s * k;
+        QImage im(px, px, QImage::Format_ARGB32_Premultiplied);
+        im.fill(Qt::transparent);
+        QPainter p(&im);
+        p.setRenderHint(QPainter::Antialiasing);
+        (px <= 32 ? smallIcon : appIcon).render(&p, QRectF(px * 0.1, px * 0.1, px * 0.8, px * 0.8));
+        p.end();
+        im.save(QStringLiteral("%1/icon_%2x%2%3.png").arg(QString::fromLocal8Bit(iconset)).arg(s).arg(k == 2 ? "@2x" : ""));
+      }
+    return 0;
+  }
   w.show();
   QStringList args = QApplication::arguments();
   int run = args.indexOf("--run");

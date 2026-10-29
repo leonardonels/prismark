@@ -243,6 +243,61 @@ jobs:
           name: prismark-linux-${{ matrix.arch }}-portable
           path: dist/*.tar.gz
 
+  # macOS package for Apple silicon (tools/package-macos.sh): Prismark.app with the runner and Qt, ad-hoc signed,
+  # in a disk image. Without the compile tests for now. Qt 6.10 for macOS: 6.8 does not link with the macOS 26
+  # SDK (no AGL). Checked by opening the image and starting the runner and the app from it.
+  macos-package:
+    runs-on: macos-15
+    timeout-minutes: 90
+    env:
+      QT_VERSION: "6.10.3"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - name: Use this workflow's packaging script
+        if: inputs.ref != ''
+        run: |
+          git fetch --depth=1 origin ${{ github.sha }}
+          git checkout FETCH_HEAD -- tools/package-macos.sh
+
+      - name: Install Clang 19, Ninja and aqtinstall
+        run: |
+          brew install llvm@19 ninja
+          pipx install aqtinstall
+
+      - name: Cache Qt
+        id: qt
+        uses: actions/cache@v4
+        with:
+          path: Qt
+          key: qt-${{ env.QT_VERSION }}-mac-clang_64
+
+      - name: Install Qt
+        if: steps.qt.outputs.cache-hit != 'true'
+        run: aqt install-qt mac desktop "$QT_VERSION" clang_64 -O Qt
+
+      - name: Build and package
+        run: tools/package-macos.sh "Qt/$QT_VERSION/macos" dist
+
+      - name: Check the package
+        run: |
+          hdiutil attach -nobrowse -readonly -mountpoint "$RUNNER_TEMP/m" dist/prismark-*-macos-arm64.dmg
+          app="$RUNNER_TEMP/m/Prismark.app"
+          codesign --verify --deep --strict "$app"
+          "$app/Contents/MacOS/prismark" --version
+          "$app/Contents/MacOS/prismark" tests > /dev/null
+          "$app/Contents/MacOS/prismark" --quick --skip-preflight --max-threads 2 --mode st_burst --kernels K2,K3,K5 -o "$RUNNER_TEMP/smoke.json"
+          PRISMARK_GUI_SCREENSHOT="$RUNNER_TEMP/app.png" "$app/Contents/MacOS/prismark-gui"
+          test -s "$RUNNER_TEMP/app.png"
+          hdiutil detach "$RUNNER_TEMP/m"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: prismark-macos-arm64-portable
+          path: dist/*.dmg
+
   # Each Linux package on the newest Fedora, as a user would get it: unpacked into a system that has only what a
   # Fedora desktop has. Every program and library must find what it needs, the runner must measure, and the
   # desktop app must start (on a virtual X display).
@@ -313,7 +368,7 @@ jobs:
   # A pushed v* tag: every package goes to its GitHub release (a draft is made when there is none yet).
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux-portable, fedora-check, windows-portable]
+    needs: [linux-portable, fedora-check, windows-portable, macos-package]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

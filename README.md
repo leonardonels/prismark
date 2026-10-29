@@ -117,7 +117,7 @@ against ARM64).
 | 2 | Compiling code, Full software build, Opening a photo, Reading JSON, Starting a script, Memory delay, statistics in the core, analyzer | implemented; Compiling code and Full software build untested (need the Clang 19 development libraries and a snapshot) |
 | 3 | Windows PAL, CLI | portable package cross-built with llvm-mingw (`tools/package-windows.sh`), compile tests included; run under Wine (both compile tests, the app, the commands), not yet on Windows itself |
 | 4 | Android (JNI bridge), GUI | JNI bridge and Kotlin wrapper written, untested; desktop app (Qt) working on Linux |
-| 5 | macOS / iOS PAL, Swift wrapper | written, not yet compiled or run on Apple platforms |
+| 5 | macOS / iOS PAL, Swift wrapper | macOS built and run on Apple M2, disk-image package (`tools/package-macos.sh`) without the compile tests; iOS and the Swift wrapper not yet compiled |
 | 6 | Stress test (one core, all cores, each core in turn, memory test) with checks and verdict; Vector maths benchmark; ISA uplift and Matrix maths removed | implemented; run on Linux x86-64 (AVX2; AVX-512 not yet run) |
 
 On Linux x86-64 everything except Compiling code and Full software build has
@@ -304,7 +304,26 @@ glibc than Ubuntu 22.04's, so Qt is built from source first
 build/qt-6.8.3`). The ARM64 package covers Jetson Orin boards on JetPack 6 and
 other ARM64 boards with Ubuntu 22.04, Debian 12 or later.
 
-CI builds both packages in an Ubuntu 22.04 container on every push
+macOS is shipped as a disk image: open it and drag Prismark to Applications.
+The app carries Qt and the runner (`Prismark.app/Contents/MacOS/prismark`,
+which is also the command line) and runs on macOS 13 or later. It is signed
+ad hoc, not notarised, so the first start is a right-click and Open. The
+compile tests are not packed yet: Compiling code is not built in, and Full
+software build needs the one-time setup with Homebrew's `llvm@19`, `cmake`
+and `ninja`. It is built with Homebrew's Clang 19 and the official Qt 6.10
+(6.8 does not link with the macOS 26 SDK), for the Mac it runs on:
+
+```sh
+brew install llvm@19 ninja
+aqt install-qt mac desktop 6.10.3 clang_64 -O Qt
+tools/package-macos.sh Qt/6.10.3/macos
+```
+
+It refuses to pack an app in which a program or library would take anything
+from outside it but macOS itself. CI builds it for Apple silicon on every
+push (`macos-package`) and opens the image to start the runner and the app.
+
+CI builds both Linux packages in an Ubuntu 22.04 container on every push
 (`linux-portable`), and fails if anything in them needs a glibc newer than
 22.04's. It then runs each one on the newest Fedora (`fedora-check`): every
 library must resolve, the runner must measure and the app must start. When a
