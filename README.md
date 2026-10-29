@@ -117,7 +117,7 @@ against ARM64).
 | 2 | Compiling code, Full software build, Opening a photo, Reading JSON, Starting a script, Memory delay, statistics in the core, analyzer | implemented; Compiling code and Full software build untested (need the Clang 19 development libraries and a snapshot) |
 | 3 | Windows PAL, CLI | portable package cross-built with llvm-mingw (`tools/package-windows.sh`), compile tests included; run under Wine (both compile tests, the app, the commands), not yet on Windows itself |
 | 4 | Android (JNI bridge), GUI | JNI bridge and Kotlin wrapper written, untested; desktop app (Qt) working on Linux |
-| 5 | macOS / iOS PAL, Swift wrapper | macOS built and run on Apple M2, disk-image package (`tools/package-macos.sh`) without the compile tests; iOS and the Swift wrapper not yet compiled |
+| 5 | macOS / iOS PAL, Swift wrapper | macOS built and run on Apple M2, disk-image package (`tools/package-macos.sh`) with the compile tests; iOS and the Swift wrapper not yet compiled |
 | 6 | Stress test (one core, all cores, each core in turn, memory test) with checks and verdict; Vector maths benchmark; ISA uplift and Matrix maths removed | implemented; run on Linux x86-64 (AVX2; AVX-512 not yet run) |
 
 On Linux x86-64 everything except Compiling code and Full software build has
@@ -305,23 +305,33 @@ build/qt-6.8.3`). The ARM64 package covers Jetson Orin boards on JetPack 6 and
 other ARM64 boards with Ubuntu 22.04, Debian 12 or later.
 
 macOS is shipped as a disk image: open it and drag Prismark to Applications.
-The app carries Qt and the runner (`Prismark.app/Contents/MacOS/prismark`,
-which is also the command line) and runs on macOS 13 or later. It is signed
-ad hoc, not notarised, so the first start is a right-click and Open. The
-compile tests are not packed yet: Compiling code is not built in, and Full
-software build needs the one-time setup with Homebrew's `llvm@19`, `cmake`
-and `ninja`. It is built with Homebrew's Clang 19 and the official Qt 6.10
-(6.8 does not link with the macOS 26 SDK), for the Mac it runs on:
+Nothing else is needed, no Homebrew or Xcode: the app carries Qt, the runner
+(`Prismark.app/Contents/MacOS/prismark`, also the command line) and the
+compile tests with everything they need: Clang built into the runner, and the
+snapshot and Clang 19, CMake and Ninja in `Contents/Resources`. It is signed
+ad hoc, not notarised, so the first start is a right-click and Open. It is
+compiled with Homebrew's Clang 19 and built against LLVM's own release of
+LLVM 19 (Homebrew's is built for the machine's own macOS release) and the
+official Qt 6.10 (6.8 does not link with the macOS 26 SDK):
 
 ```sh
 brew install llvm@19 ninja
 aqt install-qt mac desktop 6.10.3 clang_64 -O Qt
-tools/package-macos.sh Qt/6.10.3/macos
+curl -LO https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/LLVM-19.1.7-macOS-ARM64.tar.xz
+tar -xJf LLVM-19.1.7-macOS-ARM64.tar.xz
+K1_LLVM=LLVM-19.1.7-macOS-ARM64 K1X_SNAPSHOT=~/Library/Application\ Support/prismark/k1x \
+  tools/package-macos.sh Qt/6.10.3/macos
 ```
 
 It refuses to pack an app in which a program or library would take anything
-from outside it but macOS itself. CI builds it for Apple silicon on every
-push (`macos-package`) and opens the image to start the runner and the app.
+from outside it but macOS itself, and writes the oldest macOS every part
+supports into the app. CI builds it for Apple silicon on every push
+(`macos-package`, with the Windows job's snapshot) and opens the image to
+start the runner, the app and the bundled tools.
+
+A build from source on macOS finds Homebrew's tools for the compile tests
+(`brew install llvm@19 lld cmake ninja python`) even when the app is opened
+from the Finder, whose `PATH` has no Homebrew.
 
 CI builds both Linux packages in an Ubuntu 22.04 container on every push
 (`linux-portable`), and fails if anything in them needs a glibc newer than

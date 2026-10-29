@@ -135,6 +135,13 @@ jobs:
           name: prismark-windows-x86_64-portable
           path: dist/*.zip
 
+      # For the macOS package, which cannot share this cache (caches stay within an OS).
+      - uses: actions/upload-artifact@v4
+        with:
+          name: k1x-snapshot
+          path: k1x-snapshot
+          retention-days: 1
+
   # Linux portable packages for x86-64 and ARM64 (tools/package-linux.sh; ARM64 covers Jetson boards on
   # JetPack 6 and other ARM64 boards), built in an Ubuntu 22.04 container: glibc and the libraries it bundles
   # come from the build system, so this sets the oldest distribution they run on. The job fails when anything
@@ -243,14 +250,18 @@ jobs:
           name: prismark-linux-${{ matrix.arch }}-portable
           path: dist/*.tar.gz
 
-  # macOS package for Apple silicon (tools/package-macos.sh): Prismark.app with the runner and Qt, ad-hoc signed,
-  # in a disk image. Without the compile tests for now. Qt 6.10 for macOS: 6.8 does not link with the macOS 26
-  # SDK (no AGL). Checked by opening the image and starting the runner and the app from it.
+  # macOS package for Apple silicon (tools/package-macos.sh): Prismark.app with the runner, Qt and the compile
+  # tests (Clang built in, the snapshot, Clang/CMake/Ninja), ad-hoc signed, in a disk image. The snapshot is the
+  # Windows job's, so every package does the same work. LLVM is LLVM's own macOS release, which runs on older
+  # macOS than Homebrew's; Qt 6.10, as 6.8 does not link with the macOS 26 SDK (no AGL). Checked by opening the
+  # image and starting the runner, the app and the bundled tools from it.
   macos-package:
+    needs: windows-portable
     runs-on: macos-15
-    timeout-minutes: 90
+    timeout-minutes: 120
     env:
       QT_VERSION: "6.10.3"
+      LLVM_RELEASE: LLVM-19.1.7-macOS-ARM64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -278,8 +289,27 @@ jobs:
         if: steps.qt.outputs.cache-hit != 'true'
         run: aqt install-qt mac desktop "$QT_VERSION" clang_64 -O Qt
 
+      - name: Cache LLVM for macOS
+        id: llvm
+        uses: actions/cache@v4
+        with:
+          path: ${{ env.LLVM_RELEASE }}
+          key: ${{ env.LLVM_RELEASE }}
+
+      - name: Download LLVM for macOS
+        if: steps.llvm.outputs.cache-hit != 'true'
+        run: |
+          curl -sSfLO "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/$LLVM_RELEASE.tar.xz"
+          echo "d93bf12952d89fe4ec7501c40475718b722407da6a8d651f05c995863468e570  $LLVM_RELEASE.tar.xz" | shasum -a 256 -c
+          tar -xJf "$LLVM_RELEASE.tar.xz" && rm "$LLVM_RELEASE.tar.xz"
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: k1x-snapshot
+          path: k1x-snapshot
+
       - name: Build and package
-        run: tools/package-macos.sh "Qt/$QT_VERSION/macos" dist
+        run: K1_LLVM="$LLVM_RELEASE" K1X_SNAPSHOT=k1x-snapshot tools/package-macos.sh "Qt/$QT_VERSION/macos" dist
 
       - name: Check the package
         run: |
@@ -289,6 +319,8 @@ jobs:
           "$app/Contents/MacOS/prismark" --version
           "$app/Contents/MacOS/prismark" tests > /dev/null
           "$app/Contents/MacOS/prismark" --quick --skip-preflight --max-threads 2 --mode st_burst --kernels K2,K3,K5 -o "$RUNNER_TEMP/smoke.json"
+          "$app/Contents/Resources/tools/bin/clang++-19" --version
+          "$app/Contents/Resources/tools/bin/cmake" --version
           PRISMARK_GUI_SCREENSHOT="$RUNNER_TEMP/app.png" "$app/Contents/MacOS/prismark-gui"
           test -s "$RUNNER_TEMP/app.png"
           hdiutil detach "$RUNNER_TEMP/m"

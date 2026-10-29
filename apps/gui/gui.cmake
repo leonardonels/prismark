@@ -75,7 +75,9 @@ if(PRISMARK_DESKTOP AND NOT PRISMARK_GUI STREQUAL "OFF")
       apps/gui/main.cpp apps/gui/mainwindow.cpp apps/gui/metrics.cpp apps/gui/references.cpp apps/gui/widgets.cpp
       apps/gui/theme.cpp apps/gui/setup.cpp apps/gui/inputwatch.cpp ${CMAKE_BINARY_DIR}/generated/prismark-gui.qrc)
     set_target_properties(prismark-gui PROPERTIES AUTOMOC ON AUTORCC ON
-      MACOSX_BUNDLE_BUNDLE_NAME Prismark MACOSX_BUNDLE_GUI_IDENTIFIER org.prismark.app)
+      MACOSX_BUNDLE_BUNDLE_NAME Prismark MACOSX_BUNDLE_GUI_IDENTIFIER org.prismark.app
+      MACOSX_BUNDLE_ICON_FILE Prismark MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
+      MACOSX_BUNDLE_BUNDLE_VERSION ${PROJECT_VERSION})
     target_compile_definitions(prismark-gui PRIVATE PMK_VERSION="${PROJECT_VERSION}"
       PMK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
     target_link_libraries(prismark-gui PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Svg)
@@ -89,9 +91,16 @@ if(PRISMARK_DESKTOP AND NOT PRISMARK_GUI STREQUAL "OFF")
     install(PROGRAMS tools/k1x/prepare.py DESTINATION share/prismark)
     add_dependencies(prismark-gui prismark_cli)
     if(APPLE)
-      # The app looks for the runner in its own directory.
+      # The app looks for the runner in its own directory. Its Finder and Dock icon is drawn by the app itself
+      # from the SVG (PRISMARK_GUI_ICONSET), so it always matches.
       add_custom_command(TARGET prismark-gui POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy $<TARGET_FILE:prismark_cli> $<TARGET_FILE_DIR:prismark-gui>/
+        COMMAND ${CMAKE_COMMAND} -E rm -rf ${CMAKE_BINARY_DIR}/Prismark.iconset
+        COMMAND ${CMAKE_COMMAND} -E env PRISMARK_GUI_ICONSET=${CMAKE_BINARY_DIR}/Prismark.iconset QT_QPA_PLATFORM=offscreen
+                $<TARGET_FILE:prismark-gui>
+        COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_BUNDLE_CONTENT_DIR:prismark-gui>/Resources
+        COMMAND iconutil -c icns ${CMAKE_BINARY_DIR}/Prismark.iconset
+                -o $<TARGET_BUNDLE_CONTENT_DIR:prismark-gui>/Resources/Prismark.icns
         COMMAND_EXPAND_LISTS)
     endif()
     install(TARGETS prismark-gui RUNTIME DESTINATION bin BUNDLE DESTINATION .)

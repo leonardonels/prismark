@@ -547,8 +547,8 @@ static int results_dir(char *out, size_t n, int create) {
 static int exe_dir(char *out, size_t n);
 
 /*
- * The compile-test snapshot: the one shipped beside the program (k1x/, in the portable Windows package), else the
- * one the desktop app or tools/k1x/prepare.py prepared (<user data>/prismark/k1x).
+ * The compile-test snapshot: the one shipped beside the program (k1x/ in the portable packages, Resources/k1x in
+ * Prismark.app), else the one the desktop app or tools/k1x/prepare.py prepared (<user data>/prismark/k1x).
  */
 static int k1_snapshot(char *out, size_t n) {
   char dir[1100], exe[1100];
@@ -558,6 +558,11 @@ static int k1_snapshot(char *out, size_t n) {
     snprintf(out, n, "%s/k1x", exe);
     snprintf(manifest, sizeof manifest, "%s/manifest.json", out);
     if (stat(manifest, &st) == 0) return 0;
+#ifdef __APPLE__
+    snprintf(out, n, "%s/../Resources/k1x", exe); /* in Prismark.app */
+    snprintf(manifest, sizeof manifest, "%s/manifest.json", out);
+    if (stat(manifest, &st) == 0) return 0;
+#endif
   }
   if (results_dir(dir, sizeof dir, 0)) return -1;
   size_t len = strlen(dir);
@@ -2371,6 +2376,9 @@ static void use_bundled_tools(void) {
 #else
   struct stat st;
   snprintf(tools, sizeof tools, "%s/tools/bin", exe);
+#ifdef __APPLE__
+  if (stat(tools, &st) || !S_ISDIR(st.st_mode)) snprintf(tools, sizeof tools, "%s/../Resources/tools/bin", exe); /* in Prismark.app */
+#endif
   if (stat(tools, &st) || !S_ISDIR(st.st_mode)) return;
 #endif
   const char *path = getenv("PATH");

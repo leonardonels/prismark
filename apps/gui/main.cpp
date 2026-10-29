@@ -13,6 +13,7 @@
  */
 #include <QApplication>
 #include <QDir>
+#include <QFile>
 #include <QFileInfo>
 #include <QImage>
 #include <QPainter>
@@ -20,36 +21,16 @@
 #include <QTimer>
 
 #include "mainwindow.h"
+#include "setup.h"
 #include "widgets.h"
 
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
-  /* The portable packages carry the compile tests' build tools (cmake, ninja, clang-19) in tools/bin: first in
-     PATH, so the checks before a run find them and the runner inherits them. */
-  const QString tools = QDir::toNativeSeparators(QCoreApplication::applicationDirPath() + "/tools/bin");
-  if (QFileInfo(tools).isDir()) qputenv("PATH", (tools + QDir::listSeparator()).toLocal8Bit() + qgetenv("PATH"));
-  QApplication::setOrganizationName("Prismark");
-  QApplication::setApplicationName("Prismark");
-  QApplication::setApplicationVersion(PMK_VERSION);
-  MainWindow w;
-  /* The window and taskbar icon, drawn from vectors at each size the system may ask for; 32 px and below use
-   * the simpler version (prism and one bar), which stays legible. */
-  QIcon icon;
-  QSvgRenderer appIcon(QStringLiteral(":/prismark-app.svg")), smallIcon(QStringLiteral(":/prismark-app-small.svg"));
-  for (int s : {16, 24, 32, 48, 64, 128, 256, 512}) {
-    QPixmap pm(s, s);
-    pm.fill(Qt::transparent);
-    QPainter p(&pm);
-    p.setRenderHint(QPainter::Antialiasing);
-    (s <= 32 ? smallIcon : appIcon).render(&p);
-    p.end();
-    icon.addPixmap(pm);
-  }
-  QApplication::setWindowIcon(icon);
   /* PRISMARK_GUI_ICONSET=<dir.iconset> writes the macOS app icon's sizes for iconutil and exits (used by
-   * tools/package-macos.sh). The tile sits in the middle 80 % of the canvas, as macOS icons do. */
+   * the macOS build). The tile sits in the middle 80 % of the canvas, as macOS icons do. */
   QByteArray iconset = qgetenv("PRISMARK_GUI_ICONSET");
   if (!iconset.isEmpty()) {
+    QSvgRenderer appIcon(QStringLiteral(":/prismark-app.svg")), smallIcon(QStringLiteral(":/prismark-app-small.svg"));
     QDir().mkpath(QString::fromLocal8Bit(iconset));
     for (int s : {16, 32, 128, 256, 512})
       for (int k : {1, 2}) {
@@ -64,6 +45,62 @@ int main(int argc, char **argv) {
       }
     return 0;
   }
+#if defined(Q_OS_MACOS)
+  /* An app opened from the Finder gets only the system PATH, without Homebrew. Homebrew's LLVM 19 is keg-only and
+     has no clang++-19, so links under the names the compile tests use (clang-19, clang++-19, llvm-ar, llvm-ranlib)
+     go to <data>/llvm19/bin, ahead of Homebrew's own bin. */
+  {
+    QStringList add;
+    for (const QString &brew : {QStringLiteral("/opt/homebrew"), QStringLiteral("/usr/local")}) {
+      const QString llvm = brew + "/opt/llvm@19/bin";
+      if (QFileInfo(llvm + "/clang-19").isExecutable()) {
+        const QString links = dataDir() + "/llvm19/bin";
+        QDir().mkpath(links);
+        const char *names[][2] = {{"clang-19", "clang-19"}, {"clang++-19", "clang-19"}, {"llvm-ar", "llvm-ar"},
+                                  {"llvm-ranlib", "llvm-ranlib"}};
+        for (const auto &n : names) {
+          const QString link = links + "/" + n[0], to = llvm + "/" + n[1];
+          if (QFileInfo(link).symLinkTarget() != to) {
+            QFile::remove(link);
+            QFile::link(to, link);
+          }
+        }
+        add << links;
+      }
+      if (QFileInfo(brew + "/bin").isDir()) add << brew + "/bin";
+    }
+    const QStringList path = QString::fromLocal8Bit(qgetenv("PATH")).split(':', Qt::SkipEmptyParts);
+    for (auto it = add.rbegin(); it != add.rend(); ++it)
+      if (!path.contains(*it)) qputenv("PATH", (*it + ":").toLocal8Bit() + qgetenv("PATH"));
+  }
+  /* In Prismark.app the compile tests' build tools are in Contents/Resources/tools/bin. */
+  const QString tools = QCoreApplication::applicationDirPath() + "/../Resources/tools/bin";
+#else
+  /* The portable packages carry the compile tests' build tools (cmake, ninja, clang-19) in tools/bin: first in
+     PATH, so the checks before a run find them and the runner inherits them. */
+  const QString tools = QDir::toNativeSeparators(QCoreApplication::applicationDirPath() + "/tools/bin");
+#endif
+  if (QFileInfo(tools).isDir())
+    qputenv("PATH", (QDir::toNativeSeparators(QFileInfo(tools).canonicalFilePath()) + QDir::listSeparator()).toLocal8Bit() +
+                        qgetenv("PATH"));
+  QApplication::setOrganizationName("Prismark");
+  QApplication::setApplicationName("Prismark");
+  QApplication::setApplicationVersion(PMK_VERSION);
+  /* The window and taskbar icon, drawn from vectors at each size the system may ask for; 32 px and below use
+   * the simpler version (prism and one bar), which stays legible. */
+  QIcon icon;
+  QSvgRenderer appIcon(QStringLiteral(":/prismark-app.svg")), smallIcon(QStringLiteral(":/prismark-app-small.svg"));
+  for (int s : {16, 24, 32, 48, 64, 128, 256, 512}) {
+    QPixmap pm(s, s);
+    pm.fill(Qt::transparent);
+    QPainter p(&pm);
+    p.setRenderHint(QPainter::Antialiasing);
+    (s <= 32 ? smallIcon : appIcon).render(&p);
+    p.end();
+    icon.addPixmap(pm);
+  }
+  QApplication::setWindowIcon(icon);
+  MainWindow w;
   w.show();
   QStringList args = QApplication::arguments();
   int run = args.indexOf("--run");

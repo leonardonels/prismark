@@ -66,8 +66,8 @@ DEFAULT_TOOLS = ["llvm-tblgen"]
 # Flags that describe the host build rather than the work, dropped from every unit.
 DROP_PREFIX = ("-march=", "-mtune=", "-mcpu=", "-fcolor-diagnostics", "-fdiagnostics-color", "-O", "-g",
                "--target=", "-target", "--sysroot", "-isysroot", "-W", "-pedantic", "-fdebug-prefix-map",
-               "-ffile-prefix-map", "-fmacro-prefix-map")
-DROP_WITH_VALUE = {"-o", "-MF", "-MT", "-MQ", "-target", "--sysroot", "-isysroot"}
+               "-ffile-prefix-map", "-fmacro-prefix-map", "-arch", "-mmacosx-version-min=")
+DROP_WITH_VALUE = {"-o", "-MF", "-MT", "-MQ", "-target", "--sysroot", "-isysroot", "-arch"}  # -arch: a macOS host
 DROP_EXACT = {"-c", "-MD", "-MMD", "-MP"}
 
 
