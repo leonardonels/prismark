@@ -223,6 +223,7 @@ int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order) {
     }
     r->k = c->k;
     r->type = ctx_type_of_cpu(c, cpus[0]);
+    r->unsteered = c->m.caps.qos_only && !ctx_can_place_set(c, cpus, n);
     r->cpu = -1;
     r->nthreads = n;
     r->size = c->cfg.quick_inputs ? "burst" : "full";
@@ -248,7 +249,8 @@ int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order) {
         rc = PMK_ERR_SYSTEM;
         break;
       }
-      if (ctx_can_place(c)) pal_pin_self_set(cpus, n);
+      if (ctx_can_place_set(c, cpus, n)) pal_pin_self_set(cpus, n);
+      else if (c->m.caps.qos_only) pal_unpin_self(); /* the build tools inherit an ordinary class */
       uint64_t t0 = pal_now_raw_ns();
       int st = pal_run(build, NULL, log, ctx_cancelled);
       uint64_t t1 = pal_now_raw_ns();

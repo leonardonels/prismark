@@ -37,6 +37,9 @@
 #include <pwd.h>
 #include <pthread.h>
 #include <sys/ioctl.h>
+#if defined(__APPLE__)
+#include <mach-o/dyld.h>
+#endif
 #include <unistd.h>
 #endif
 
@@ -751,6 +754,10 @@ static int exe_dir(char *out, size_t n) {
   ssize_t len = readlink("/proc/self/exe", out, n - 1);
   if (len <= 0) return -1;
   out[len] = 0;
+#elif defined(__APPLE__)
+  char raw[PATH_MAX];
+  uint32_t rn = sizeof raw;
+  if (_NSGetExecutablePath(raw, &rn) || n < PATH_MAX || !realpath(raw, out)) return -1; /* resolves symlinks */
 #else
   (void)out;
   (void)n;
@@ -1718,7 +1725,7 @@ static int cmd_completion(int argc, char **argv) {
          "    *) list=$runopts ;;\n"
          "  esac\n"
          "  COMPREPLY=($(compgen -W \"$list\" -- \"$cur\"))\n"
-         "  [[ ${COMP_WORDS[1]} == @(show|compare) && $cur != -* ]] && COMPREPLY+=($(compgen -f -X '!*.json' -- \"$cur\"))\n"
+         "  [[ ( ${COMP_WORDS[1]} == show || ${COMP_WORDS[1]} == compare ) && $cur != -* ]] && COMPREPLY+=($(compgen -f -X '!*.json' -- \"$cur\"))\n"
          "}\n"
          "complete -F _prismark prismark\n",
          shell, shell, modes, tests);

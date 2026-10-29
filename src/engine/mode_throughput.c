@@ -306,6 +306,7 @@ static volatile uint64_t g_sink;
 static void *chaser_main(void *arg) {
   chaser *ch = arg;
   if (ch->cpu >= 0) pal_pin_self(ch->cpu);
+  else if (ch->c->m.caps.qos_only) pal_unpin_self();
   uint64_t p = ch->start;
   while (!atomic_load_explicit(ch->stop, memory_order_relaxed)) p = ch->c->k->k7_chase(ch->nodes, p, 1u << 12);
   g_sink = p;
@@ -361,19 +362,21 @@ static int k7_series(pmk_ctx *c, const int *cpus, const int *steps, int nsteps) 
         rc = PMK_ERR_NOMEM;
         break;
       }
-      int started = 0;
+      int started = 0, place = ctx_can_place_set(c, cpus, n);
       for (int i = 1; i < n; i++) {
-        ch[i] = (chaser){c, nodes, pmk_rng_below(&c->rng, nn), ctx_can_place(c) ? cpus[i] : -1, &stop, NULL};
+        ch[i] = (chaser){c, nodes, pmk_rng_below(&c->rng, nn), place ? cpus[i] : -1, &stop, NULL};
         ch[i].th = pal_thread_start(chaser_main, &ch[i]);
         if (ch[i].th) started++;
       }
-      if (ctx_can_place(c)) pal_pin_self(cpus[0]);
+      if (place) pal_pin_self(cpus[0]);
+      else if (c->m.caps.qos_only) pal_unpin_self();
       pmk_result *r = ctx_new_result(c, "K7", "mc_instances", "ns");
       if (!r) rc = PMK_ERR_NOMEM;
       else {
         r->k = c->k;
         r->type = ctx_type_of_cpu(c, cpus[0]);
         r->cpu = cpus[0];
+        r->unsteered = !place && c->m.caps.qos_only;
         r->nthreads = started + 1;
         r->ws_bytes = ws;
         r->size = "full";

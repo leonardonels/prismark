@@ -174,6 +174,7 @@ static void *threaded_main(void *arg) {
   shared *sh = wk->sh;
   const void *inst = sh->s->inst;
   if (wk->cpu >= 0) pal_pin_self(wk->cpu);
+  else if (sh->c->m.caps.qos_only) pal_unpin_self(); /* one ordinary class, not the creator's */
   void *scratch = sh->tk->scratch_new ? sh->tk->scratch_new(inst) : NULL;
   if (sh->tk->scratch_new && !scratch) {
     atomic_store(&sh->failed, 1);
@@ -327,12 +328,14 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   int started = 0;
   if (rc == PMK_OK) {
     pal_unpin_self(); /* the monitor (this thread) runs wherever the OS has room */
+    int place = s->cpus && ctx_can_place_set(c, s->cpus, s->nthreads);
+    r->unsteered = !place && c->m.caps.qos_only;
     uint64_t t0_mono = pal_now_ns();
     sh->t0_raw = pal_now_raw_ns();
     for (int i = 0; i < s->nthreads; i++) {
       wk[i].sh = sh;
       wk[i].index = i;
-      wk[i].cpu = s->cpus && ctx_can_place(c) ? s->cpus[i] : -1;
+      wk[i].cpu = place ? s->cpus[i] : -1;
       wk[i].th = pal_thread_start(threaded_main, &wk[i]);
       if (!wk[i].th) {
         atomic_store(&sh->stop, 1);

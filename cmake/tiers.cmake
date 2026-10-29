@@ -6,16 +6,23 @@
 # Kernels are built without FP contraction, so their floating-point operations, and with them their outputs,
 # are bit-identical on every host and compiler (the checksum gate compares x86-64 against ARM64).
 
-if(CMAKE_SYSTEM_PROCESSOR MATCHES "^(x86_64|AMD64|amd64|x64)$")
+# On Apple the architecture is CMAKE_OSX_ARCHITECTURES (one value, CMakeLists.txt): CMAKE_SYSTEM_PROCESSOR is
+# the architecture CMake itself runs as.
+if(PRISMARK_TARGET_ARCH)
+  set(_pmk_arch ${PRISMARK_TARGET_ARCH})
+else()
+  set(_pmk_arch ${CMAKE_SYSTEM_PROCESSOR})
+endif()
+if(_pmk_arch MATCHES "^(x86_64|AMD64|amd64|x64)$")
   set(PRISMARK_ISA x86_64)
   set(PRISMARK_TIER_baseline_MARCH "x86-64-v2")
   set(PRISMARK_TIER_baseline_LEVEL "x86-64-v2")
-elseif(CMAKE_SYSTEM_PROCESSOR MATCHES "^(aarch64|arm64|ARM64)$")
+elseif(_pmk_arch MATCHES "^(aarch64|arm64|ARM64)$")
   set(PRISMARK_ISA aarch64)
   set(PRISMARK_TIER_baseline_MARCH "armv8.2-a")
   set(PRISMARK_TIER_baseline_LEVEL "armv8.2-a")
 else()
-  message(FATAL_ERROR "Prismark supports x86-64 and ARM64 (got ${CMAKE_SYSTEM_PROCESSOR})")
+  message(FATAL_ERROR "Prismark supports x86-64 and ARM64 (got ${_pmk_arch})")
 endif()
 
 # Kernel flags: no FP contraction (bit-identical outputs), no fast math.

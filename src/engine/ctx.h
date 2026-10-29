@@ -29,6 +29,7 @@ typedef struct pmk_result {
   const pmk_kernels *k; /* tier the kernel ran from */
   int type;    /* core type index of the requested CPU (first CPU for multi-core series) */
   int cpu;     /* requested CPU; -1 for multi-core series */
+  int unsteered; /* QoS-only platform, threads on more than one core type: left to the scheduler (ctx_can_place_set) */
   /* cold burst */
   int warm;
   double w_ms;
@@ -154,6 +155,14 @@ static inline int ctx_can_place(const pmk_ctx *c) { return c->m.caps.pinning || 
 /* Picks the CPU for single-core work of the given type. */
 int ctx_cpu_for_type(const pmk_ctx *c, int type);
 int ctx_type_of_cpu(const pmk_ctx *c, int cpu);
+/*
+ * Whether the threads of a multi-core series on these CPUs are placed. Where CPUs can be pinned, always. Where
+ * placement is only a QoS request (Apple), only when every CPU is of one type: the one class that sends a thread
+ * to the efficiency cores, background, also holds them at a low clock, so the efficiency cores of a mixed set
+ * would run throttled. A mixed set runs unsteered at one ordinary class and the scheduler fills every core,
+ * performance cores first, as it does for any multithreaded program.
+ */
+int ctx_can_place_set(const pmk_ctx *c, const int *cpus, int n);
 /* CPUs in the order multi-core modes add threads: fastest type first, one thread per physical
  * core before SMT siblings. Returns the count; out holds c->m.ncpu entries. */
 int ctx_cpu_order(const pmk_ctx *c, int *out);

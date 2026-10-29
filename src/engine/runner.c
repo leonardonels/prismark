@@ -168,6 +168,15 @@ int ctx_type_of_cpu(const pmk_ctx *c, int cpu) {
   return 0;
 }
 
+int ctx_can_place_set(const pmk_ctx *c, const int *cpus, int n) {
+  if (c->m.caps.pinning) return 1;
+  if (!c->m.caps.qos_only || !cpus || n < 1) return 0;
+  int t = ctx_type_of_cpu(c, cpus[0]);
+  for (int i = 1; i < n; i++)
+    if (ctx_type_of_cpu(c, cpus[i]) != t) return 0;
+  return 1;
+}
+
 static int cmp_cpu_order(const void *a, const void *b) {
   const pmk_cpu *x = a, *y = b;
   if (x->type != y->type) return x->type - y->type; /* fastest type first */
@@ -472,6 +481,12 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
   jw_obj_begin(w, "core");
   jw_str(w, "requested", c->m.type_names[r->type]);
   jw_int(w, "requested_cpu", r->cpu);
+  /* QoS-only platforms: how the threads were placed. "qos-background" (efficiency cores) runs at a clock the OS
+     holds low for background work, so it is not the cores' full speed. */
+  if (c->m.caps.qos_only)
+    jw_str(w, "placement", r->unsteered ? "unsteered"
+                           : c->m.ntypes > 1 && r->type == c->m.ntypes - 1 ? "qos-background"
+                                                                           : "qos-interactive");
   jw_arr_begin(w, "observed");
   for (size_t i = 0; i < r->n; i++) jw_int(w, NULL, r->observed[i]);
   jw_arr_end(w);

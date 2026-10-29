@@ -19,4 +19,13 @@ set(CMAKE_C_COMPILER ${PRISMARK_CLANG_C})
 set(CMAKE_CXX_COMPILER ${PRISMARK_CLANG_CXX})
 execute_process(COMMAND xcrun --show-sdk-path OUTPUT_VARIABLE _sdk OUTPUT_STRIP_TRAILING_WHITESPACE)
 set(CMAKE_OSX_SYSROOT ${_sdk})
+# The machine's own architecture, whatever architecture CMake itself runs as (an x86-64 CMake under Rosetta
+# would otherwise build x86-64); CMakeLists.txt refuses universal builds.
+execute_process(COMMAND sysctl -n hw.optional.arm64 OUTPUT_VARIABLE _arm64 OUTPUT_STRIP_TRAILING_WHITESPACE ERROR_QUIET)
+if(_arm64 STREQUAL "1")
+  set(CMAKE_OSX_ARCHITECTURES arm64 CACHE STRING "" FORCE)
+else()
+  set(CMAKE_OSX_ARCHITECTURES x86_64 CACHE STRING "" FORCE)
+endif()
+set(CMAKE_OSX_DEPLOYMENT_TARGET 13.0 CACHE STRING "Oldest macOS the build runs on")
 set(PRISMARK_PINNED_TOOLCHAIN ON CACHE BOOL "Configured with the pinned toolchain" FORCE)

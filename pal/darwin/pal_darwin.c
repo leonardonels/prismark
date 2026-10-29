@@ -6,8 +6,8 @@
  * BACKGROUND for E cores), and the observed "CPU" of a repetition is the
  * core type requested, i.e. inferred, as the spec allows (5.2, 8.1); the
  * capabilities record qos_only so this is never mistaken for pinning.
- * Temperatures are not readable without private interfaces; the thermal
- * pressure level is recorded instead.
+ * Clocks, CPU power and the die temperature come from sensors.c (Apple
+ * silicon Macs only); the thermal pressure level is recorded as well.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
@@ -29,10 +29,14 @@
 #include <unistd.h>
 
 #include "pal.h"
+#include "sensors.h"
 
 static mach_timebase_info_data_t g_tb;
 static __thread int t_requested_type = -1;
 static int g_nperf; /* perflevel0 logical CPUs */
+#define MAX_HW_CPUS 256
+static int g_hw_to_id[MAX_HW_CPUS]; /* hardware CPU number -> CPU id here; -1 unknown */
+static int g_have_hw_map;
 
 static uint64_t to_ns(uint64_t abs) { return abs * g_tb.numer / g_tb.denom; }
 static uint64_t to_abs(uint64_t ns) { return ns * g_tb.denom / g_tb.numer; }
@@ -98,6 +102,22 @@ int pal_init(pmk_machine *m) {
   m->llc_bytes = sysctl_u64("hw.l3cachesize", 0);
   if (!m->llc_bytes) m->llc_bytes = sysctl_u64("hw.perflevel0.l2cachesize", sysctl_u64("hw.l2cachesize", 0));
   m->caps.qos_only = 1;
+  dsens_init(m, g_nperf);
+  /* The CPU a thread is on (pthread_cpu_number_np) in the numbering used here: the performance cores of the
+     hardware numbering, in order, are ids 0.., the efficiency cores follow, as the types are laid out above. */
+  int hwt[MAX_HW_CPUS];
+  int nf = dsens_cpu_types(hwt, MAX_HW_CPUS);
+  for (int i = 0; i < MAX_HW_CPUS; i++) g_hw_to_id[i] = -1;
+  if (levels == 2 && nf == n) {
+    int np = 0, ne = 0;
+    for (int i = 0; i < MAX_HW_CPUS; i++)
+      if (hwt[i] == 0 && np < g_nperf) g_hw_to_id[i] = np++;
+      else if (hwt[i] == 1 && g_nperf + ne < n) g_hw_to_id[i] = g_nperf + ne++;
+    g_have_hw_map = np == g_nperf && np + ne == n;
+  } else if (levels == 1) {
+    for (int i = 0; i < n && i < MAX_HW_CPUS; i++) g_hw_to_id[i] = i; /* one type (Intel): the numbers as they are */
+    g_have_hw_map = 1;
+  }
   return 0;
 }
 
@@ -124,14 +144,21 @@ int pal_unpin_self(void) {
   return pthread_set_qos_class_self_np(QOS_CLASS_USER_INITIATED, 0);
 }
 int pal_pin_self_set(const int *cpus, int n) { return n > 0 ? pal_pin_self(cpus[0]) : -1; }
-/* The inferred core type (spec 8.1): the CPU id is not observable from user space. */
-int pal_current_cpu(void) { return t_requested_type < 0 ? -1 : (t_requested_type == 0 ? 0 : g_nperf); }
+/* The CPU the thread is on (macOS 11+), so a steered thread that ran on the other core type shows. Where the
+   numbering is not known, the core type requested, i.e. inferred (spec 8.1). */
+int pal_current_cpu(void) {
+  size_t hw;
+  if (g_have_hw_map && pthread_cpu_number_np(&hw) == 0 && hw < MAX_HW_CPUS && g_hw_to_id[hw] >= 0)
+    return g_hw_to_id[hw];
+  return t_requested_type < 0 ? -1 : (t_requested_type == 0 ? 0 : g_nperf);
+}
 int pal_set_timer_slack_min(void) { return -1; }
 
 /* Not measured on Apple platforms yet: 0 means unknown, so no test is limited by it. */
 uint64_t pal_mem_available(void) { return 0; }
-/* Apple does not report per-CPU clocks to user programs: unknown, so clamps are not detected there. */
-int pal_cpu_cur_khz(int cpu) { (void)cpu; return 0; }
+/* The average clock of the CPU's core type since the previous reading (sensors.c): threads are steered to a
+   core type, not pinned, so the core a thread ran on is not known, only its type. */
+int pal_cpu_cur_khz(int cpu) { return dsens_cpu_khz(cpu >= g_nperf); }
 
 int64_t pal_input_idle_ms(void) {
 #if TARGET_OS_OSX
@@ -154,7 +181,7 @@ int pal_random_bytes(void *p, size_t n) {
   return 0;
 }
 
-double pal_cpu_temp_c(void) { return NAN; }
+double pal_cpu_temp_c(void) { return dsens_temp_c(); }
 
 static int cpu_ticks(uint64_t *busy, uint64_t *total) {
   host_cpu_load_info_data_t info;
@@ -174,19 +201,35 @@ double pal_background_load(double seconds) {
   return (double)(b1 - b0) / (double)(t1 - t0);
 }
 
-double pal_idle_power_w(double seconds) {
-  (void)seconds;
-  return NAN; /* powermetrics needs root and is not called from inside a measurement */
-}
-
 void pal_power_start(pal_power *p) {
-  p->uj = -1;
-  p->ns = pal_now_ns();
+  long long uj;
+  uint64_t ns;
+  if (dsens_energy_uj(&uj, &ns)) {
+    p->uj = -1;
+    p->ns = pal_now_ns();
+    return;
+  }
+  p->uj = uj;
+  p->ns = ns;
 }
 
+/* CPU energy over the interval since the previous mark: W = dE / dt between the two IOReport samples. */
 double pal_power_read(pal_power *p) {
-  (void)p;
-  return NAN;
+  long long uj;
+  uint64_t ns;
+  if (p->uj < 0 || dsens_energy_uj(&uj, &ns)) return NAN;
+  double w = ns > p->ns && uj >= p->uj ? (double)(uj - p->uj) * 1e3 / (double)(ns - p->ns) : NAN;
+  p->uj = uj;
+  p->ns = ns;
+  return w;
+}
+
+double pal_idle_power_w(double seconds) {
+  pal_power p;
+  pal_power_start(&p);
+  if (p.uj < 0) return NAN;
+  pal_sleep_ns((uint64_t)(seconds * 1e9));
+  return pal_power_read(&p);
 }
 
 /* 0 nominal, 1 moderate, 2 heavy, 3 trapping, 4 sleeping; -1 if unknown. */
@@ -201,16 +244,15 @@ static int thermal_pressure(void) {
 
 void pal_state_json(pmk_jw *w, const char *key, const pmk_machine *m, int measure_power) {
   (void)m;
-  (void)measure_power;
   jw_obj_begin(w, key);
   jw_null(w, "power_mode");
   int tp = thermal_pressure();
   if (tp >= 0) jw_int(w, "thermal_pressure", tp);
   else jw_null(w, "thermal_pressure");
   jw_obj_begin(w, "temp_c");
-  jw_null(w, "cpu");
+  jw_num(w, "cpu", pal_cpu_temp_c());
   jw_obj_end(w);
-  jw_null(w, "idle_power_w");
+  jw_num(w, "idle_power_w", measure_power ? pal_idle_power_w(2.0) : NAN);
   jw_obj_end(w);
 }
 

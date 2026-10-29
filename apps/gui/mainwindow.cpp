@@ -912,9 +912,13 @@ void MainWindow::refreshContext() {
     }
     for (ChartLine *l : {&watts, &perf, &ghz}) std::sort(l->pts.begin(), l->pts.end(), byN);
     for (ChartLine &l : clocks) std::sort(l.pts.begin(), l.pts.end(), byN);
+    /* A core type that ran at only one thread count is still shown, as one point: efficiency cores join last, so
+       with thread counts 1, 2, 4, 8 on 4 P + 4 E cores they run only at 8. The chart needs one line with two. */
     QVector<ChartLine> clockLines;
+    bool spans = false;
+    for (const ChartLine &l : clocks) spans |= l.pts.size() >= 2;
     for (const ChartLine &l : clocks)
-      if (l.pts.size() >= 2) clockLines.push_back(l);
+      if (spans && !l.pts.isEmpty()) clockLines.push_back(l);
     if (clockLines.isEmpty() && ghz.pts.size() >= 2) clockLines.push_back(ghz);
 
     /* Stacked on the thread counts: the speed-up against perfect scaling (or the result itself, without

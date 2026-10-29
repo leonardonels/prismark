@@ -46,11 +46,17 @@ class Cli(unittest.TestCase):
         self.assertEqual(p.returncode, code, f"prismark {' '.join(args)}\n--- stdout\n{p.stdout}\n--- stderr\n{p.stderr}")
         return p.stdout, p.stderr
 
+    def data_dir(self):
+        """Where prismark keeps its data: Application Support on macOS (XDG_DATA_HOME is not read there)."""
+        if sys.platform == "darwin":
+            return os.path.join(self.home, "Library", "Application Support", "prismark")
+        return os.path.join(self.home, "data", "prismark")
+
     def runs_dir(self):
-        return os.path.join(self.home, "data", "prismark", "results", "runs")
+        return os.path.join(self.data_dir(), "results", "runs")
 
     def refs_dir(self):
-        return os.path.join(self.home, "data", "prismark", "results", "references")
+        return os.path.join(self.data_dir(), "results", "references")
 
     def add_placeholder(self, name):
         """A placeholder reference (example values) in the user's references folder."""

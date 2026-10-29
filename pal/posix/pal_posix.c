@@ -27,7 +27,14 @@ struct pal_thread {
 pal_thread *pal_thread_start(void *(*fn)(void *), void *arg) {
   pal_thread *t = malloc(sizeof *t);
   if (!t) return NULL;
-  if (pthread_create(&t->th, NULL, fn, arg)) {
+  /* 8 MB, as glibc gives by default and Windows gets from the linker: macOS gives secondary threads 512 KB, and
+     K1 runs Clang in them, which recurses deeper than that on large units. */
+  pthread_attr_t a;
+  pthread_attr_init(&a);
+  pthread_attr_setstacksize(&a, 8u << 20);
+  int rc = pthread_create(&t->th, &a, fn, arg);
+  pthread_attr_destroy(&a);
+  if (rc) {
     free(t);
     return NULL;
   }
