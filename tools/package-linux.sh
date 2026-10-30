@@ -197,9 +197,10 @@ and more), each ranked on its own against reference systems. Desktop app and com
 
 # The system libraries the package uses: every one a program or library in it asks for that it does not carry.
 SYSLIBS=$(find "$STAGE" -path "$STAGE/k1x" -prune -o -path "$STAGE/tools/share" -prune -o -type f \
-            \( -name '*.so*' -o -perm -u+x \) -print | while read -r f; do file -b "$f" | grep -q '^ELF' && echo "$f"; done |
+            \( -name '*.so*' -o -perm -u+x \) -print |
+          while read -r f; do if file -b "$f" | grep -q '^ELF'; then echo "$f"; fi; done |
           while read -r f; do readelf -d "$f" | sed -n 's/.*Shared library: \[\(.*\)\]/\1/p'; done | sort -u |
-          while read -r n; do [ -e "$STAGE/lib/$n" ] || [[ $n =~ ^(ld-linux|linux-vdso) ]] || echo "$n"; done)
+          while read -r n; do if [ ! -e "$STAGE/lib/$n" ] && ! [[ $n =~ ^(ld-linux|linux-vdso) ]]; then echo "$n"; fi; done)
 
 # .deb: each library's package on the build system. Ubuntu 24.04 and Debian 13 renamed some (libglib2.0-0t64),
 # so each may also come under its new name.
