@@ -20,6 +20,8 @@
 # PRISMARK_COMPILE_TESTS=0 leaves the compile tests out (no LLVM or K1X_SNAPSHOT needed; the app lists them
 # as unavailable). The build goes to build/linux-bundle, or to $PRISMARK_BUILD_DIR when set.
 set -euo pipefail
+# In CI, a failure names its line where the workflow's annotations show it.
+[ -z "${GITHUB_ACTIONS:-}" ] || trap 'echo "::error file=tools/package-linux.sh,line=$LINENO::failed: $BASH_COMMAND"' ERR
 
 [ $# -ge 1 ] || { sed -n 2,22p "$0"; exit 2; }
 QT=$(realpath "$1")
@@ -205,7 +207,7 @@ SYSLIBS=$(find "$STAGE" -path "$STAGE/k1x" -prune -o -path "$STAGE/tools/share" 
 # .deb: each library's package on the build system. Ubuntu 24.04 and Debian 13 renamed some (libglib2.0-0t64),
 # so each may also come under its new name.
 pkgs=$(for n in $SYSLIBS; do
-          p=$(dpkg -S "/$n" 2> /dev/null | sed -n '1s/[:,].*//p')
+          p=$(dpkg -S "*/$n" 2> /dev/null | grep -v '^diversion' | sed -n '1s/[:,].*//p' || true)
           [ -n "$p" ] || { echo "no package on this system has $n" >&2; exit 1; }
           echo "$p"
         done | sort -u) || exit 1
