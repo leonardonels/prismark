@@ -185,7 +185,8 @@ TXT
 
 # The disk image opens on a window that shows the install: the app, an arrow, the Applications folder. The app
 # draws the background (apps/gui/main.cpp); dmgbuild lays the window out without the Finder, so this also works
-# on a CI machine. Pinned, in its own environment.
+# on a CI machine. Pinned, in its own environment. The volume keeps the standard drive icon: the app's own icon is
+# for the app, not for the disk it comes on.
 env PRISMARK_GUI_DMG_BACKGROUND="$BUILD"/dmg-background QT_QPA_PLATFORM=offscreen \
   "$BUILD"/prismark-gui.app/Contents/MacOS/prismark-gui
 tiffutil -cathidpicheck "$BUILD"/dmg-background.png "$BUILD"/dmg-background@2x.png -out "$BUILD"/dmg-background.tiff \
@@ -196,16 +197,15 @@ import os.path
 stage = defines["stage"]
 files = [os.path.join(stage, n) for n in ("Prismark.app", "README.txt", "LICENSE")]
 symlinks = {"Applications": "/Applications"}
-icon = os.path.join(stage, "Prismark.app/Contents/Resources/Prismark.icns")
 background = defines["background"]
 format = "UDZO"
 filesystem = "HFS+"
-window_rect = ((200, 140), (640, 480))
+window_rect = ((200, 140), (740, 560))
 default_view = "icon-view"
 show_toolbar = show_pathbar = show_sidebar = show_status_bar = show_tab_view = False
 icon_size = 100
 text_size = 13
-icon_locations = {"Prismark.app": (170, 200), "Applications": (470, 200), "README.txt": (420, 385), "LICENSE": (545, 385)}
+icon_locations = {"Prismark.app": (200, 230), "Applications": (540, 230), "README.txt": (520, 440), "LICENSE": (640, 440)}
 PY
 "$BUILD"/dmgbuild/bin/dmgbuild -s "$BUILD"/dmg-settings.py -D stage="$STAGE" -D background="$BUILD"/dmg-background.tiff \
   "Prismark $VERSION" "$OUT/$NAME.dmg" > /dev/null

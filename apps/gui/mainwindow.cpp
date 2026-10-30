@@ -6,7 +6,6 @@
 #include <QCheckBox>
 #include <QClipboard>
 #include <QCloseEvent>
-#include <QComboBox>
 #include <QCoreApplication>
 #include <QDateTime>
 #include <QDebug>
@@ -17,7 +16,6 @@
 #include <QFile>
 #include <QFileDialog>
 #include <QFileInfo>
-#include <QFormLayout>
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
@@ -129,6 +127,16 @@ class MeasureWindow : public QWidget {
   std::function<bool()> onClose; /* returns true when the window may close */
 
  protected:
+  /* Its texts change with each step and wrap at its fixed width: the window takes the height they need, so none is
+     cut off. Only when the layout changes, which is when a new step begins. */
+  bool event(QEvent *e) override {
+    bool done = QWidget::event(e);
+    if (e->type() == QEvent::LayoutRequest && layout()) {
+      int h = layout()->totalHeightForWidth(width());
+      if (h > 0 && h != height()) setFixedHeight(h);
+    }
+    return done;
+  }
   void closeEvent(QCloseEvent *e) override {
     if (onClose && !onClose()) e->ignore();
     else e->accept();
@@ -385,6 +393,7 @@ void MainWindow::buildUi() {
   groupDesc_ = text(QString(), 9, QFont::Normal, theme().muted);
   groupDesc_->setContentsMargins(4, 0, 4, 6);
   ll->addWidget(groupDesc_);
+  ll->addWidget(buildStressSettings());
   cardsLayout_ = new QVBoxLayout;
   cardsLayout_->setSpacing(6);
   ll->addLayout(cardsLayout_);
@@ -510,6 +519,42 @@ void MainWindow::buildUi() {
   body->addWidget(right, 2);
 
   measure_ = buildMeasuringWindow();
+}
+
+/* The stress test's settings, above its cards and shown only on its tab: Run starts it at once with these. Each
+   change is remembered. */
+QWidget *MainWindow::buildStressSettings() {
+  stressSettings_ = new QWidget;
+  auto *l = new QVBoxLayout(stressSettings_);
+  l->setContentsMargins(4, 0, 4, 12);
+  l->setSpacing(6);
+  l->addWidget(sectionLabel(tr("Run settings")));
+  QSettings set;
+  auto choice = [&](const QString &label, const QString &key, const QVariant &dflt,
+                    const QVector<QPair<QString, QVariant>> &items) {
+    l->addWidget(text(label, 9.5, QFont::DemiBold));
+    auto *seg = new Segmented;
+    QStringList names;
+    int cur = 0;
+    for (int i = 0; i < items.size(); i++) {
+      names << items[i].first;
+      if (items[i].second.toString() == set.value(key, dflt).toString()) cur = i; /* stored as text on some systems */
+    }
+    seg->setItems(names);
+    seg->setCurrent(cur);
+    connect(seg, &Segmented::changed, this, [key, items](int i) { QSettings().setValue(key, items[i].second); });
+    l->addWidget(seg, 0, Qt::AlignLeft);
+  };
+  choice(tr("Length"), "stress_time", "10m",
+         {{tr("10 min"), "10m"}, {tr("30 min"), "30m"}, {tr("Until stopped"), "until-stopped"}});
+  choice(tr("Stop at a temperature"), "stress_max_temp", 0,
+         {{tr("Never"), 0}, {QStringLiteral("85°"), 85}, {QStringLiteral("90°"), 90}, {QStringLiteral("95°"), 95},
+          {QStringLiteral("100°"), 100}});
+  auto *stopErr = new Toggle(tr("Stop at the first wrong result"));
+  stopErr->setChecked(set.value("stress_stop_on_error", true).toBool());
+  connect(stopErr, &Toggle::toggled, this, [](bool on) { QSettings().setValue("stress_stop_on_error", on); });
+  l->addWidget(stopErr);
+  return stressSettings_;
 }
 
 QWidget *MainWindow::buildMeasuringWindow() {
@@ -739,7 +784,7 @@ void MainWindow::refreshTests() {
       refreshRanking();
       refreshDetails();
     });
-    /* a stress test has no quick run: its length is asked for instead */
+    /* a stress test has no quick run: it runs as set above its cards */
     connect(c, &TestCard::runRequested, this,
             [this](const QString &id) { runTest(id, quick_->isChecked() && findMetric(id)->group != "stress"); });
     cards_.addButton(c);
@@ -751,6 +796,7 @@ void MainWindow::refreshTests() {
                       : hidden    ? tr("%1 more tests on this tab in %2").arg(hidden).arg(link)
                                   : QString());
   moreTests_->setVisible(hidden > 0);
+  stressSettings_->setVisible(group_ == "stress");
   refreshRunLabels();
 }
 
@@ -1473,40 +1519,11 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
   QStringList args = {"--progress-json", "--cancel-on-stdin", "--frontend", "gui"};
   QString stressTime; /* "10m", "30m" or "until-stopped" */
   QStringList stressOpts;
-  if (m && m->group == "stress") {
-    /* Its length, and when to end it early: at the first wrong result, or at a temperature (remembered). */
-    QDialog d(this);
-    d.setWindowTitle(tr("Stress test"));
-    auto *f = new QFormLayout(&d);
-    f->addRow(text(tr("“%1”. The score is the speed in the 10th minute, so every length from 10 minutes on "
-                      "compares; longer runs show how the speed holds up.").arg(esc(m->title)), 10));
-    auto *length = new QComboBox;
-    length->addItem(tr("10 minutes"), "10m");
-    length->addItem(tr("30 minutes"), "30m");
-    length->addItem(tr("Until I stop it"), "until-stopped");
+  if (m && m->group == "stress") { /* as set beside its cards (buildStressSettings) */
     QSettings set;
-    length->setCurrentIndex(std::max(0, length->findData(set.value("stress_time", "10m"))));
-    f->addRow(tr("Length"), length);
-    auto *stopErr = new QCheckBox(tr("Stop at the first wrong result"));
-    stopErr->setChecked(set.value("stress_stop_on_error", true).toBool());
-    f->addRow(QString(), stopErr);
-    auto *maxTemp = new QComboBox;
-    maxTemp->addItem(tr("No limit"), 0);
-    for (int c : {85, 90, 95, 100}) maxTemp->addItem(tr("Stop at %1 °C").arg(c), c);
-    maxTemp->setCurrentIndex(std::max(0, maxTemp->findData(set.value("stress_max_temp", 0))));
-    f->addRow(tr("Temperature"), maxTemp);
-    auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-    bb->button(QDialogButtonBox::Ok)->setText(tr("Start"));
-    connect(bb, &QDialogButtonBox::accepted, &d, &QDialog::accept);
-    connect(bb, &QDialogButtonBox::rejected, &d, &QDialog::reject);
-    f->addRow(bb);
-    if (d.exec() != QDialog::Accepted) return;
-    stressTime = length->currentData().toString();
-    set.setValue("stress_time", stressTime);
-    set.setValue("stress_stop_on_error", stopErr->isChecked());
-    set.setValue("stress_max_temp", maxTemp->currentData());
-    stressOpts = {"--stress-on-error", stopErr->isChecked() ? "stop" : "continue"};
-    if (maxTemp->currentData().toInt() > 0) stressOpts << "--stress-max-temp" << maxTemp->currentData().toString();
+    stressTime = set.value("stress_time", "10m").toString();
+    stressOpts = {"--stress-on-error", set.value("stress_stop_on_error", true).toBool() ? "stop" : "continue"};
+    if (int c = set.value("stress_max_temp", 0).toInt(); c > 0) stressOpts << "--stress-max-temp" << QString::number(c);
   }
   if (m) {
     args << "--mode" << m->modes.join(",") << "--kernels" << m->kernels;

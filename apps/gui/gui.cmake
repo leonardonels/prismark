@@ -71,9 +71,19 @@ if(PRISMARK_DESKTOP AND NOT PRISMARK_GUI STREQUAL "OFF")
     file(WRITE ${CMAKE_BINARY_DIR}/generated/prismark-gui.qrc
       "<RCC>\n  <qresource prefix=\"/\">\n${_inter_files}${_reference_entries}${_logo_entries}  </qresource>\n</RCC>\n")
 
+    # On Windows the icon of the program file, which Explorer and the taskbar show (drawn by the app from the SVG:
+    # PRISMARK_GUI_ICO, apps/gui/main.cpp).
+    set(_win_icon "")
+    if(WIN32)
+      file(WRITE ${CMAKE_BINARY_DIR}/generated/prismark-gui.rc
+        "IDI_ICON1 ICON \"${PROJECT_SOURCE_DIR}/apps/gui/icons/prismark.ico\"\n")
+      set(_win_icon ${CMAKE_BINARY_DIR}/generated/prismark-gui.rc)
+    endif()
+
     add_executable(prismark-gui WIN32 MACOSX_BUNDLE
       apps/gui/main.cpp apps/gui/mainwindow.cpp apps/gui/metrics.cpp apps/gui/references.cpp apps/gui/widgets.cpp
-      apps/gui/theme.cpp apps/gui/setup.cpp apps/gui/inputwatch.cpp ${CMAKE_BINARY_DIR}/generated/prismark-gui.qrc)
+      apps/gui/theme.cpp apps/gui/setup.cpp apps/gui/inputwatch.cpp ${CMAKE_BINARY_DIR}/generated/prismark-gui.qrc
+      ${_win_icon})
     set_target_properties(prismark-gui PROPERTIES AUTOMOC ON AUTORCC ON
       MACOSX_BUNDLE_BUNDLE_NAME Prismark MACOSX_BUNDLE_GUI_IDENTIFIER org.prismark.app
       MACOSX_BUNDLE_ICON_FILE Prismark MACOSX_BUNDLE_SHORT_VERSION_STRING ${PROJECT_VERSION}
