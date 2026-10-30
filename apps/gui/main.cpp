@@ -34,15 +34,24 @@
 
 #if defined(Q_OS_LINUX)
 /* On Wayland the desktop shows a window's icon from the .desktop file named by its app id, not the icon the app
- * sets: without one, GNOME shows its generic icon. An installed Prismark has prismark.desktop (apps/gui/gui.cmake);
- * the portable folder gets one in ~/.local/share/applications pointing at itself, rewritten when the folder
- * moves. NoDisplay keeps it out of the app menu, where it would outlive a deleted folder: it only names the icon. */
+ * sets: without one, GNOME shows its generic icon. An installed Prismark (the .deb and .rpm, or cmake --install)
+ * has prismark.desktop; a build run from its folder gets one in ~/.local/share/applications pointing at itself,
+ * rewritten when the folder moves. NoDisplay keeps it out of the app menu, where it would outlive a deleted
+ * folder: it only names the icon. Once Prismark is installed, that one goes, as it would hide the system's. */
 void registerDesktopEntry(const QIcon &icon) {
   QGuiApplication::setDesktopFileName(QStringLiteral("prismark"));
   const QString name = QStringLiteral("applications/prismark.desktop");
   const QString own = QStandardPaths::writableLocation(QStandardPaths::GenericDataLocation) + "/" + name;
-  const QString found = QStandardPaths::locate(QStandardPaths::GenericDataLocation, name);
-  if (!found.isEmpty() && found != own) return; /* installed: the system's own entry */
+  QStringList found = QStandardPaths::locateAll(QStandardPaths::GenericDataLocation, name);
+  found.removeAll(own);
+  if (!found.isEmpty()) { /* installed: the system's own entry, and none of ours in front of it */
+    QFile f(own);
+    if (f.open(QIODevice::ReadOnly) && f.readAll().contains("X-Prismark-Version=")) {
+      f.close();
+      f.remove();
+    }
+    return;
+  }
   const QString png = dataDir() + "/prismark.png";
   auto quoted = [](QString s) { /* an argument of Exec: quoted, then escaped as any string value */
     for (const char *c : {"\\", "\"", "`", "$"}) s.replace(QLatin1String(c), QLatin1String("\\") + QLatin1String(c));
@@ -195,7 +204,7 @@ int main(int argc, char **argv) {
   /* In Prismark.app the compile tests' build tools are in Contents/Resources/tools/bin. */
   const QString tools = QCoreApplication::applicationDirPath() + "/../Resources/tools/bin";
 #else
-  /* The portable packages carry the compile tests' build tools (cmake, ninja, clang-19) in tools/bin: first in
+  /* The Linux and Windows packages carry the compile tests' build tools (cmake, ninja, clang-19) in tools/bin: first in
      PATH, so the checks before a run find them and the runner inherits them. */
   const QString tools = QDir::toNativeSeparators(QCoreApplication::applicationDirPath() + "/tools/bin");
 #endif

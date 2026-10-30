@@ -118,7 +118,7 @@ QString prepareScript() {
 CompileStatus compileStatus(const QJsonObject &info, const QString &configured) {
   CompileStatus s;
   s.k1Built = info["k1_built"].toBool();
-  /* the one set in the app, the one shipped beside the program (portable packages; in Prismark.app, in
+  /* the one set in the app, the one shipped beside the program (Linux and Windows packages; in Prismark.app, in
      Resources), the prepared one */
   for (const QString &dir : {configured, QCoreApplication::applicationDirPath() + "/k1x",
                              QCoreApplication::applicationDirPath() + "/../Resources/k1x", defaultSnapshotDir()})

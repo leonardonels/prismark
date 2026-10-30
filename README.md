@@ -284,12 +284,21 @@ downloaded at pinned versions and checked. Packaging refuses to zip a folder
 in which a DLL any binary needs is missing. `PRISMARK_COMPILE_TESTS=0` builds
 the package without the compile tests.
 
-Linux has a portable package too, a `.tar.gz` built the same way: unpack it
-and start `./prismark-gui`, with nothing to install, so it also runs from a
-live USB session. It carries Qt, every library a desktop distribution may
-lack, and the compile tests' snapshot and tools (Clang 19, CMake, Ninja).
-Build it on the oldest distribution it should run on (Ubuntu 22.04 covers
-22.04 and later), with Clang 19 from apt.llvm.org and the official Qt 6:
+Linux is shipped as packages to install: a `.deb` for Ubuntu and Debian and
+an `.rpm` for Fedora, for x86-64 and ARM64. Install with the system's own tool,
+which also brings in the few libraries every desktop has:
+
+```sh
+sudo apt install ./prismark_0.4.2_amd64.deb        # Ubuntu 22.04 or later, Debian 12 or later
+sudo dnf install ./prismark-0.4.2-1.x86_64.rpm     # Fedora
+```
+
+Prismark then appears in the desktop's menu; `prismark` and `prismark-gui`
+are in `/usr/bin`. Both packages hold the same files, in `/opt/prismark`: the
+app, the runner, Qt, every library a desktop distribution may lack, and the
+compile tests' snapshot and tools (Clang 19, CMake, Ninja). They are built on
+the oldest distribution they should run on (Ubuntu 22.04), with Clang 19 from
+apt.llvm.org, the official Qt 6, `dpkg-deb` and `rpmbuild` (`apt install rpm`):
 
 ```sh
 aqt install-qt linux desktop 6.8.3 linux_gcc_64 -O Qt
@@ -297,11 +306,12 @@ K1X_SNAPSHOT=~/.local/share/prismark/k1x tools/package-linux.sh Qt/6.8.3/gcc_64
 ```
 
 It refuses to pack a folder in which a program or plugin would take a
-library from the system that is not on every desktop. It packages for the
+library from the system that is not on every desktop, and makes the packages
+depend on exactly the system libraries the rest use. It packages for the
 machine it runs on, x86-64 or ARM64. For ARM64, Qt's own binaries need a newer
 glibc than Ubuntu 22.04's, so Qt is built from source first
 (`tools/build-qt-linux.sh build/qt-6.8.3`, then `tools/package-linux.sh
-build/qt-6.8.3`). The ARM64 package covers Jetson Orin boards on JetPack 6 and
+build/qt-6.8.3`). The ARM64 `.deb` covers Jetson Orin boards on JetPack 6 and
 other ARM64 boards with Ubuntu 22.04, Debian 12 or later.
 
 macOS is shipped as a disk image: it opens on a window that shows the install,
@@ -335,10 +345,12 @@ A build from source on macOS finds Homebrew's tools for the compile tests
 (`brew install llvm@19 lld cmake ninja python`) even when the app is opened
 from the Finder, whose `PATH` has no Homebrew.
 
-CI builds both Linux packages in an Ubuntu 22.04 container on every push
-(`linux-portable`), and fails if anything in them needs a glibc newer than
-22.04's. It then runs each one on the newest Fedora (`fedora-check`): every
-library must resolve, the runner must measure and the app must start. When a
+CI builds the Linux packages in an Ubuntu 22.04 container on every push
+(`linux-packages`), and fails if anything in them needs a glibc newer than
+22.04's. It then installs each one as a user would (`linux-install-check`):
+the `.rpm` with dnf on the newest Fedora and the `.deb` with apt on Ubuntu
+24.04, on both architectures; every library must resolve, the runner must
+measure and the app must start. When a
 `v*` tag is pushed, every package is attached to its GitHub release. To
 repackage an earlier release, run the workflow by hand with that tag as `ref`.
 
@@ -454,8 +466,9 @@ build" (K1x) on Linux, Windows and macOS (it starts other programs, which
 iPadOS does not allow). Phones do not offer either, and they are not shown
 there at all.
 
-The portable Windows package brings both ready to run, snapshot and tools
-included. Everywhere else they need a one-time setup, in this order:
+The released packages (the Windows zip, the Linux `.deb` and `.rpm`, the macOS
+disk image) bring both ready to run, snapshot and tools included. A build from
+source needs a one-time setup, in this order:
 
 1. **Install the packages** for your distribution from [Building](#building)
    (the Clang 19 development libraries, `lld` and `python3` among them).

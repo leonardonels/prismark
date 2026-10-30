@@ -142,12 +142,12 @@ jobs:
           path: k1x-snapshot
           retention-days: 1
 
-  # Linux portable packages for x86-64 and ARM64 (tools/package-linux.sh; ARM64 covers Jetson boards on
-  # JetPack 6 and other ARM64 boards), built in an Ubuntu 22.04 container: glibc and the libraries it bundles
-  # come from the build system, so this sets the oldest distribution they run on. The job fails when anything
-  # in a package needs a glibc newer than 22.04's (2.35). The snapshot is the Windows job's cached one, so every
-  # package does the same work.
-  linux-portable:
+  # Linux packages for x86-64 and ARM64, a .deb and an .rpm of the same files (tools/package-linux.sh; ARM64
+  # covers Jetson boards on JetPack 6 and other ARM64 boards), built in an Ubuntu 22.04 container: glibc and the
+  # libraries it bundles come from the build system, so this sets the oldest distribution they run on. The job
+  # fails when anything in a package needs a glibc newer than 22.04's (2.35). The snapshot is the Windows job's
+  # cached one, so every package does the same work.
+  linux-packages:
     strategy:
       fail-fast: false
       matrix:
@@ -173,7 +173,7 @@ jobs:
             libdbus-1-3 libglib2.0-0 libx11-xcb1 libxcb1 libxcb-cursor0 libxcb-icccm4 libxcb-image0 \
             libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxcb-randr0 libxcb-shape0 \
             libxcb-sync1 libxcb-xfixes0 libxcb-xinput0 libxcb-glx0 libxcb-shm0 libwayland-client0 \
-            libwayland-cursor0 libwayland-egl1
+            libwayland-cursor0 libwayland-egl1 rpm
           wget -q https://apt.llvm.org/llvm.sh
           bash llvm.sh "$CLANG_VERSION"
           apt-get install -y --no-install-recommends "libclang-$CLANG_VERSION-dev" "llvm-$CLANG_VERSION-dev"
@@ -235,8 +235,10 @@ jobs:
 
       - name: Check the package
         run: |
-          tar -xzf dist/prismark-*-linux-${{ matrix.arch }}.tar.gz -C "$RUNNER_TEMP"
-          d=$(echo "$RUNNER_TEMP"/prismark-*-linux-${{ matrix.arch }})
+          dpkg-deb -x dist/prismark_*.deb "$RUNNER_TEMP/deb"
+          d=$RUNNER_TEMP/deb/opt/prismark
+          dpkg-deb -I dist/prismark_*.deb
+          rpm -qp --requires dist/prismark-*.rpm
           "$d/prismark" --version
           "$d/prismark" tests > /dev/null
           newest=$(find "$d" -path "$d/k1x" -prune -o -type f \( -name '*.so*' -o -perm -u+x \) -print |
@@ -247,8 +249,10 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: prismark-linux-${{ matrix.arch }}-portable
-          path: dist/*.tar.gz
+          name: prismark-linux-${{ matrix.arch }}-packages
+          path: |
+            dist/*.deb
+            dist/*.rpm
 
   # macOS package for Apple silicon (tools/package-macos.sh): Prismark.app with the runner, Qt and the compile
   # tests (Clang built in, the snapshot, Clang/CMake/Ninja), ad-hoc signed, in a disk image. The snapshot is the
@@ -330,48 +334,54 @@ jobs:
           name: prismark-macos-arm64-portable
           path: dist/*.dmg
 
-  # Each Linux package on the newest Fedora, as a user would get it: unpacked into a system that has only what a
-  # Fedora desktop has. Every program and library must find what it needs, the runner must measure, and the
-  # desktop app must start (on a virtual X display).
-  fedora-check:
-    needs: linux-portable
+  # Each Linux package installed as a user would: the .rpm with dnf on the newest Fedora, the .deb with apt on the
+  # newest Ubuntu LTS, each pulling in what it depends on. Every program and library must find what it needs, the
+  # runner must measure from /usr/bin, and the desktop app must start (on a virtual X display).
+  linux-install-check:
+    needs: linux-packages
     strategy:
       fail-fast: false
       matrix:
+        image: ["fedora:latest", "ubuntu:24.04"]
+        arch: [x86_64, aarch64]
         include:
           - { arch: x86_64, runner: ubuntu-24.04 }
           - { arch: aarch64, runner: ubuntu-24.04-arm }
     runs-on: ${{ matrix.runner }}
-    container: fedora:latest
+    container: ${{ matrix.image }}
+    env:
+      DEBIAN_FRONTEND: noninteractive
     steps:
-      - name: Install what a Fedora desktop has
-        run: >
-          dnf install -y --setopt=install_weak_deps=False file findutils tar gzip binutils
-          mesa-libGL mesa-libEGL libglvnd-opengl libX11 libX11-xcb libxcb libXext libXrender libXi
-          libxkbcommon libxkbcommon-x11 libwayland-client libwayland-cursor libwayland-egl
-          fontconfig freetype dejavu-sans-fonts dbus-libs glib2 xorg-x11-server-Xvfb
-
       - uses: actions/download-artifact@v4
         with:
-          name: prismark-linux-${{ matrix.arch }}-portable
+          name: prismark-linux-${{ matrix.arch }}-packages
 
-      - name: Run the package
+      - name: Install the package
         run: |
-          cat /etc/fedora-release
-          tar -xzf prismark-*-linux-${{ matrix.arch }}.tar.gz
-          d=$(echo "$PWD"/prismark-*-linux-${{ matrix.arch }})
+          if command -v dnf > /dev/null; then
+            cat /etc/fedora-release
+            dnf install -y --setopt=install_weak_deps=False ./prismark-*.rpm file findutils xorg-x11-server-Xvfb
+          else
+            grep PRETTY /etc/os-release
+            apt-get update
+            apt-get install -y --no-install-recommends ./prismark_*.deb file xvfb
+          fi
+
+      - name: Run it
+        run: |
+          d=/opt/prismark
           missing=$(find "$d" -path "$d/k1x" -prune -o -type f \( -name '*.so*' -o -perm -u+x \) -print |
             while read -r f; do file -b "$f" | grep -q '^ELF' && ldd "$f" 2>/dev/null | grep 'not found' | sed "s|^|${f#"$d"/}: |"; done)
           [ -z "$missing" ] || { echo "$missing"; exit 1; }
-          "$d/prismark" --version
-          "$d/prismark" tests > /dev/null
-          "$d/prismark" --quick --skip-preflight --max-threads 2 --mode st_burst --kernels K2,K3,K5 -o "$RUNNER_TEMP/smoke.json"
+          test -f /usr/share/applications/prismark.desktop
+          prismark --version
+          prismark tests > /dev/null
+          prismark --quick --skip-preflight --max-threads 2 --mode st_burst --kernels K2,K3,K5 -o "$RUNNER_TEMP/smoke.json"
 
       - name: Start the desktop app
         run: |
           Xvfb :99 -screen 0 1280x800x24 & sleep 2
-          d=$(echo "$PWD"/prismark-*-linux-${{ matrix.arch }})
-          rc=0; DISPLAY=:99 QT_QPA_PLATFORM=xcb timeout 10 "$d/prismark-gui" || rc=$?
+          rc=0; DISPLAY=:99 QT_QPA_PLATFORM=xcb timeout 10 prismark-gui || rc=$?
           [ "$rc" = 124 ] || { echo "prismark-gui exited with $rc instead of running"; exit 1; }
 
   # Gate 2: kernel outputs identical on x86-64 and ARM64.
@@ -400,14 +410,14 @@ jobs:
   # A pushed v* tag: every package goes to its GitHub release (a draft is made when there is none yet).
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux-portable, fedora-check, windows-portable, macos-package]
+    needs: [linux-packages, linux-install-check, windows-portable, macos-package]
     runs-on: ubuntu-24.04
     permissions:
       contents: write
     steps:
       - uses: actions/download-artifact@v4
         with:
-          pattern: prismark-*-portable
+          pattern: prismark-*
           merge-multiple: true
           path: dist
       - name: Attach the packages to the release

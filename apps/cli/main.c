@@ -547,7 +547,7 @@ static int results_dir(char *out, size_t n, int create) {
 static int exe_dir(char *out, size_t n);
 
 /*
- * The compile-test snapshot: the one shipped beside the program (k1x/ in the portable packages, Resources/k1x in
+ * The compile-test snapshot: the one shipped beside the program (k1x/ in the Linux and Windows packages, Resources/k1x in
  * Prismark.app), else the one the desktop app or tools/k1x/prepare.py prepared (<user data>/prismark/k1x).
  */
 static int k1_snapshot(char *out, size_t n) {
@@ -2364,7 +2364,7 @@ static int cmd_menu(void) {
   }
 }
 
-/* The portable packages carry the compile tests' build tools (cmake, ninja, clang-19) in tools/bin beside the
+/* The Linux and Windows packages carry the compile tests' build tools (cmake, ninja, clang-19) in tools/bin beside the
    program: first in PATH, for this process and every one it starts. */
 static void use_bundled_tools(void) {
   char exe[1100], tools[1200];
