@@ -84,6 +84,9 @@ class MainWindow : public QMainWindow {
   const RunSummary *selectedRun() const;
   /* Pre-run checks; false when the user cancelled. */
   bool confirmCompileTests(bool needK1, bool needK1x, bool all, QStringList &args);
+  bool askCancel(); /* true when the user confirms cancelling the run */
+  bool askPower();
+  bool powerNotAllowed(bool runWaiting);
 
   QVector<RunSummary> runs_;
   QJsonObject info_; /* `prismark info` */

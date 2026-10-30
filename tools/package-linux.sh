@@ -178,8 +178,9 @@ Results are saved in ~/.local/share/prismark/results, shared by the app and the
 command line; removing the package leaves them.
 
 Power is read from the CPU's energy counter, which only root may read on most
-distributions. To let the app read it until the next reboot:
-  sudo chmod a+r /sys/class/powercap/intel-rapl:0/energy_uj
+distributions. The app offers to allow it before a run (it asks for your
+password) until the next reboot; from a terminal, the same is:
+  sudo chmod o+r /sys/class/powercap/intel-rapl:0/energy_uj
 
 $COMPILE_TXT
 TXT

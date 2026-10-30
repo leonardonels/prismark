@@ -3,7 +3,6 @@
 
 #include <QAction>
 #include <QApplication>
-#include <QCheckBox>
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QCoreApplication>
@@ -11,7 +10,6 @@
 #include <QDebug>
 #include <QDesktopServices>
 #include <QDialog>
-#include <QDialogButtonBox>
 #include <QDir>
 #include <QFile>
 #include <QFileDialog>
@@ -19,17 +17,16 @@
 #include <QFrame>
 #include <QGridLayout>
 #include <QHBoxLayout>
-#include <QInputDialog>
 #include <QLineEdit>
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLabel>
 #include <QMenu>
-#include <QMessageBox>
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
 #include <QRegularExpression>
+#include <QScreen>
 #include <QScrollArea>
 #include <QSettings>
 #include <QStackedWidget>
@@ -50,6 +47,7 @@
 
 #include "inputwatch.h"
 #include "setup.h"
+#include "stub.h"
 #include "theme.h"
 #include "widgets.h"
 
@@ -201,10 +199,30 @@ int stallMinutes(const QString &phase, const QString &kernel) {
   return 8;
 }
 
-/* The runner found an energy meter (package power) that only administrators may read. */
+/* The runner found an energy meter (package power) that only administrators may read: Windows' EMI, or on Linux
+   the RAPL counter, root-only since Linux 5.10 (it can leak secrets to unprivileged code: PLATYPUS). */
 bool powerNeedsAdmin(const QJsonObject &info) {
-  return info["machine"].toObject()["capabilities"].toObject()["power_note"].toString() == "emi-needs-admin";
+  const QString note = info["machine"].toObject()["capabilities"].toObject()["power_note"].toString();
+  return note == "emi-needs-admin" || note == "rapl-needs-root";
 }
+
+/* Linux: the only file the runner reads power from (pal/linux/pal_linux.c). */
+const QString kRaplCounter = QStringLiteral("/sys/class/powercap/intel-rapl:0/energy_uj");
+
+/* Linux: makes the energy counter readable by every user until the next reboot, as root through the desktop's own
+   password prompt (pkexec); true when it is readable now. Nothing else changes, and nothing is kept: a reboot
+   restores the kernel's protection. */
+#ifdef Q_OS_LINUX
+bool allowPowerReadings() {
+  const QString pkexec = QStandardPaths::findExecutable("pkexec"), chmod = QStandardPaths::findExecutable("chmod");
+  if (pkexec.isEmpty() || chmod.isEmpty()) return false;
+  QProcess p;
+  p.start(pkexec, {chmod, "o+r", kRaplCounter});
+  if (!p.waitForStarted()) return false;
+  while (!p.waitForFinished(100)) QCoreApplication::processEvents(QEventLoop::ExcludeUserInputEvents);
+  return QFileInfo(kRaplCounter).isReadable();
+}
+#endif
 
 /* Starts this app again with administrator rights (Windows asks the user first); true if it started. */
 bool restartAsAdmin() {
@@ -271,9 +289,22 @@ QWidget *MainWindow::buildMenuButton() {
   m->addSeparator();
   m->addAction(tr("Prepare compile tests…"), this, &MainWindow::prepareCompileTests);
   m->addAction(tr("Use another compile-test snapshot…"), this, &MainWindow::chooseSnapshot);
+#ifdef Q_OS_LINUX
+  QAction *admin = m->addAction(tr("Allow power readings until reboot…"), this, [this] {
+    if (proc_) return;
+    if (allowPowerReadings()) {
+      loadInfo();
+      Stub::tell(this, Stub::System, tr("SYS / POWER"), tr("Power readings allowed"),
+                 tr("Runs record the processor's power until the next reboot."));
+    } else {
+      powerNotAllowed(false);
+    }
+  });
+#else
   QAction *admin = m->addAction(tr("Restart as administrator to measure power"), this, [this] {
     if (!proc_ && restartAsAdmin()) qApp->quit();
   });
+#endif
   connect(m, &QMenu::aboutToShow, admin, [this, admin] { admin->setVisible(powerNeedsAdmin(info_)); });
   m->addSeparator();
   QAction *dark = m->addAction(tr("Dark theme"));
@@ -566,11 +597,7 @@ QWidget *MainWindow::buildMeasuringWindow() {
   win->setFixedWidth(620);
   win->onClose = [this] {
     if (!proc_) return true;
-    if (!stressOpen_ &&
-        QMessageBox::question(measure_, tr("Cancel the run?"),
-                              tr("Closing this window cancels the run. The partial result is kept.")) != QMessageBox::Yes)
-      return false;
-    cancelRun(); /* a stress test without a set length asks itself */
+    cancelRun(); /* asks first */
     return false; /* the window closes when the runner has stopped */
   };
   auto *l = new QVBoxLayout(win);
@@ -1434,13 +1461,11 @@ bool MainWindow::confirmCompileTests(bool needK1, bool needK1x, bool all, QStrin
       if (!st.snapshot.isEmpty()) args << "--k1-data" << st.snapshot;
       return true;
     }
-    QDialog d(this);
-    d.setWindowTitle(tr("Compile tests"));
-    d.setMinimumWidth(620);
-    auto *l = new QVBoxLayout(&d);
-    l->setContentsMargins(26, 22, 26, 20);
-    l->setSpacing(10);
-    l->addWidget(text(tr("“Compiling code” and “Full software build” need a one-time setup"), 14, QFont::Bold));
+    Stub d(this, Stub::System, tr("SYS / COMPILE"), tr("The compile tests need a one-time setup"),
+           tr("“Compiling code” and “Full software build” compile a pinned snapshot of real sources, which is "
+              "prepared once per machine."));
+    d.setWide(620);
+    QVBoxLayout *l = d.body();
     auto mark = [&](const QColor &c, const char *sym, const QString &what, QFont::Weight w = QFont::Normal) {
       l->addWidget(text(QStringLiteral("<span style='color:%1'>%2</span>&nbsp; %3").arg(c.name(), sym, esc(what)), 10, w));
     };
@@ -1454,12 +1479,24 @@ bool MainWindow::confirmCompileTests(bool needK1, bool needK1x, bool all, QStrin
     bool needInstall = !st.missingPrepare.isEmpty() || !st.k1Built;
     bool canPrepare = st.snapshot.isEmpty() && st.missingPrepare.isEmpty();
     if (needInstall && !cmds.isEmpty()) {
-      l->addWidget(text(tr("To install what is missing, run in a terminal:"), 10, QFont::Medium));
+      auto *head = new QHBoxLayout;
+      head->addWidget(text(tr("To install what is missing, run in a terminal:"), 10, QFont::Medium), 1);
+      auto *copy = new QPushButton(tr("Copy"));
+      copy->setObjectName("ghost");
+      copy->setCursor(Qt::PointingHandCursor);
+      connect(copy, &QPushButton::clicked, &d, [cmds, copy] {
+        QApplication::clipboard()->setText(cmds);
+        copy->setText(tr("Copied"));
+      });
+      head->addWidget(copy);
+      l->addLayout(head);
       auto *box = new QPlainTextEdit(cmds);
       box->setReadOnly(true);
       box->setFont(monoFont(9));
       box->setFixedHeight(110);
       box->setLineWrapMode(QPlainTextEdit::NoWrap);
+      box->setFrameShape(QFrame::NoFrame);
+      box->setStyleSheet(QStringLiteral("background:%1; color:%2;").arg(theme().raised.name(), theme().text.name()));
       l->addWidget(box);
     }
     if (!st.snapshot.isEmpty())
@@ -1474,26 +1511,11 @@ bool MainWindow::confirmCompileTests(bool needK1, bool needK1x, bool all, QStrin
       l->addWidget(text(tr("Preparing the snapshot downloads pinned sources (about 160 MB), builds generated files "
                            "once and measures every unit: 20–60 minutes, about 4 GB of disk while it runs."),
                         9.5, QFont::Normal, theme().muted));
-    auto *bb = new QDialogButtonBox;
-    QPushButton *prep = nullptr, *without = nullptr, *copy = nullptr;
-    if (canPrepare) {
-      prep = bb->addButton(tr("Prepare now"), QDialogButtonBox::AcceptRole);
-      prep->setObjectName("primary");
-    }
-    if (needInstall && !cmds.isEmpty()) copy = bb->addButton(tr("Copy commands"), QDialogButtonBox::ActionRole);
-    if (all) without = bb->addButton(tr("Run without them"), QDialogButtonBox::AcceptRole);
-    bb->addButton(QDialogButtonBox::Cancel);
-    QAbstractButton *clicked = nullptr;
-    connect(bb, &QDialogButtonBox::clicked, &d, [&](QAbstractButton *b) {
-      if (b == copy) {
-        QApplication::clipboard()->setText(cmds);
-        return;
-      }
-      clicked = b;
-      d.accept();
-    });
-    l->addWidget(bb);
+    d.addButton(tr("Cancel"), Stub::Secondary);
+    QPushButton *without = all ? d.addButton(tr("Run without them"), canPrepare ? Stub::Secondary : Stub::Primary) : nullptr;
+    QPushButton *prep = canPrepare ? d.addButton(tr("Prepare now"), Stub::Primary) : nullptr;
     d.exec();
+    QAbstractButton *clicked = d.clicked();
     if (clicked && clicked == without) {
       if (!st.snapshot.isEmpty()) args << "--k1-data" << st.snapshot;
       return true;
@@ -1507,11 +1529,66 @@ bool MainWindow::confirmCompileTests(bool needK1, bool needK1x, bool all, QStrin
 
 /* ---------- running ---------- */
 
+/* Power is measured only with administrator rights here: offer them before each run until told not to. False
+   when the run should not start. */
+bool MainWindow::askPower() {
+  if (!powerNeedsAdmin(info_) || QSettings().value("power_admin_no_ask", false).toBool()) return true;
+#ifdef Q_OS_LINUX
+  Stub box(this, Stub::System, tr("SYS / POWER"), tr("Allow power readings"),
+           tr("Linux lets only root read the processor's energy counter. Allowing it asks for your password and "
+              "lasts until the next reboot. Scores are the same either way; without it, results have no watts."));
+  const QString yes = tr("Allow power readings"), menu = tr("the menu can still allow them");
+#else
+  Stub box(this, Stub::System, tr("SYS / POWER"), tr("Restart as administrator to measure power"),
+           tr("This computer reports the processor's power draw only to administrators. Scores are the same "
+              "either way; without it, results have no watts."));
+  const QString yes = tr("Restart as administrator"), menu = tr("the menu can still restart as administrator");
+#endif
+  box.setTag(tr("optional"));
+  QAbstractButton *noAsk = box.addCheck(tr("Do not ask again (%1)").arg(menu));
+  QPushButton *without = box.addButton(tr("Not now"), Stub::Secondary);
+  QPushButton *allow = box.addButton(yes, Stub::Primary);
+  box.exec(); /* Escape: no run */
+  if (noAsk->isChecked()) QSettings().setValue("power_admin_no_ask", true);
+  if (box.clicked() == without) return true;
+  if (box.clicked() != allow) return false;
+#ifdef Q_OS_LINUX
+  if (allowPowerReadings()) {
+    loadInfo();
+    return true;
+  }
+  return powerNotAllowed(true);
+#else
+  if (restartAsAdmin()) qApp->quit();
+  return false;
+#endif
+}
+
+/* Linux: the password prompt was dismissed, or there is none (no pkexec): the command that does the same. With a
+   run waiting, it can go on without power. */
+bool MainWindow::powerNotAllowed(bool runWaiting) {
+  Stub d(this, Stub::Error, tr("ERR / POWER"), tr("Power readings were not allowed"),
+         tr("The password prompt was closed, or this system has none. This command in a terminal allows them until "
+            "the next reboot:"));
+  d.setCode(QStringLiteral("sudo chmod o+r %1").arg(kRaplCounter));
+  if (!runWaiting) {
+    d.addButton(tr("OK"), Stub::Primary);
+    d.exec();
+    return false;
+  }
+  d.addButton(tr("Cancel"), Stub::Secondary);
+  QPushButton *go = d.addButton(tr("Run without power"), Stub::Primary);
+  d.exec();
+  return d.clicked() == go;
+}
+
 void MainWindow::runTest(const QString &metricId, bool quick) {
   if (proc_) return;
   QString cli = cliPath();
   if (cli.isEmpty()) {
-    QMessageBox::warning(this, tr("Prismark"), tr("The benchmark runner (prismark) was not found next to this app or in PATH."));
+    Stub::tell(this, Stub::Error, tr("ERR / RUNNER"), tr("The runner is missing"),
+               tr("The benchmark runner, prismark, is not next to this app or in PATH, so nothing can be measured. "
+                  "Install Prismark again."));
     return;
   }
   const Metric *m = metricId.isEmpty() ? nullptr : findMetric(metricId);
@@ -1553,26 +1630,7 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
     return false;
   };
   bool needK1 = runsKernel("K1"), needK1x = runsKernel("K1x");
-  /* Power is measured only with administrator rights here: offer them once per run until told not to. */
-  if (powerNeedsAdmin(info_) && !QSettings().value("power_admin_no_ask", false).toBool()) {
-    QMessageBox box(QMessageBox::Question, tr("Prismark"),
-                    tr("This computer reports the processor's power draw only to administrators. Restart Prismark "
-                       "as administrator to record it with the results?"),
-                    QMessageBox::NoButton, this);
-    QPushButton *restart = box.addButton(tr("Restart as administrator"), QMessageBox::AcceptRole);
-    QPushButton *without = box.addButton(tr("Run without power"), QMessageBox::RejectRole);
-    box.addButton(QMessageBox::Cancel);
-    auto *noAsk = new QCheckBox(tr("Do not ask again (the menu can still restart as administrator)"));
-    box.setCheckBox(noAsk);
-    box.setDefaultButton(restart);
-    box.exec();
-    if (noAsk->isChecked()) QSettings().setValue("power_admin_no_ask", true);
-    if (box.clickedButton() == restart) {
-      if (restartAsAdmin()) qApp->quit();
-      return;
-    }
-    if (box.clickedButton() != without) return;
-  }
+  if (!askPower()) return;
   if ((needK1 || needK1x) && !confirmCompileTests(needK1, needK1x, all, args)) return;
 
   procOut_ = QDir(resultsDir()).filePath(QStringLiteral("prismark-%1.json").arg(QDateTime::currentDateTime().toString("yyyyMMdd-HHmmss")));
@@ -1586,7 +1644,10 @@ void MainWindow::runTest(const QString &metricId, bool quick) {
   connect(proc_, &QProcess::readyReadStandardError, this, &MainWindow::onRunOutput);
   connect(proc_, QOverload<int, QProcess::ExitStatus>::of(&QProcess::finished), this, &MainWindow::onRunFinished);
   connect(proc_, &QProcess::errorOccurred, this, [this](QProcess::ProcessError e) {
-    if (e == QProcess::FailedToStart) onRunFinished(-1, QProcess::CrashExit);
+    if (e == QProcess::FailedToStart) {
+      procErrTail_ = proc_->errorString();
+      onRunFinished(-1, QProcess::CrashExit);
+    }
   });
   procBuf_.clear();
   procErrTail_.clear();
@@ -1729,16 +1790,36 @@ void MainWindow::onStall() {
   measure_->adjustSize();
 }
 
+/* Cancel, with the run's progress so far: what is lost is plain before it is. */
+bool MainWindow::askCancel() {
+  Stub d(measure_, Stub::Run, tr("RUN / CANCEL"), tr("Cancel the run?"),
+         tr("The tests finished so far are kept as a partial result. It is not ranked."));
+  if (parts_ > 0) d.setTag(tr("Part %1 of %2").arg(part_, 2, 10, QChar('0')).arg(parts_));
+  if (runSteps_ > 0) d.setStrip(std::max(runStep_ - 1, 0), 1, std::max(runSteps_ - runStep_, 0));
+  else if (parts_ > 0) d.setStrip(std::max(part_ - 1, 0), 1, std::max(parts_ - part_, 0));
+  d.addButton(tr("Keep measuring"), Stub::Primary);
+  QPushButton *cancel = d.addButton(tr("Cancel run"), Stub::Outline);
+  d.exec();
+  return d.clicked() == cancel;
+}
+
 void MainWindow::cancelRun() {
   if (!proc_ || cancelling_) return;
+  if (!stressOpen_ && !askCancel()) return;
   if (stressOpen_) { /* the normal end of a stress test without a set length: a score needs 10 minutes */
     double mins = phase_ == "stress" ? phaseStart_.secsTo(QDateTime::currentDateTime()) / 60.0 : 0;
-    if (mins < 10 &&
-        QMessageBox::question(measure_, tr("Stop the stress test?"),
-                              tr("It has run %1 of the 10 minutes a score needs. Stopping now keeps the curve of "
-                                 "speed, clock and temperature, without a score.")
-                                  .arg(QString::number(std::floor(mins)))) != QMessageBox::Yes)
-      return;
+    if (mins < 10) {
+      Stub d(measure_, Stub::Run, tr("RUN / STOP"), tr("Stop the stress test?"),
+             tr("It has run %1 of the 10 minutes a score needs. Stopping now keeps the curve of speed, clock and "
+                "temperature, without a score.")
+                 .arg(QString::number(std::floor(mins))));
+      d.setTag(tr("%1 of 10 min").arg(QString::number(std::floor(mins))));
+      d.setStrip(std::floor(mins), 1, std::max(0.0, 9 - std::floor(mins)));
+      d.addButton(tr("Keep running"), Stub::Primary);
+      QPushButton *stop = d.addButton(tr("Stop now"), Stub::Outline);
+      d.exec();
+      if (d.clicked() != stop) return;
+    }
   }
   cancelling_ = true;
   stallTimer_->stop();
@@ -1782,35 +1863,41 @@ void MainWindow::onRunFinished(int code, QProcess::ExitStatus status) {
   bool saved = QFileInfo::exists(procOut_);
   QString reason = procErrTail_;
   if (reason.startsWith(QStringLiteral("prismark: "))) reason.remove(0, 10);
+  auto sentence = [](QString s) { /* the runner's reason as a sentence of its own */
+    if (!s.isEmpty()) s[0] = s[0].toUpper();
+    return s.isEmpty() || s.endsWith('.') ? s : s + '.';
+  };
   if (code == -1) {
-    QMessageBox::warning(this, tr("Prismark"), tr("Could not start the runner: %1").arg(cliPath()));
+    Stub d(this, Stub::Error, tr("ERR / RUNNER"), tr("Could not start the runner"),
+           tr("%1 Nothing was saved.").arg(reason.isEmpty() ? tr("The system did not say why.") : sentence(reason)));
+    d.setDetails(QDir::toNativeSeparators(cliPath()));
+    d.addButton(tr("OK"), Stub::Primary);
+    d.exec();
   } else if (code == 4 && status == QProcess::NormalExit) { /* the runner's status for a failed stress test */
-    QMessageBox::warning(this, tr("Stress test failed"),
-                         tr("The stress test found wrong results: this computer is not stable under this load. The "
-                            "test page shows when and on which CPU."));
+    Stub::tell(this, Stub::Error, tr("ERR / STRESS"), tr("The stress test failed"),
+               tr("It found wrong results: this computer is not stable under this load. The test page shows when "
+                  "and on which CPU."));
   } else if (cancelling_ && stressOpen_ && code == 0 && status == QProcess::NormalExit) {
     /* stopped as intended: the result is on the page */
   } else if (cancelling_) {
-    QMessageBox::information(this, tr("Run cancelled"),
-                             saved ? tr("The run was cancelled. The part measured so far was saved and is shown.")
-                                   : tr("The run was cancelled. The runner did not stop in time and was ended, so "
-                                        "nothing was saved."));
+    Stub::tell(this, Stub::Run, tr("RUN / CANCELLED"), tr("The run was cancelled"),
+               saved ? tr("The part measured so far was saved and is shown. It is not ranked.")
+                     : tr("The runner did not stop in time and was ended, so nothing was saved."));
   } else if (status != QProcess::NormalExit) {
-    QMessageBox::warning(this, tr("Prismark"),
-                         tr("The runner stopped unexpectedly (it crashed)%1. %2")
-                             .arg(reason.isEmpty() ? QString() : ": " + reason,
-                                  saved ? tr("A partial result was saved.") : tr("Nothing was saved.")));
+    Stub d(this, Stub::Error, tr("ERR / RUNNER"), tr("The runner stopped unexpectedly"),
+           saved ? tr("It crashed. The part measured so far was saved.") : tr("It crashed. Nothing was saved."));
+    if (!reason.isEmpty()) d.setDetails(reason);
+    d.addButton(tr("OK"), Stub::Primary);
+    d.exec();
   } else if (code != 0) {
-    QMessageBox::information(this, tr("Prismark"),
-                             tr("The run did not complete%1.%2")
-                                 .arg(reason.isEmpty() ? QString() : ": " + reason,
-                                      saved ? tr(" Its partial result was saved.") : QString()));
+    Stub::tell(this, Stub::Run, tr("RUN / INCOMPLETE"), tr("The run did not complete"),
+               (reason.isEmpty() ? QString() : sentence(reason) + " ") +
+                   (saved ? tr("Its partial result was saved; it is not ranked.") : tr("Nothing was saved.")));
   } else if (!skipped.isEmpty()) {
-    QMessageBox::information(this, tr("Some tests were skipped"),
-                             tr("Keyboard or mouse input during these tests, which need an idle machine: %1.\n\n"
-                                "Their results were discarded. Run them again from their cards (Responsiveness, "
-                                "Memory & timing) and leave the machine alone meanwhile.")
-                                 .arg(skipped.join(", ")));
+    Stub::tell(this, Stub::Run, tr("RUN / SKIPPED"), tr("Some tests were skipped"),
+               tr("Keyboard or mouse input during tests that need an idle machine (%1): their results were "
+                  "discarded. Run them again from their cards and leave the machine alone meanwhile.")
+                   .arg(skipped.join(", ")));
   }
 }
 
@@ -1827,7 +1914,9 @@ void MainWindow::openResult() {
       if (QFile::copy(f, dest)) giveToUser(dest);
     }
     if (loadFile(dest, false)) last = runs_.last().id;
-    else QMessageBox::warning(this, tr("Prismark"), tr("%1 is not a Prismark result file.").arg(f));
+    else
+      Stub::tell(this, Stub::Error, tr("ERR / FILE"), tr("Not a Prismark result"),
+                 tr("This file is not one Prismark saved, so it was not opened."), QDir::toNativeSeparators(f));
   }
   if (!last.isEmpty()) selected_ = last;
   refresh();
@@ -1840,10 +1929,15 @@ void MainWindow::prepareCompileTests() {
     confirmCompileTests(true, true, false, ignored); /* explains what to install */
     return;
   }
-  if (!st.snapshot.isEmpty() &&
-      QMessageBox::question(this, tr("Compile tests"), tr("A snapshot is already prepared at %1. Prepare it again?").arg(st.snapshot)) !=
-          QMessageBox::Yes)
-    return;
+  if (!st.snapshot.isEmpty()) {
+    Stub d(this, Stub::System, tr("SYS / COMPILE"), tr("Prepare the snapshot again?"),
+           tr("The compile tests already have one. Preparing it again takes 20–60 minutes."));
+    d.setCode(QDir::toNativeSeparators(st.snapshot));
+    d.addButton(tr("Keep it"), Stub::Secondary);
+    QPushButton *again = d.addButton(tr("Prepare again"), Stub::Primary);
+    d.exec();
+    if (d.clicked() != again) return;
+  }
   PrepareDialog pd(this);
   pd.exec();
   refresh();
@@ -1855,53 +1949,55 @@ void MainWindow::chooseSnapshot() {
                                                   s.value("k1_data", defaultSnapshotDir()).toString());
   if (dir.isEmpty()) return;
   if (!QFileInfo::exists(dir + "/manifest.json")) {
-    QMessageBox::warning(this, tr("Compile-test snapshot"), tr("%1 is not a prepared snapshot (it has no manifest.json).").arg(dir));
+    Stub::tell(this, Stub::Error, tr("ERR / SNAPSHOT"), tr("Not a prepared snapshot"),
+               tr("This folder has no manifest.json, so the compile tests cannot use it. Choose the folder that "
+                  "Prepare compile tests made."),
+               QDir::toNativeSeparators(dir));
     return;
   }
   s.setValue("k1_data", dir);
 }
 
 void MainWindow::showGlossary() {
-  QDialog d(this);
-  d.setWindowTitle(tr("What the terms mean"));
-  d.resize(720, 640);
-  auto *l = new QVBoxLayout(&d);
-  l->setContentsMargins(24, 20, 24, 16);
-  l->addWidget(text(tr("What the terms mean"), 14, QFont::Bold));
+  Stub d(this, Stub::System, tr("APP / TERMS"), tr("What the terms mean"));
+  d.setWide(720);
   auto *body = text(glossaryHtml(), 9.5);
   body->setTextInteractionFlags(Qt::TextSelectableByMouse);
+  body->setContentsMargins(0, 0, 12, 0);
   auto *scroll = new QScrollArea;
   scroll->setWidget(body);
   scroll->setWidgetResizable(true);
   scroll->setFrameShape(QFrame::NoFrame);
-  l->addWidget(scroll, 1);
-  auto *bb = new QDialogButtonBox(QDialogButtonBox::Close);
-  connect(bb, &QDialogButtonBox::rejected, &d, &QDialog::reject);
-  l->addWidget(bb);
+  scroll->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  scroll->setFixedHeight(std::min(480, int(screen()->availableGeometry().height() * 0.55)));
+  d.body()->addWidget(scroll);
+  d.addButton(tr("Close"), Stub::Primary);
   d.exec();
 }
 
 void MainWindow::showDataFolders() {
-  QMessageBox box(this);
-  box.setWindowTitle(tr("Data folders"));
-  box.setTextFormat(Qt::RichText);
-  box.setText(tr("<b>Your saved runs</b><br>%1<br><br><b>Your reference systems</b> — result files, or placeholder "
-                 "files as described in references/README.md, added to the built-in ones<br>%2<br><br><b>Compile-test snapshot</b><br>%3<br><br><b>Runner</b><br>%4")
-                  .arg(esc(resultsDir()), esc(referencesDir()), esc(defaultSnapshotDir()),
-                       esc(cliPath().isEmpty() ? tr("not found") : cliPath())));
-  QPushButton *open = box.addButton(tr("Open results folder"), QMessageBox::ActionRole);
-  box.addButton(QMessageBox::Close);
-  box.exec();
-  if (box.clickedButton() == open) QDesktopServices::openUrl(QUrl::fromLocalFile(resultsDir()));
+  Stub d(this, Stub::System, tr("SYS / FOLDERS"), tr("Where Prismark keeps its data"),
+         tr("Your runs and reference systems are shared with the command line. Reference systems are result files, "
+            "or placeholder files as described in references/README.md."));
+  d.setCode(tr("Saved runs\n%1\n\nReference systems\n%2\n\nCompile-test snapshot\n%3\n\nRunner\n%4")
+                .arg(QDir::toNativeSeparators(resultsDir()), QDir::toNativeSeparators(referencesDir()),
+                     QDir::toNativeSeparators(defaultSnapshotDir()),
+                     cliPath().isEmpty() ? tr("not found") : QDir::toNativeSeparators(cliPath())));
+  d.setWide(560);
+  d.addButton(tr("Close"), Stub::Secondary);
+  QPushButton *open = d.addButton(tr("Open results folder"), Stub::Primary);
+  d.exec();
+  if (d.clicked() == open) QDesktopServices::openUrl(QUrl::fromLocalFile(resultsDir()));
 }
 
 void MainWindow::showAbout() {
-  QMessageBox::about(this, tr("About Prismark"),
-                     tr("<b>Prismark %1</b><br>A CPU benchmark that treats every vendor the same. Each test is "
-                        "reported and ranked on its own; there is never one overall score.<br><br>Reference systems "
-                        "tagged PLACEHOLDER are example values, not measurements.<br><br>Apache License 2.0. Inter "
-                        "typeface: SIL Open Font License 1.1.")
-                         .arg(QCoreApplication::applicationVersion()));
+  Stub d(this, Stub::System, tr("APP / ABOUT"), tr("Prismark %1").arg(QCoreApplication::applicationVersion()),
+         tr("A CPU benchmark that treats every vendor the same. Each test is reported and ranked on its own; there "
+            "is never one overall score. Reference systems tagged PLACEHOLDER are example values, not "
+            "measurements."));
+  d.setCode(tr("Apache License 2.0\nInter, Saira, IBM Plex Mono: SIL Open Font License 1.1"));
+  d.addButton(tr("OK"), Stub::Primary);
+  d.exec();
 }
 
 /* "amd-ryzen-7-8845hs" from "AMD Ryzen 7 8845HS w/ Radeon 780M Graphics": the name offered for a reference (as
@@ -1925,30 +2021,47 @@ void MainWindow::saveAsReference() {
   static const QRegularExpression valid(QStringLiteral("^[A-Za-z0-9_-][A-Za-z0-9._-]{0,79}$"));
   QString name = suggestReferenceName(model);
   for (;;) {
-    bool ok = false;
-    name = QInputDialog::getText(
-               this, tr("Save as reference"),
-               tr("Keep this run as a reference system: it stays in the rankings next to the bundled ones, and "
-                  "later runs can be compared with it (also from the command line: prismark compare latest NAME).%1"
-                  "\n\nName (letters, digits, - _ .):")
-                   .arg(quick ? tr("\n\nThis is a quick run: comparisons with it are rough.") : QString()),
-               QLineEdit::Normal, name, &ok)
-               .trimmed();
-    if (!ok) return;
-    if (!valid.match(name).hasMatch()) {
-      QMessageBox::information(this, tr("Save as reference"),
-                               tr("“%1” cannot be a reference name. Use letters, digits, “-”, “_” and “.”.").arg(name));
-      continue;
-    }
+    Stub d(this, Stub::System, tr("RES / REFERENCE"), tr("Save as reference"),
+           tr("It stays in the rankings next to the bundled systems, and later runs compare with it (also from the "
+              "command line: prismark compare latest NAME).%1")
+               .arg(quick ? tr(" This is a quick run: comparisons with it are rough.") : QString()));
+    auto *field = new QLineEdit(name);
+    field->setFont(monoFont(10));
+    field->setMinimumHeight(44);
+    field->setStyleSheet(QStringLiteral("QLineEdit { background:%1; color:%2; border:1.5px solid %1; padding:0 10px; } "
+                                        "QLineEdit:focus { border-color:%3; }")
+                             .arg(theme().raised.name(), theme().text.name(), theme().link.name()));
+    d.body()->addSpacing(4);
+    d.body()->addWidget(text(tr("Name: letters, digits, - _ ."), 9, QFont::DemiBold));
+    d.body()->addWidget(field);
+    QLabel *bad = text(QString(), 9, QFont::Normal, theme().bad);
+    bad->hide();
+    d.body()->addWidget(bad);
+    d.addButton(tr("Cancel"), Stub::Secondary);
+    QPushButton *save = d.addButton(tr("Save"), Stub::Primary);
+    connect(field, &QLineEdit::textChanged, &d, [&](const QString &s) {
+      bool ok = valid.match(s.trimmed()).hasMatch();
+      save->setEnabled(ok);
+      bad->setText(s.trimmed().isEmpty() ? QString() : tr("“%1” cannot be a name.").arg(esc(s.trimmed())));
+      bad->setVisible(!ok && !s.trimmed().isEmpty());
+    });
+    field->selectAll();
+    field->setFocus();
+    d.exec();
+    if (d.clicked() != save) return;
+    name = field->text().trimmed();
     QString dest = QDir(referencesDir()).filePath(name + ".json");
     if (QFileInfo::exists(dest)) {
-      if (QMessageBox::question(this, tr("Save as reference"),
-                                tr("You already have a reference system “%1”. Replace it?").arg(name)) != QMessageBox::Yes)
+      if (!Stub::ask(this, Stub::System, tr("RES / REFERENCE"), tr("Replace “%1”?").arg(name),
+                     tr("You already have a reference system with this name. The new run takes its place."),
+                     tr("Replace"), tr("Choose another name"), true))
         continue;
       QFile::remove(dest);
     }
     if (!QFile::copy(file, dest)) {
-      QMessageBox::warning(this, tr("Prismark"), tr("Could not save %1.").arg(dest));
+      Stub::tell(this, Stub::Error, tr("ERR / FILE"), tr("Could not save the reference"),
+                 tr("The file could not be written. Check that the folder exists and is yours."),
+                 QDir::toNativeSeparators(dest));
       return;
     }
     giveToUser(dest);
@@ -1963,12 +2076,18 @@ void MainWindow::removeReference() {
   const RunSummary *r = selectedRun();
   if (!r || !r->reference) return;
   QString file = r->file, name = QFileInfo(file).completeBaseName();
-  if (QMessageBox::question(this, tr("Remove reference"),
-                            tr("Remove your reference system “%1” from the rankings? Its file goes to the trash.\n%2")
-                                .arg(name, file)) != QMessageBox::Yes)
-    return;
+  {
+    Stub d(this, Stub::System, tr("RES / REMOVE"), tr("Remove “%1”?").arg(name),
+           tr("It leaves the rankings, and its file goes to the trash."));
+    d.setCode(QDir::toNativeSeparators(file));
+    d.addButton(tr("Keep it"), Stub::Primary);
+    QPushButton *remove = d.addButton(tr("Remove"), Stub::Outline);
+    d.exec();
+    if (d.clicked() != remove) return;
+  }
   if (!QFile::moveToTrash(file) && !QFile::remove(file)) {
-    QMessageBox::warning(this, tr("Prismark"), tr("Could not remove %1.").arg(file));
+    Stub::tell(this, Stub::Error, tr("ERR / FILE"), tr("Could not remove the reference"),
+               tr("The file could not be moved to the trash or deleted."), QDir::toNativeSeparators(file));
     return;
   }
   loadAll(); /* a bundled reference of the same name, which this one replaced, comes back */
@@ -1979,10 +2098,18 @@ void MainWindow::removeReference() {
 void MainWindow::removeSelected() {
   const RunSummary *r = selectedRun();
   if (!r || r->reference) return;
-  if (QMessageBox::question(this, tr("Move to trash"), tr("Move this result to the trash?\n%1").arg(r->file)) != QMessageBox::Yes)
-    return;
+  {
+    Stub d(this, Stub::System, tr("RES / TRASH"), tr("Move this result to the trash?"),
+           tr("It leaves the rankings. You can restore the file from the trash."));
+    d.setCode(QDir::toNativeSeparators(r->file));
+    d.addButton(tr("Keep it"), Stub::Primary);
+    QPushButton *trash = d.addButton(tr("Move to trash"), Stub::Outline);
+    d.exec();
+    if (d.clicked() != trash) return;
+  }
   if (!QFile::moveToTrash(r->file) && !QFile::remove(r->file)) {
-    QMessageBox::warning(this, tr("Prismark"), tr("Could not remove %1.").arg(r->file));
+    Stub::tell(this, Stub::Error, tr("ERR / FILE"), tr("Could not remove the result"),
+               tr("The file could not be moved to the trash or deleted."), QDir::toNativeSeparators(r->file));
     return;
   }
   QString id = r->id;
