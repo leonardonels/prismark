@@ -101,6 +101,8 @@ if(PRISMARK_DESKTOP AND NOT PRISMARK_GUI STREQUAL "OFF")
         COMMAND ${CMAKE_COMMAND} -E make_directory $<TARGET_BUNDLE_CONTENT_DIR:prismark-gui>/Resources
         COMMAND iconutil -c icns ${CMAKE_BINARY_DIR}/Prismark.iconset
                 -o $<TARGET_BUNDLE_CONTENT_DIR:prismark-gui>/Resources/Prismark.icns
+        # The Finder keeps a bundle's icon until the bundle itself changes: touch it so the new one is shown.
+        COMMAND ${CMAKE_COMMAND} -E touch $<TARGET_BUNDLE_DIR:prismark-gui>
         COMMAND_EXPAND_LISTS)
     endif()
     install(TARGETS prismark-gui RUNTIME DESTINATION bin BUNDLE DESTINATION .)
