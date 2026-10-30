@@ -260,7 +260,6 @@ QWidget *MainWindow::buildMenuButton() {
   b->setPopupMode(QToolButton::InstantPopup);
   auto *m = new QMenu(b);
   m->addAction(tr("Open result…"), this, &MainWindow::openResult)->setShortcut(QKeySequence::Open);
-  m->addAction(tr("Compare two results…"), this, &MainWindow::compareRuns);
   m->addSeparator();
   m->addAction(tr("Prepare compile tests…"), this, &MainWindow::prepareCompileTests);
   m->addAction(tr("Use another compile-test snapshot…"), this, &MainWindow::chooseSnapshot);
@@ -1815,54 +1814,6 @@ void MainWindow::openResult() {
   }
   if (!last.isEmpty()) selected_ = last;
   refresh();
-}
-
-void MainWindow::compareRuns() {
-  QVector<const RunSummary *> real;
-  for (const RunSummary &r : runs_)
-    if (!r.placeholder && !r.file.isEmpty()) real.push_back(&r);
-  if (real.size() < 2) {
-    QMessageBox::information(this, tr("Compare"), tr("Comparing needs two measured results (placeholders cannot be compared)."));
-    return;
-  }
-  QDialog d(this);
-  d.setWindowTitle(tr("Compare two results"));
-  auto *f = new QFormLayout(&d);
-  f->setContentsMargins(24, 20, 24, 18);
-  auto *a = new QComboBox, *b = new QComboBox;
-  for (const RunSummary *r : real) {
-    QString t = r->name + (r->date.isEmpty() ? "" : " · " + r->date) + (r->reference ? tr(" (reference)") : "");
-    a->addItem(t, r->file);
-    b->addItem(t, r->file);
-  }
-  a->setCurrentIndex(real.size() - 1);
-  b->setCurrentIndex(real.size() - 2);
-  f->addRow(tr("A"), a);
-  f->addRow(tr("B"), b);
-  f->addRow(text(tr("Shows, test by test, how many times faster A is than B (with the likely range), and a few "
-                    "workload mixes (“profiles”). Runs measured with different settings are refused rather than "
-                    "compared."),
-                 9.5, QFont::Normal, theme().muted));
-  auto *bb = new QDialogButtonBox(QDialogButtonBox::Ok | QDialogButtonBox::Cancel);
-  connect(bb, &QDialogButtonBox::accepted, &d, &QDialog::accept);
-  connect(bb, &QDialogButtonBox::rejected, &d, &QDialog::reject);
-  f->addRow(bb);
-  if (d.exec() != QDialog::Accepted) return;
-  QProcess p;
-  p.start(cliPath(), {"compare", "--detail", a->currentData().toString(), b->currentData().toString()});
-  p.waitForFinished(120000);
-  QDialog out(this);
-  out.setWindowTitle(tr("Comparison"));
-  out.resize(940, 620);
-  auto *l = new QVBoxLayout(&out);
-  auto *view = new QPlainTextEdit(QString::fromUtf8(p.readAllStandardOutput() + p.readAllStandardError()));
-  view->setReadOnly(true);
-  view->setFont(monoFont(9.5));
-  l->addWidget(view);
-  auto *close = new QDialogButtonBox(QDialogButtonBox::Close);
-  connect(close, &QDialogButtonBox::rejected, &out, &QDialog::reject);
-  l->addWidget(close);
-  out.exec();
 }
 
 void MainWindow::prepareCompileTests() {

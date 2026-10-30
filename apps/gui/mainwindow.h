@@ -49,7 +49,6 @@ class MainWindow : public QMainWindow {
   void onRunFinished(int code, QProcess::ExitStatus status);
   void onInputActivity();
   void openResult();
-  void compareRuns();
   void prepareCompileTests();
   void chooseSnapshot();
   void showGlossary();

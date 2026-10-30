@@ -163,14 +163,14 @@ else
 lists them as unavailable.'
 fi
 cp "$SRC"/LICENSE "$STAGE"/
-ln -s /Applications "$STAGE"/Applications
 cat > "$STAGE"/README.txt <<TXT
 Prismark $VERSION for macOS ($ARCH_NAME)
 
 Drag Prismark to Applications and open it. It runs on macOS $minos or later.
 
-The app is not notarised by Apple. The first time, open it with a right-click (or
-Control-click) on Prismark and "Open", then confirm; after that it opens normally.
+The app is not notarised by Apple, so macOS may stop it the first time. Then open
+System Settings > Privacy & Security and click "Open Anyway" (on macOS 14, a
+right-click on Prismark and "Open" also works); after that it opens normally.
 If macOS says the app is damaged, run once in Terminal:
   xattr -dr com.apple.quarantine /Applications/Prismark.app
 
@@ -183,5 +183,30 @@ app and the command line.
 $COMPILE_TXT
 TXT
 
-hdiutil create -volname "Prismark $VERSION" -srcfolder "$STAGE" -fs HFS+ -format UDZO -ov "$OUT/$NAME.dmg" > /dev/null
+# The disk image opens on a window that shows the install: the app, an arrow, the Applications folder. The app
+# draws the background (apps/gui/main.cpp); dmgbuild lays the window out without the Finder, so this also works
+# on a CI machine. Pinned, in its own environment.
+env PRISMARK_GUI_DMG_BACKGROUND="$BUILD"/dmg-background QT_QPA_PLATFORM=offscreen \
+  "$BUILD"/prismark-gui.app/Contents/MacOS/prismark-gui
+tiffutil -cathidpicheck "$BUILD"/dmg-background.png "$BUILD"/dmg-background@2x.png -out "$BUILD"/dmg-background.tiff \
+  > /dev/null
+[ -x "$BUILD"/dmgbuild/bin/dmgbuild ] || { python3 -m venv "$BUILD"/dmgbuild && "$BUILD"/dmgbuild/bin/pip install -q dmgbuild==1.6.7; }
+cat > "$BUILD"/dmg-settings.py <<'PY'
+import os.path
+stage = defines["stage"]
+files = [os.path.join(stage, n) for n in ("Prismark.app", "README.txt", "LICENSE")]
+symlinks = {"Applications": "/Applications"}
+icon = os.path.join(stage, "Prismark.app/Contents/Resources/Prismark.icns")
+background = defines["background"]
+format = "UDZO"
+filesystem = "HFS+"
+window_rect = ((200, 140), (640, 480))
+default_view = "icon-view"
+show_toolbar = show_pathbar = show_sidebar = show_status_bar = show_tab_view = False
+icon_size = 100
+text_size = 13
+icon_locations = {"Prismark.app": (170, 200), "Applications": (470, 200), "README.txt": (420, 385), "LICENSE": (545, 385)}
+PY
+"$BUILD"/dmgbuild/bin/dmgbuild -s "$BUILD"/dmg-settings.py -D stage="$STAGE" -D background="$BUILD"/dmg-background.tiff \
+  "Prismark $VERSION" "$OUT/$NAME.dmg" > /dev/null
 echo "$OUT/$NAME.dmg"

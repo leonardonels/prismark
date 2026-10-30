@@ -304,12 +304,14 @@ glibc than Ubuntu 22.04's, so Qt is built from source first
 build/qt-6.8.3`). The ARM64 package covers Jetson Orin boards on JetPack 6 and
 other ARM64 boards with Ubuntu 22.04, Debian 12 or later.
 
-macOS is shipped as a disk image: open it and drag Prismark to Applications.
+macOS is shipped as a disk image: it opens on a window that shows the install,
+and Prismark goes to Applications with a drag.
 Nothing else is needed, no Homebrew or Xcode: the app carries Qt, the runner
 (`Prismark.app/Contents/MacOS/prismark`, also the command line) and the
 compile tests with everything they need: Clang built into the runner, and the
 snapshot and Clang 19, CMake and Ninja in `Contents/Resources`. It is signed
-ad hoc, not notarised, so the first start is a right-click and Open. It is
+ad hoc, not notarised, so macOS may stop the first start: System Settings ›
+Privacy & Security › Open Anyway. It is
 compiled with Homebrew's Clang 19 and built against LLVM's own release of
 LLVM 19 (Homebrew's is built for the machine's own macOS release) and the
 official Qt 6.10 (6.8 does not link with the macOS 26 SDK):
@@ -540,7 +542,8 @@ started from the applications menu like any other app.
   Running) and reloaded at start, along with runs from the command line; the
   compile-test snapshot lives in `k1x/` beside `results/`. Files from older
   versions are moved into this layout on first start.
-  Menu › Open result imports files; Menu › Compare runs `prismark compare`.
+  Menu › Open result imports files; to compare two runs side by side, use
+  `prismark compare` on the command line.
 - The reference systems in the rankings come from the repository's
   [`references/`](references/README.md) folder, one file per system, built into
   the app: add a file to add a system, delete it to remove one. They are result

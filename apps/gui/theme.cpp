@@ -44,8 +44,8 @@ const Theme kLight = {
     QColor(232, 236, 239),  /* raised */
     QColor(201, 208, 218),  /* border */
     QColor(12, 20, 48),     /* text */
-    QColor(59, 70, 96),     /* muted */
-    QColor(84, 96, 124),    /* faint */
+    QColor(30, 39, 66),     /* muted */
+    QColor(52, 62, 90),     /* faint */
     QColor(214, 245, 59),   /* accent */
     QColor(12, 20, 48),     /* onAccent */
     QColor(214, 245, 59),   /* accentSoft */
