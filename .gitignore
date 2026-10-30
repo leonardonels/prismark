@@ -1,5 +1,4 @@
 # build trees
-docs/
 build/
 compile_commands.json
 .cache/
