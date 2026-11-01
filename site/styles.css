@@ -531,6 +531,7 @@ button.tab { border: 0; text-align: left; }
 
     select { color: var(--text); }
     .panel.volt select { background: var(--light); color: var(--ink); }
+    .panel.dark.pass-card select { background: var(--panel); }
     .test-button { color: var(--text); }
     .test-button.current { background: var(--light); color: var(--ink); }
 
