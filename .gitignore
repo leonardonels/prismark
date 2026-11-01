@@ -1,3 +1,7 @@
+.claude/*
+
+site/data.json
+
 # build trees
 build/
 compile_commands.json

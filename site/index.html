@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="en">
+
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport"
+            content="width=device-width, initial-scale=1">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@400;500;600&family=Saira:wdth,wght@50..125,100..900&display=swap">    
+        <link rel="stylesheet" href="styles.css">
+        <script src="main.js" defer></script>
+        <title>Prismark - CPU benchmark</title>
+    </head>
+
+    <body>
+        <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+            <symbol id="mark" viewBox="0 0 64 64">
+                <path d="M0 37 L21.5 34" stroke="currentColor" stroke-width="2.8" fill="none"/>
+                <polygon points="12,52 32,12 52,52" fill="currentColor"/>
+                <rect x="42" y="25" width="22" height="5" fill="currentColor"/>
+                <rect x="46.5" y="34" width="17.5" height="5" fill="var(--signal)"/>
+                <rect x="51" y="43" width="13" height="5" fill="currentColor"/>
+            </symbol>
+        </svg>
+
+        <div class="ground">
+            <header class="row">
+                <a class="panel brand" href="#top">
+                    <svg width="32" height="32" aria-hidden="true">
+                        <use href="#mark"/>
+                    </svg>
+                    <span class="wordmark small">PRISMARK</span>
+                </a>
+                <nav class="row tabs" aria-label="Main">
+                    <a class="tab" href="#tests">
+                        <span class="label">01</span>
+                        <span>Tests</span>
+                    </a>
+                    <span class="tab off">
+                        <span class="label">02 · soon</span>
+                        <span>Compare</span>
+                    </span>
+                    <a class="tab" href="#method">
+                        <span class="label">03</span>
+                        <span>Method</span>
+                    </a>
+                    <a class="tab" href="https://github.com/leonardonels/prismark">
+                        <span class="label">04</span>
+                        <span>Source</span>
+                    </a>
+                    <a class="tab volt" href="#download">
+                        <span class="label" data-fill="version">0.4.2</span>
+                        <span>DOWNLOAD ⟶</span>
+                    </a>
+                </nav>
+            </header>
+
+            <div class="row" id="top">
+                <div class="panel volt span-7 hero">
+                    <div class="meta label">
+                        <span>CPU benchmark</span>
+                        <span>x86-64 · ARM64</span>
+                        <span>macOS · Windows · Linux</span>
+                    </div>
+                    <div class="hero-brand">
+                        <svg width="200" height="200" aria-hidden="true"><use href="#mark"/></svg>
+                        <div class="stack">
+                            <h1 class="wordmark">PRIS<br>MARK</h1>
+                            <p class="label">One beam in. <span data-fill="measurements">23</span> measurements out.</p>
+                        </div>
+                    </div>
+                    <div class="points label">
+                        <span><b>01.</b> Identical work, from identical sources, on every machine</span>
+                        <span><b>02.</b> Your machine measured as it is configured</span>
+                        <span><b>03.</b> Results split by test, never merged</span>
+                    </div>
+                </div>
+                
+                <div class="panel signal span-5 principle">
+                    <p class="label">Principle<br>// 00</p>
+                    <div class="ghost" aria-hidden="true">00</div>
+                    <div class="principle-body">
+                        <h2 class="heading">No overall score.</h2>
+                        <p>Each test is ranked on its own. A fast chip can still lag from idle or stall on memory — one number would hide that. Prismark shows you where a processor is strong, and where it isn't.</p>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="row" id="download">
+                <div class="panel span-7 download">
+                    <div class="meta label muted">
+                        <span>Download · latest release</span>
+                        <span>All platforms</span>
+                    </div>
+                    <div class="download-main">
+                        <div>
+                            <p class="score" data-fill="version">0.4.2</p>
+                            <p class="muted">macOS, Windows and Linux, for x86-64 and ARM64</p>
+                        </div>
+                        <a class="button ink" href="https://github.com/leonardonels/prismark/releases">
+                            <span class="cta">GET PRISMARK</span>
+                            <span class="label">RELEASES ⟶</span>
+                        </a>
+                    </div>
+                </div>
+            
+                <div class="panel volt span-5 stub">
+                    <div class="stub-body">
+                        <p class="label">Other platforms</p>
+                        <a class="platform" href="https://github.com/leonardonels/prismark/releases"><span>macOS</span><span class="label">.dmg</span></a>
+                        <a class="platform" href="https://github.com/leonardonels/prismark/releases"><span>Windows · x86-64, portable</span><span class="label">.zip</span></a>
+                        <a class="platform" href="https://github.com/leonardonels/prismark/releases"><span>Linux · Debian, Ubuntu</span><span class="label">.deb</span></a>
+                        <a class="platform" href="https://github.com/leonardonels/prismark/releases"><span>Linux · Fedora</span><span class="label">.rpm</span></a>
+                    </div>
+                    <div class="tear label">
+                        <span>Free · open source</span>
+                        <span>Checksums on the release page</span>
+                    </div>
+                </div>
+            </div>
+
+            <section class="cards" id="tests" aria-label="Tests">
+                <div class="panel card">
+                    <div class="meta label"><span>01</span><span>Working together</span></div>
+                    <h3 class="heading">All cores</h3>
+                    <p>How multithreaded work scales across every core, serial parts included.</p>
+                    <ul><li>Compiling code</li><li>Full software build</li><li>3D rendering</li><li>Vector maths</li></ul>
+                </div>
+                <div class="panel paper card">
+                    <div class="meta label"><span>02</span><span>Short task · warmed up</span></div>
+                    <h3 class="heading">One core</h3>
+                    <p>Short interactive tests, and one core after a warm-up at full load.</p>
+                    <ul><li>Compression</li><li>Opening a photo</li><li>Reading JSON</li><li>Starting a script</li><li>3D rendering</li><li>Vector maths</li></ul>
+                </div>
+                <div class="panel card">
+                    <div class="meta label"><span>03</span><span>Delay · punctuality</span></div>
+                    <h3 class="heading">Memory &amp; timing</h3>
+                    <p>Memory delay from L1 to DRAM, and how late a 1 ms timer fires.</p>
+                    <ul><li>Memory delay</li><li>Timer punctuality</li></ul>
+                </div>
+                <div class="panel paper card">
+                    <div class="meta label"><span>04</span><span>Started from rest</span></div>
+                    <h3 class="heading">Responsiveness</h3>
+                    <p>The lag of work that arrives while the processor is resting.</p>
+                    <ul><li>Wake-up test</li><li>Opening a photo</li><li>Starting a script</li></ul>
+                </div>
+                <div class="panel dark card">
+                    <div class="meta label"><span>05</span><span>On request</span></div>
+                    <h3 class="heading">Stress test</h3>
+                    <p>Speed, clock, temperature and correctness under the hottest load.</p>
+                    <ul><li>Vector maths</li><li>Memory bandwidth</li></ul>
+                </div>
+                <a class="panel volt card pass" href="#download">
+                    <div class="pass-main">
+                        <div class="meta label"><span>Boarding pass</span><span>Prismark <span data-fill="version">0.4.2</span></span></div>
+                        <p class="score" data-fill="tests">12</p>
+                        <p>kinds of work, <span data-fill="measurements">23</span> measurements.</p>
+                    </div>
+                    <div class="pass-tear">
+                        <div class="barcode" id="barcode" aria-hidden="true"></div>
+                        <span class="cta">DOWNLOAD ⟶</span>
+                    </div>
+                </a>
+            </section>
+
+            <section class="row" id="stress">
+                <div class="panel span-5 stack">
+                    <p class="label muted">05 · on request · 10 minutes or more</p>
+                    <h2 class="heading">The hottest load a processor gets.</h2>
+                    <p class="muted">Vector maths on one core, all cores, or each core in turn at its own boost. The score is the speed in the 10th minute — and one wrong answer makes the verdict FAILED.</p>
+                    <div class="chips label">
+                        <span class="chip volt">Stable</span>
+                        <span class="chip fault">Failed</span>
+                        <span class="chip fault">Stopped hot</span>
+                    </div>
+                </div>
+                <div class="panel signal span-7 curve" role="img" aria-label="Speed over a ten-minute stress run">
+                    <div class="meta label"><span>Example · Speed each minute</span><span>10th minute → score</span></div>
+                    <div class="bars" id="curve"></div>
+                    <div class="meta label"><span>0 min</span><span>5</span><span>10</span></div>
+                </div>
+            </section>
+
+            <section class="row" id="method">
+                <div class="panel paper span-7 stack">
+                    <p class="label muted">method</p>
+                    <h2 class="heading">Raw samples in. Nothing changed on your machine.</h2>
+                    <p class="muted">Prismark never touches power settings; every test records the conditions it ran under (power source, power mode, clocks) and prints them next to the number.</p>    
+                    <a class="button outline" href="https://github.com/leonardonels/prismark/blob/main/docs/measuring.md">Read the full method ⟶</a>
+                </div>
+                <div class="panel dark span-5 stack">
+                    <p class="label">command line</p>
+                    <pre>// one core, after warming up 
+prismark --mode st_sustained
+
+// the stress test
+prismark --mode stress</pre>
+                </div>
+            </section>
+
+            <footer class="footer label">
+                <span>Prismark · Apache License 2.0</span>
+                <span>Hosted on GitHub Pages</span>
+            </footer>
+
+        </div>
+    </body>
+
+</html>
