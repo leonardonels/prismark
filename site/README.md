@@ -1,6 +1,6 @@
 # The Prismark website
 
-A static site on GitHub Pages: https://leonardonels.github.io/prismark/
+A static site on GitHub Pages: https://prismark.leonardonels.com
 
 Plain HTML, CSS and JavaScript, with no framework and no build tool. Everything in this folder is published, this file
 included, so nothing private belongs here.
@@ -61,6 +61,11 @@ and to the site. Check its files, keep "Set as a pre-release" ticked, and press 
 **Releases need a tag rule.** Pages only accepts `main` by default, so a release run is refused without this:
 Settings › Environments › github-pages › Deployment branches and tags › add a rule, type Tag, pattern `v*`.
 
+**The domain** is set in Settings › Pages, with a CNAME record in Cloudflare from `prismark` to `leonardonels.github.io`,
+proxy off (grey cloud). No `CNAME` file is needed, because the site publishes through Actions. The old address,
+`leonardonels.github.io/prismark/`, redirects here. If Cloudflare's proxy is ever turned on, set its SSL mode to Full
+(strict): "Flexible" can cause a redirect loop.
+
 GitHub Pages lets browsers keep files for 10 minutes. If a change doesn't show right after publishing, press
 Cmd+Shift+R.
 
@@ -72,7 +77,7 @@ Cmd+Shift+R.
 - **A visitor's result stays in their browser.** It is read locally and only its summary is kept, in `localStorage`,
   until they press Remove.
 - **Text from a result file is never inserted as HTML.** Build elements with `el()` in `compare-data.js`.
-- **Relative links only,** because the site lives under `/prismark/`.
+- **Relative links only,** so the site works at any address, including a local server.
 
 ## The look
 
@@ -109,8 +114,10 @@ Signal panels don't change, only the neutral surfaces do:
   the body colour, `--text`.
 - Data bars use `--bar`, because Signal is too faint on the dark panels. "Yours" is an ink bar in light mode and a Volt
   bar in dark mode, except inside its own Volt row.
-- The PRISMARK tab, the download panel and the stress-test text panel stay white in both modes.
+- The PRISMARK tab, the download panel and the stress-test text panel stay white in both modes. The footer is white in
+  dark mode only.
 - The Stress test card and the command-line panel keep light mode's `#141D3B` in both modes, with no outline.
+- Header tabs, test cards 01 to 04 and the Method panel share `--paper` (`#1E3288`) in dark mode.
 - Main buttons are ink in light mode and Volt in dark mode. The current tab or test flips to a light surface.
 
 To test it, set your system to dark, or use the Rendering panel in the browser's DevTools.

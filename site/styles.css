@@ -514,12 +514,14 @@ button.tab { border: 0; text-align: left; }
     .panel.download .button.ink:hover { background: #1A2547; }
 
     .tab { background: #1B2A78; color: #E1E6F8; }
+    header .tab { background: var(--paper); }
     .tab:hover { background: #24359A; }
     .tab.current, .tab.current:hover { background: var(--light); color: var(--ink); }
 
     .card ul, .card li { border-color: var(--line); }
-    .panel.paper.card ul, .panel.paper.card li { border-color: #7084D8; }
-    .footer { background: var(--panel); color: var(--muted); }
+    .panel.card:not(.dark, .pass) { background: var(--paper); }
+    .panel.card:not(.dark, .pass) ul, .panel.card:not(.dark, .pass) li { border-color: #7084D8; }
+    .footer { background: #F7F8F9; color: #3B4660; }
 
     .button.ink, .versus-link { background: var(--volt); color: var(--ink); outline: 0; }
     .button.ink:hover, .versus-link:hover { background: #E3FA6A; }
