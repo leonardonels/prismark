@@ -22,7 +22,10 @@ def latest_version():
     if token:
         request.add_header("Authorization", f"Bearer {token}")
     with urllib.request.urlopen(request) as response:
-        releases = json.load(response)
+        releases = json.load(response)    
+    published = [r for r in releases if not r["draft"]]
+    return published[0]["tag_name"].removeprefix("v")
+
 
 
 def count_tests():
@@ -41,7 +44,7 @@ data = {
     "tests": count_tests(),
     "measurements": count_measurements(),
 }
-if not data["tests"] or not data["measurements"]:
+if not all(data.values()):
     sys.exit(f"site_data: could not read the tables: {data}")
 
 pathlib.Path(sys.argv[1]).write_text(json.dumps(data) + "\n")

@@ -21,7 +21,7 @@ fetch('data.json')
     .then((data) => {
         document.querySelectorAll('[data-fill]').forEach((element) => {
             const value = data[element.dataset.fill];
-            if (value !== undefined) element.textContent = value;
+            if (value) element.textContent = value;
         });
     })
     .catch(() => {
