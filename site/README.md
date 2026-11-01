@@ -125,4 +125,3 @@ build/macos-clang/prismark compare intel-i9-14900k apple-m2-macos
 
 - Dark mode
 - Hosting the fonts here instead of loading them from Google
-- Stopping `ci.yml` from running the full build on site-only pushes
