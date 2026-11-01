@@ -102,7 +102,7 @@ Signal panels don't change, only the neutral surfaces do:
 | `--paper` | `#E8ECEF` | `#1E3288` |
 | `--muted` | `#3B4660` | `#C3CDF0` |
 | `--text` | (uses `--ink`) | `#F2F4F8` |
-| `--line` | `#C9D0DA` | `#5468C0` |
+| `--line` | (`#C9D0DA`, written directly in the rules) | `#5468C0` |
 | `--bar` | (uses `--signal`) | `#9DB2FF` |
 
 - `--ink` stays dark in both modes, because it's the text on Volt, Signal and light surfaces. Text on dark surfaces uses
