@@ -1,7 +1,10 @@
 #!/usr/bin/env python3
-"""Write the numbers the website shows, read from the code and from GitHub.
+"""Write what the website shows, read from the code, the references and GitHub.
 
 usage: tools/site_data.py OUT
+
+Writes OUT (the numbers) and references.json beside it: the reference results,
+cut down to the fields site/compare-data.js reads to work out each test's value.
 
 Copyright 2026 The Prismark Authors. Apache-2.0.
 """
@@ -39,6 +42,58 @@ def count_measurements():
     return len(re.findall(r'^\s*\{"\w+", "(?:mc|st|mem|resp|stress)",', source, re.MULTILINE))
 
 
+def check_catalogue():
+    """The site lists the same tests as the app, or the build stops."""
+    app = (ROOT / "apps/gui/metrics.cpp").read_text()
+    site = (ROOT / "site/compare-data.js").read_text()
+    in_app = set(re.findall(r'^\s*\{"(\w+)", "(?:mc|st|mem|resp|stress)",', app, re.MULTILINE))
+    in_site = set(re.findall(r"^\s*\{ id: '(\w+)', group:", site, re.MULTILINE))
+    if in_app != in_site:
+        sys.exit(f"site_data: tests differ from the app: {sorted(in_app ^ in_site)}")
+
+
+def keep(row, *keys):
+    return {key: row[key] for key in keys if key in row}
+
+
+def reference(path):
+    doc = json.loads(path.read_text())
+    analysis = doc.get("analysis", {})
+    machine = doc["machine"]
+    cpu = machine["cpu"]
+    return {
+        "file": path.stem,
+        "schema": doc["schema"],
+        "run_id": doc["run_id"],
+        **keep(doc, "name", "started_utc", "complete"),
+        "config": keep(doc.get("config", {}), "quick", "sustained_max_s"),
+        "harness": keep(doc.get("harness", {}), "version"),
+        "machine": {
+            **keep(machine, "os", "isa"),
+            "cpu": {**keep(cpu, "model", "llc_bytes"), "cores": [keep(c, "type") for c in cpu.get("cores", [])]},
+        },
+        "state": {"start": keep(doc.get("state", {}).get("start", {}), "power_mode", "ac_online")},
+        "analysis": {
+            "series": [
+                keep(r, "kernel", "mode", "tier", "purpose", "core_type", "n", "start", "working_set_bytes",
+                     "perf_steady", "median", "steady_reached", "clamped_windows", "clamped_lowest_mhz")
+                for r in analysis.get("series", [])
+            ],
+            "cold_burst": [keep(r, "W_ms", "core_type", "cell", "R_resp") for r in analysis.get("cold_burst", [])],
+            "periodic": [keep(r, "condition", "p999_ns") for r in analysis.get("periodic", [])],
+            "stress": [keep(r, "part", "score", "verdict", "checksum_errors", "wrong_tasks")
+                       for r in analysis.get("stress", [])],
+            "checksums": [keep(r, "consistent") for r in analysis.get("checksums", [])],
+        },
+    }
+
+
+def references():
+    return [reference(path) for path in sorted((ROOT / "references").glob("*.json"))]
+
+
+check_catalogue()
+
 data = {
     "version": latest_version(),
     "tests": count_tests(),
@@ -47,5 +102,11 @@ data = {
 if not all(data.values()):
     sys.exit(f"site_data: could not read the tables: {data}")
 
-pathlib.Path(sys.argv[1]).write_text(json.dumps(data) + "\n")
-print(data)
+refs = references()
+if not refs:
+    sys.exit("site_data: no reference results found")
+
+out = pathlib.Path(sys.argv[1])
+out.write_text(json.dumps(data) + "\n")
+out.with_name("references.json").write_text(json.dumps(refs, separators=(",", ":")) + "\n")
+print(data, f"{len(refs)} references")

@@ -1,6 +1,7 @@
 .claude/*
 
 site/data.json
+site/references.json
 
 # build trees
 build/

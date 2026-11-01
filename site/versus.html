@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport"
+            content="width=device-width, initial-scale=1">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@400;500;600&family=Saira:wdth,wght@50..125,100..900&display=swap">
+        <link rel="stylesheet" href="styles.css">
+        <script src="compare-data.js" defer></script>
+        <script src="versus.js" defer></script>
+        <title>Prismark - Head to head</title>
+    </head>
+
+    <body>
+        <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+            <symbol id="mark" viewBox="0 0 64 64">
+                <path d="M0 37 L21.5 34" stroke="currentColor" stroke-width="2.8" fill="none"/>
+                <polygon points="12,52 32,12 52,52" fill="currentColor"/>
+                <rect x="42" y="25" width="22" height="5" fill="currentColor"/>
+                <rect x="46.5" y="34" width="17.5" height="5" fill="var(--signal)"/>
+                <rect x="51" y="43" width="13" height="5" fill="currentColor"/>
+            </symbol>
+        </svg>
+
+        <div class="ground">
+            <header class="row">
+                <a class="panel brand" href="index.html">
+                    <svg width="32" height="32" aria-hidden="true">
+                        <use href="#mark"/>
+                    </svg>
+                    <span class="wordmark small">PRISMARK</span>
+                </a>
+                <nav class="row tabs" aria-label="This comparison">
+                    <a class="tab wide" id="back" href="compare.html">
+                        <span class="label">⟵ 02 · Compare</span>
+                        <span>Back to the rankings</span>
+                    </a>
+                    <button class="tab" id="copy" type="button">
+                        <span class="label">Link</span>
+                        <span id="copy-text">Copy this comparison</span>
+                    </button>
+                    <button class="tab" id="swap" type="button">
+                        <span class="label">A ⇄ B</span>
+                        <span>Swap sides</span>
+                    </button>
+                </nav>
+            </header>
+
+            <section class="row" id="passes" aria-label="The two processors"></section>
+
+            <section class="panel signal no-total">
+                <h1 class="heading">No total. Read it test by test.</h1>
+                <p>Each row is the same work on both machines. The longer bar is the faster one, whichever way the unit counts.</p>
+            </section>
+
+            <div class="versus-groups" id="groups"></div>
+
+            <footer class="footer label">
+                <span>Prismark · Apache License 2.0</span>
+                <span>Hosted on GitHub Pages</span>
+            </footer>
+        </div>
+    </body>
+
+</html>

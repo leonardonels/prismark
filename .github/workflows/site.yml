@@ -8,6 +8,7 @@ on:
       - 'tools/site_data.py'
       - 'apps/cli/main.c'
       - 'apps/gui/metrics.cpp'
+      - 'references/*.json'
       - '.github/workflows/site.yml'
   release:
     types: [published]

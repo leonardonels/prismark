@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="en">
+
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport"
+            content="width=device-width, initial-scale=1">
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=IBM+Plex+Mono:wght@400;500;600&family=Saira:wdth,wght@50..125,100..900&display=swap">
+        <link rel="stylesheet" href="styles.css">
+        <script src="data.js" defer></script>
+        <script src="compare-data.js" defer></script>
+        <script src="compare.js" defer></script>
+        <title>Prismark - Compare</title>
+    </head>
+
+    <body>
+        <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+            <symbol id="mark" viewBox="0 0 64 64">
+                <path d="M0 37 L21.5 34" stroke="currentColor" stroke-width="2.8" fill="none"/>
+                <polygon points="12,52 32,12 52,52" fill="currentColor"/>
+                <rect x="42" y="25" width="22" height="5" fill="currentColor"/>
+                <rect x="46.5" y="34" width="17.5" height="5" fill="var(--signal)"/>
+                <rect x="51" y="43" width="13" height="5" fill="currentColor"/>
+            </symbol>
+        </svg>
+
+        <div class="ground">
+            <header class="row">
+                <a class="panel brand" href="index.html">
+                    <svg width="32" height="32" aria-hidden="true">
+                        <use href="#mark"/>
+                    </svg>
+                    <span class="wordmark small">PRISMARK</span>
+                </a>
+                <nav class="row tabs" aria-label="Main">
+                    <a class="tab" href="index.html#tests">
+                        <span class="label">01</span>
+                        <span>Tests</span>
+                    </a>
+                    <a class="tab current" href="compare.html" aria-current="page">
+                        <span class="label">02</span>
+                        <span>Compare</span>
+                    </a>
+                    <a class="tab" href="index.html#method">
+                        <span class="label">03</span>
+                        <span>Method</span>
+                    </a>
+                    <a class="tab" href="https://github.com/leonardonels/prismark">
+                        <span class="label">04</span>
+                        <span>Source</span>
+                    </a>
+                    <a class="tab volt" href="index.html#download">
+                        <span class="label" data-fill="version">0.4.2</span>
+                        <span>DOWNLOAD ⟶</span>
+                    </a>
+                </nav>
+            </header>
+
+            <section class="row">
+                <div class="panel span-8 stack">
+                    <div class="meta label muted">
+                        <span id="count">Compare</span>
+                        <span>Each test ranked on its own</span>
+                    </div>
+                    <h1 class="heading">Pick a test. See who's fast at it.</h1>
+                    <div class="filters">
+                        <label class="label muted">Architecture
+                            <select id="filter-isa">
+                                <option value="">All</option>
+                                <option value="x86_64">x86-64</option>
+                                <option value="aarch64">ARM64</option>
+                            </select>
+                        </label>
+                        <label class="label muted">System
+                            <select id="filter-os">
+                                <option value="">All</option>
+                                <option value="macos">macOS</option>
+                                <option value="windows">Windows</option>
+                                <option value="linux">Linux</option>
+                            </select>
+                        </label>
+                        <label class="label muted">Power source
+                            <select id="filter-power">
+                                <option value="">All</option>
+                                <option value="mains">Not on battery</option>
+                                <option value="battery">On battery</option>
+                            </select>
+                        </label>
+                    </div>
+                </div>
+
+                <div class="panel volt span-4 stub" id="yours">
+                    <div class="stub-body yours-body">
+                        <p class="label">Yours · read in your browser, never uploaded</p>
+                        <p class="yours-name" id="yours-name">No result of yours yet</p>
+                        <p id="yours-note">Open a result file from the Prismark app to see it in every ranking.</p>
+                        <p class="yours-error" id="yours-error" role="alert" hidden></p>
+                    </div>
+                    <div class="tear yours-actions">
+                        <label class="button outline yours-open">
+                            <span id="yours-open-text">Open a result…</span>
+                            <input type="file" id="yours-file" accept=".json,application/json">
+                        </label>
+                        <button class="button outline" id="yours-remove" type="button" hidden>Remove</button>
+                        <span class="label">or drop the file here</span>
+                    </div>
+                </div>
+            </section>
+
+            <nav class="row" id="groups" aria-label="Test groups"></nav>
+
+            <section class="row">
+                <div class="panel paper span-3 test-list" id="tests-panel">
+                    <p class="label muted" id="tests-title">Tests</p>
+                    <div class="test-buttons" id="tests"></div>
+                </div>
+
+                <div class="panel span-9 ranking">
+                    <div class="ranking-head">
+                        <div>
+                            <h2 class="heading" id="test-title">Loading</h2>
+                            <p class="muted" id="test-sub"></p>
+                        </div>
+                        <p class="label muted" id="test-unit"></p>
+                    </div>
+                    <div class="rows" id="rows" aria-live="polite"></div>
+                    <div class="chips label">
+                        <span class="chip signal">Reference</span>
+                        <span class="chip volt">Yours</span>
+                        <span class="chip outline">Quick runs not ranked</span>
+                        <span class="chip fault">Wrong results left out</span>
+                    </div>
+                </div>
+            </section>
+
+            <section class="row" aria-label="Selection">
+                <div class="panel dark span-8 selection">
+                    <span class="label" id="picked-count">0 of 2 picked</span>
+                    <span class="selection-names" id="picked-names">Tick two processors to compare them test by test</span>
+                </div>
+                <a class="button versus-link span-4" id="versus-link" href="versus.html">
+                    <span class="cta">HEAD TO HEAD</span>
+                    <span class="label">EVERY TEST ⟶</span>
+                </a>
+            </section>
+
+            <footer class="footer label">
+                <span>Prismark · Apache License 2.0</span>
+                <span>Hosted on GitHub Pages</span>
+            </footer>
+        </div>
+    </body>
+
+</html>
