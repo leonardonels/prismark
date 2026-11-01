@@ -505,10 +505,13 @@ button.tab { border: 0; text-align: left; }
 
     .panel.volt, .chip.volt, .chip.fault, .yours-error { color: var(--ink); }
     .panel.signal, .chip.signal { color: #F7F8F9; }
-    .panel.dark { background: var(--ground); color: var(--text); outline: 1px solid var(--line); outline-offset: -1px; }
-    .panel.dark.selection, .panel.dark.pass-card { background: var(--paper); outline: 0; }
+    .panel.dark { color: var(--text); }
+    .panel.dark.selection, .panel.dark.pass-card { background: var(--paper); }
     .bars span { background: #F7F8F9; }
-    .brand { --signal: var(--bar); }
+    .panel.brand { background: #F7F8F9; color: var(--ink); }
+    .panel.download, #stress > .panel.stack { background: #F7F8F9; color: var(--ink); --muted: #3B4660; }
+    .panel.download .button.ink { background: var(--ink); color: var(--volt); }
+    .panel.download .button.ink:hover { background: #1A2547; }
 
     .tab { background: #1B2A78; color: #E1E6F8; }
     .tab:hover { background: #24359A; }

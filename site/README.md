@@ -109,6 +109,8 @@ Signal panels don't change, only the neutral surfaces do:
   the body colour, `--text`.
 - Data bars use `--bar`, because Signal is too faint on the dark panels. "Yours" is an ink bar in light mode and a Volt
   bar in dark mode, except inside its own Volt row.
+- The PRISMARK tab, the download panel and the stress-test text panel stay white in both modes.
+- The Stress test card and the command-line panel keep light mode's `#141D3B` in both modes, with no outline.
 - Main buttons are ink in light mode and Volt in dark mode. The current tab or test flips to a light surface.
 
 To test it, set your system to dark, or use the Rendering panel in the browser's DevTools.
