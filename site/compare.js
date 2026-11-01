@@ -82,6 +82,7 @@ function againstText(metric, value, base) {
 
 function renderRows() {
     const metric = metricById(state.test);
+    $('group-number').textContent = `0${GROUPS.findIndex((group) => group.id === metric.group) + 1}`;
     $('test-title').textContent = metric.title;
     $('test-sub').textContent = metric.sub;
     $('test-unit').textContent = `${metric.unit} · ${metric.higher ? 'higher' : 'lower'} is better`;

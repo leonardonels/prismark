@@ -60,7 +60,7 @@
             </header>
 
             <section class="row">
-                <div class="panel span-8 stack">
+                <div class="panel span-8 stack intro">
                     <div class="meta label muted">
                         <span id="count">Compare</span>
                         <span>Each test ranked on its own</span>
@@ -120,18 +120,21 @@
 
                 <div class="panel span-9 ranking">
                     <div class="ranking-head">
+                        <span class="ranking-ghost" id="group-number" aria-hidden="true">01</span>
                         <div>
                             <h2 class="heading" id="test-title">Loading</h2>
                             <p class="muted" id="test-sub"></p>
                         </div>
                         <p class="label muted" id="test-unit"></p>
                     </div>
-                    <div class="rows" id="rows" aria-live="polite"></div>
-                    <div class="chips label">
-                        <span class="chip signal">Reference</span>
-                        <span class="chip volt">Yours</span>
-                        <span class="chip outline">Quick runs not ranked</span>
-                        <span class="chip fault">Wrong results left out</span>
+                    <div class="ranking-body">
+                        <div class="rows" id="rows" aria-live="polite"></div>
+                        <div class="chips label">
+                            <span class="chip signal">Reference</span>
+                            <span class="chip volt">Yours</span>
+                            <span class="chip outline">Quick runs not ranked</span>
+                            <span class="chip fault">Wrong results left out</span>
+                        </div>
                     </div>
                 </div>
             </section>

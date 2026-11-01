@@ -373,6 +373,8 @@ button.tab { border: 0; text-align: left; }
 .ranking .heading { font-size: clamp(30px, 3vw, 40px); line-height: 1; }
 .ranking-head { display: flex; flex-wrap: wrap; justify-content: space-between; align-items: flex-end; gap: 16px; }
 .ranking-head .muted { margin-top: 6px; font-size: 14px; }
+.ranking-ghost { display: none; }
+.ranking-body { display: flex; flex-direction: column; gap: 18px; }
 .right { text-align: right; }
 
 .rank-row {
@@ -506,15 +508,14 @@ button.tab { border: 0; text-align: left; }
     .panel.volt, .chip.volt, .chip.fault, .yours-error { color: var(--ink); }
     .panel.signal, .chip.signal { color: #F7F8F9; }
     .panel.dark { color: var(--text); }
-    .panel.dark.selection, .panel.dark.pass-card { background: var(--paper); }
+    .panel.dark.pass-card { background: #F7F8F9; color: var(--ink); --muted: #3B4660; }
     .bars span { background: #F7F8F9; }
     .panel.brand { background: #F7F8F9; color: var(--ink); }
     .panel.download, #stress > .panel.stack { background: #F7F8F9; color: var(--ink); --muted: #3B4660; }
     .panel.download .button.ink { background: var(--ink); color: var(--volt); }
     .panel.download .button.ink:hover { background: #1A2547; }
 
-    .tab { background: #1B2A78; color: #E1E6F8; }
-    header .tab { background: var(--paper); }
+    .tab { background: var(--paper); color: #E1E6F8; }
     .tab:hover { background: #24359A; }
     .tab.current, .tab.current:hover { background: var(--light); color: var(--ink); }
 
@@ -530,12 +531,47 @@ button.tab { border: 0; text-align: left; }
     .button.outline:hover { background: var(--light); color: var(--ink); }
 
     select { color: var(--text); }
-    .panel.volt select { background: var(--light); color: var(--ink); }
-    .panel.dark.pass-card select { background: var(--panel); }
-    .test-button { color: var(--text); }
+    .panel.volt select { background: var(--paper); color: var(--text); }
+    .panel.dark.pass-card select { background: var(--light); color: var(--ink); }
+    .panel.intro { background: #F7F8F9; color: var(--ink); --muted: #3B4660; --paper: var(--light); }
+    .panel.intro select { color: var(--ink); }
+    .panel.test-list { background: #141D3B; }
+    .test-button { background: var(--paper); color: var(--text); }
     .test-button.current { background: var(--light); color: var(--ink); }
 
-    .rank-row, .versus-row { border-top-color: var(--line); }
+    .panel.ranking { background: var(--paper); padding: 0; gap: 0; }
+    .ranking-head {
+        position: relative;
+        overflow: hidden;
+        min-height: 150px;
+        box-sizing: border-box;
+        padding: 28px 32px;
+        background: var(--signal);
+        color: #F7F8F9;
+        --muted: #F7F8F9;
+    }
+    .ranking-head > * { position: relative; }
+    .ranking-head .heading { color: var(--ink); }
+    .ranking-head > .ranking-ghost {
+        display: block;
+        position: absolute;
+        right: -10px;
+        top: -14px;
+        font-family: var(--display);
+        font-variation-settings: 'wdth' 50;
+        font-weight: 300;
+        font-size: 170px;
+        line-height: 0.8;
+        color: #4A72FF;
+    }
+    .ranking-body { padding: 24px 32px 28px; }
+    .rows-empty { background: #141D3B; }
+    .panel.versus-group { background: var(--paper); }
+    .versus-track { background: #141D3B; }
+
+    .rank-row, .versus-row { border-top-color: #7084D8; }
+    .rank-row.picked:not(.mine) { background: #141D3B; }
+    .ranking .chip.signal { background: var(--bar); color: var(--ink); }
     .rank-row input { accent-color: var(--volt); }
     .rank-row.mine { color: var(--ink); border-top-color: var(--ink); }
     .rank-row.mine input { accent-color: var(--ink); }
@@ -544,4 +580,9 @@ button.tab { border: 0; text-align: left; }
     .rank-row.mine .fill.mine { background: var(--ink); }
     .chip.outline { border-color: currentColor; }
     .chip.ink { background: var(--light); color: var(--ink); }
+}
+
+@media (prefers-color-scheme: dark) and (max-width: 640px) {
+    .ranking-head { padding: 22px 20px; }
+    .ranking-body { padding: 20px; }
 }

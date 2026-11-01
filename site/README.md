@@ -117,7 +117,10 @@ Signal panels don't change, only the neutral surfaces do:
 - The PRISMARK tab, the download panel and the stress-test text panel stay white in both modes. The footer is white in
   dark mode only.
 - The Stress test card and the command-line panel keep light mode's `#141D3B` in both modes, with no outline.
-- Header tabs, test cards 01 to 04 and the Method panel share `--paper` (`#1E3288`) in dark mode.
+- Tabs, test cards 01 to 04, the Method panel, the ranking and the head-to-head groups share `--paper` (`#1E3288`) in dark
+  mode.
+- On the compare pages in dark mode, the filters and reference passes are white, the test list and selection bar use
+  `#141D3B`, and the current test's title sits on a Signal strip with a ghost group number. Light mode hides that number.
 - Main buttons are ink in light mode and Volt in dark mode. The current tab or test flips to a light surface.
 
 To test it, set your system to dark, or use the Rendering panel in the browser's DevTools.
