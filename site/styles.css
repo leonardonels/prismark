@@ -481,3 +481,61 @@ button.tab { border: 0; text-align: left; }
     .yours-actions, .pass-card-stub { padding-inline: 20px; }
     .pass-card-main { padding: 22px 20px; }
 }
+
+/*
+ * Dark mode: Royal blue, following the visitor's system setting. Volt and
+ * Signal stay; only the neutral surfaces change. --ink stays the ink used on
+ * Volt, Signal and light surfaces, so dark text uses --text.
+ */
+@media (prefers-color-scheme: dark) {
+    :root {
+        color-scheme: dark;
+        --ground: #0A1238;
+        --panel: #16246B;
+        --paper: #1E3288;
+        --muted: #C3CDF0;
+        --text: #F2F4F8;
+        --light: #E8ECEF;
+        --line: #5468C0;
+        --bar: #9DB2FF;
+    }
+
+    :focus-visible, .yours-open:focus-within { outline-color: var(--volt); }
+    body { color: var(--text); }
+
+    .panel.volt, .chip.volt, .chip.fault, .yours-error { color: var(--ink); }
+    .panel.signal, .chip.signal { color: #F7F8F9; }
+    .panel.dark { background: var(--ground); color: var(--text); outline: 1px solid var(--line); outline-offset: -1px; }
+    .panel.dark.selection, .panel.dark.pass-card { background: var(--paper); outline: 0; }
+    .bars span { background: #F7F8F9; }
+    .brand { --signal: var(--bar); }
+
+    .tab { background: #1B2A78; color: #E1E6F8; }
+    .tab:hover { background: #24359A; }
+    .tab.current, .tab.current:hover { background: var(--light); color: var(--ink); }
+
+    .card ul, .card li { border-color: var(--line); }
+    .panel.paper.card ul, .panel.paper.card li { border-color: #7084D8; }
+    .footer { background: var(--panel); color: var(--muted); }
+
+    .button.ink, .versus-link { background: var(--volt); color: var(--ink); outline: 0; }
+    .button.ink:hover, .versus-link:hover { background: #E3FA6A; }
+    button.button { color: inherit; }
+    .button.outline { border-color: currentColor; }
+    .button.outline:hover { background: var(--light); color: var(--ink); }
+
+    select { color: var(--text); }
+    .panel.volt select { background: var(--light); color: var(--ink); }
+    .test-button { color: var(--text); }
+    .test-button.current { background: var(--light); color: var(--ink); }
+
+    .rank-row, .versus-row { border-top-color: var(--line); }
+    .rank-row input { accent-color: var(--volt); }
+    .rank-row.mine { color: var(--ink); border-top-color: var(--ink); }
+    .rank-row.mine input { accent-color: var(--ink); }
+    .fill { background: var(--bar); }
+    .fill.mine { background: var(--volt); }
+    .rank-row.mine .fill.mine { background: var(--ink); }
+    .chip.outline { border-color: currentColor; }
+    .chip.ink { background: var(--light); color: var(--ink); }
+}

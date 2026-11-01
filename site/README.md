@@ -90,6 +90,29 @@ Follows the Prismark identity: flat panels on an ink ground with 8 px seams, and
 
 Type: Saira (condensed for scores, wide for headings), Archivo for body text, and IBM Plex Mono in capitals for labels.
 
+### Dark mode
+
+Royal blue, at the end of `styles.css`. It follows the visitor's system setting; there is no switch on the page. Volt and
+Signal panels don't change, only the neutral surfaces do:
+
+| Token | Light | Dark |
+| --- | --- | --- |
+| `--ground` | `#0C1430` | `#0A1238` |
+| `--panel` | `#F7F8F9` | `#16246B` |
+| `--paper` | `#E8ECEF` | `#1E3288` |
+| `--muted` | `#3B4660` | `#C3CDF0` |
+| `--text` | (uses `--ink`) | `#F2F4F8` |
+| `--line` | `#C9D0DA` | `#5468C0` |
+| `--bar` | (uses `--signal`) | `#9DB2FF` |
+
+- `--ink` stays dark in both modes, because it's the text on Volt, Signal and light surfaces. Text on dark surfaces uses
+  the body colour, `--text`.
+- Data bars use `--bar`, because Signal is too faint on the dark panels. "Yours" is an ink bar in light mode and a Volt
+  bar in dark mode, except inside its own Volt row.
+- Main buttons are ink in light mode and Volt in dark mode. The current tab or test flips to a light surface.
+
+To test it, set your system to dark, or use the Rendering panel in the browser's DevTools.
+
 The sketches live on the [design canvas](https://claude.ai/artifact/WPRKkXN3xUdK59DLE8Xzd9), which is private to its
 owner until shared.
 
@@ -123,5 +146,5 @@ build/macos-clang/prismark compare intel-i9-14900k apple-m2-macos
 
 ## Still to do
 
-- Dark mode
+- A manual light/dark switch, if following the system setting turns out not to be enough
 - Hosting the fonts here instead of loading them from Google
