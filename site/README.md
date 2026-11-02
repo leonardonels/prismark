@@ -10,6 +10,7 @@ included, so nothing private belongs here.
 | File | What it is |
 | --- | --- |
 | `index.html`, `main.js` | The homepage; `main.js` draws the stress curve and the barcode |
+| `motion.js` | The homepage's animations: starts them when seen, and measures the phone wallet |
 | `compare.html`, `compare.js` | The ranking: one test at a time |
 | `versus.html`, `versus.js` | Head to head: two processors, every test, no total |
 | `compare-data.js` | Shared by both compare pages: the tests, how each value is read, how two values compare |
@@ -67,7 +68,7 @@ proxy off (grey cloud). No `CNAME` file is needed, because the site publishes th
 (strict): "Flexible" can cause a redirect loop.
 
 GitHub Pages lets browsers keep files for 10 minutes. If a change doesn't show right after publishing, press
-Cmd+Shift+R.
+Cmd+Shift+R, or Cmd+Option+R in Safari, where Cmd+Shift+R opens Reader instead.
 
 ## Rules
 
@@ -127,6 +128,27 @@ To test it, set your system to dark, or use the Rendering panel in the browser's
 
 The sketches live on the [design canvas](https://claude.ai/artifact/WPRKkXN3xUdK59DLE8Xzd9), which is private to its
 owner until shared.
+
+### Motion
+
+Only three things move, all on the homepage. Each plays once, and with reduced motion turned on, none of them do.
+
+- **Stress curve:** every bar starts at peak speed and sinks to its value, left to right, and the last six fade to Volt as they sink. It
+  plays when 40 % of the chart is on screen. It is still labelled as an example.
+- **Numbers:** each `.score` rolls through digits and lands on its value. It rests on the real value before rolling, so a
+  wrong number never sits on the page. The version also rolls again each time a download link is clicked. `motion.js` builds the reels after `data.js` has filled the value, because filling
+  a value replaces what's inside the element.
+- **Phone wallet** (640 px wide or less, and at least 650 px tall): panels stick and close up, each keeping a 26 to 30 px strip
+  with its label, so the page ends with every section still readable at the top. `--k` in `styles.css` sets each panel's
+  place. The Stress test card is hidden here, because the stress section is the ticket with that label.
+  `.deck` rows become `display: contents`, so all the panels share one parent, and sticky only works inside its parent.
+  That's why the links land on empty `.anchor` elements: a `display: contents` row has no box to scroll to, and a stuck
+  panel isn't where a link back to it expects it to be. A panel taller than its space pins by its bottom instead, using
+  the `--h` that `motion.js` measures, so nothing gets covered before it can be read.
+
+Safari's top bar stays yellow at the top of the phone wallet, despite the `theme-color` in `index.html`, probably because it takes its colour from the stuck Volt panel. Accepted for now.
+
+The page's scrollbar is hidden in `styles.css`, because of a flashing scrollbar in Safari that also appears on GitHub.
 
 ## How the compare values are worked out
 

@@ -4,6 +4,8 @@ for (let i =0; i < 60; i++) {
     const bar = document.createElement('span');
     const height = 62 + 30 * Math.exp(-i / 6) + 3 * Math.sin(i * 1.7);
     bar.style.height = height + '%';
+    bar.style.setProperty('--i', i);
+    bar.style.setProperty('--peak', 92 / height);
     if (i >= 54) bar.classList.add('scored');
     curve.appendChild(bar);
 }

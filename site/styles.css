@@ -14,6 +14,9 @@
     --mono: 'IBM Plex Mono', ui-monospace, monospace;
 }
 
+html { scrollbar-width: none; }
+html::-webkit-scrollbar { display: none; }
+
 body {
     margin: 0;
     background: var(--ground);
@@ -40,6 +43,8 @@ pre {
     gap: var(--seam);
     min-height: 100vh;
 }
+
+.anchor { display: block; margin-bottom: calc(-1 * var(--seam)); }
 
 .row {
     display: flex;
@@ -160,6 +165,20 @@ pre {
     font-size: 120px;
     line-height: 0.8;
 }
+.score.rolling { display: flex; }
+.roll-cell { display: block; height: 0.8em; overflow: hidden; }
+.roll-reel {
+    display: block;
+    position: relative;
+    animation: roll 1.1s cubic-bezier(.2,.8,.2,1) calc(var(--n) * 60ms) both paused;
+}
+.roll-reel span { position: absolute; left: 0; right: 0; top: calc(var(--k) * 0.8em); text-align: center; }
+.roll-reel span:first-child { position: static; }
+.run .roll-reel { animation-play-state: running; }
+
+@keyframes roll {
+    from { transform: translateY(calc(var(--count) * -0.8em)); }
+}
 
 .label {
     font-family: var(--mono);
@@ -261,8 +280,27 @@ pre {
 .chip.fault { background: var(--fault); }
 .curve { min-height: 320px; display: flex; flex-direction: column; gap: 14px; }
 .bars { flex: 1; min-height: 200px; display: flex; align-items: flex-end; gap: 3px; }
-.bars span { flex: 1; background: var(--panel); }
-.bars span.scored { background: var(--volt); }
+.bars { --rest: var(--panel); }
+.bars span {
+    flex: 1;
+    background: var(--rest);
+    transform-origin: bottom;
+    animation: settle .5s cubic-bezier(.2,.8,.2,1) calc(var(--i) * 30ms) both paused;
+}
+.bars span.scored {
+    background: var(--volt);
+    animation:
+        settle .5s cubic-bezier(.2,.8,.2,1) calc(var(--i) * 30ms) both paused,
+        score .5s ease-out calc(var(--i) * 30ms) both paused;
+}
+.bars.run span { animation-play-state: running; }
+
+@keyframes settle {
+    from { transform: scaleY(var(--peak)); }
+}
+@keyframes score {
+    from { background: var(--rest); }
+}
 
 .footer {
     background: #141D3B;
@@ -509,7 +547,7 @@ button.tab { border: 0; text-align: left; }
     .panel.signal, .chip.signal { color: #F7F8F9; }
     .panel.dark { color: var(--text); }
     .panel.dark.pass-card { background: #F7F8F9; color: var(--ink); --muted: #3B4660; }
-    .bars span { background: #F7F8F9; }
+    .bars { --rest: #F7F8F9; }
     .panel.brand { background: #F7F8F9; color: var(--ink); }
     .panel.download, #stress > .panel.stack { background: #F7F8F9; color: var(--ink); --muted: #3B4660; }
     .panel.download .button.ink { background: var(--ink); color: var(--volt); }
@@ -585,4 +623,55 @@ button.tab { border: 0; text-align: left; }
 @media (prefers-color-scheme: dark) and (max-width: 640px) {
     .ranking-head { padding: 22px 20px; }
     .ranking-body { padding: 20px; }
+}
+
+/*
+ * Phone: the homepage's panels close up like a wallet of tickets. Every panel
+ * keeps a 26 to 30 px strip with its label, and fills the screen below its strip, so
+ * no ticket shows behind a shorter one. A panel still taller than that pins by
+ * its bottom, so it can be read; motion.js sets --h. Below 650 px of height
+ * there's no room for the strips, and the panels simply stack.
+ */
+@media (max-width: 640px) and (min-height: 650px) and (prefers-reduced-motion: no-preference) {
+    .ground { --step: clamp(26px, 100svh / 27, 30px); }
+    .deck { display: contents; }
+    #download { scroll-margin-top: calc(2 * var(--step)); }
+    #tests { scroll-margin-top: calc(4 * var(--step)); }
+    #method { scroll-margin-top: calc(11 * var(--step)); }
+    .deck > .panel {
+        --strip: calc(var(--k, 0) * var(--step));
+        position: sticky;
+        top: min(var(--strip), calc(100svh - var(--h, 0px)));
+        flex: none;
+        box-sizing: border-box;
+        min-height: calc(100svh - var(--strip));
+        padding-top: 6px;
+        border-top: 2px solid var(--ground);
+    }
+    .deck > .principle { --k: 1; }
+    .deck > .download { --k: 2; justify-content: space-between; }
+    .deck > .stub { --k: 3; }
+    .deck > .card:nth-child(1) { --k: 4; }
+    .deck > .card:nth-child(2) { --k: 5; }
+    .deck > .card:nth-child(3) { --k: 6; }
+    .deck > .card:nth-child(4) { --k: 7; }
+    .deck > .pass { --k: 8; }
+    #stress > .stack { --k: 9; }
+    /* A set height, because the bars' percentages need one to work from. */
+    #stress > .curve { --k: 10; height: calc(100svh - var(--strip)); }
+    #stress ~ .deck > .paper { --k: 11; }
+    #stress ~ .deck > .dark { --k: 12; }
+
+    /* The stress section below is ticket 05, so the card would repeat its label. */
+    .deck > .card.dark { display: none; }
+    .deck .principle-label br { display: none; }
+    #stress ~ .deck .heading { font-size: 34px; }
+    .deck .stub-body { padding: 0 20px 22px; }
+    .deck .pass-main { padding: 0 20px 22px; }
+    .deck .tear, .deck .pass-tear { padding-inline: 20px; }
+    .footer { position: relative; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .bars span, .bars span.scored { animation: none; }
 }

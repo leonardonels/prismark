@@ -1,4 +1,4 @@
-fetch('data.json')
+const filled = fetch('data.json')
     .then((response) => response.json())
     .then((data) => {
         document.querySelectorAll('[data-fill]').forEach((element) => {
