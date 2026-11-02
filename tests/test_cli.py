@@ -265,6 +265,19 @@ class Cli(unittest.TestCase):
         self.assertEqual((part["verdict"], part["stop_reason"], part["first_error_cpu"]), ("failed", "error", 0))
         self.assertEqual(part["wrong_by_cpu"], {"0": 1})
 
+    def test_stress_each_core_measures_the_whole_part(self):
+        # The part's length counts measured windows, not the time each visit to a core takes to start and end: a
+        # 10-minute part has to measure 10 minutes to get its score.
+        out = os.path.join(self.home, "each.json")
+        p = subprocess.run([PRISMARK, "run", "--skip-preflight", "--mode", "stress", "--stress", "each-core",
+                            "--stress-time", "1m", "-o", out], env=self.env, stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, timeout=180)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        with open(out) as f:
+            (part,) = json.load(f)["analysis"]["stress"]
+        self.assertEqual(part["part"], "each_core")
+        self.assertEqual(part["duration_s"], 60)
+
     def test_stress_wrong_result_in_first_job_blames_no_other_cpu(self):
         # The first job's task results become the references later jobs are checked against. A wrong one there
         # must not turn into blame for the CPUs that later compute the task correctly.
