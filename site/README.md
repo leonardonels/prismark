@@ -145,6 +145,7 @@ Only three things move, all on the homepage. Each plays once, and with reduced m
   That's why the links land on empty `.anchor` elements: a `display: contents` row has no box to scroll to, and a stuck
   panel isn't where a link back to it expects it to be. A panel taller than its space pins by its bottom instead, using
   the `--h` that `motion.js` measures, so nothing gets covered before it can be read.
+  Tapping a closed ticket's strip scrolls back and reopens it; a closed ticket's own link doesn't fire.
 
 Safari's top bar stays yellow at the top of the phone wallet, despite the `theme-color` in `index.html`, probably because it takes its colour from the stuck Volt panel. Accepted for now.
 

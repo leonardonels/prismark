@@ -68,3 +68,30 @@ document.querySelectorAll('a[href="#download"]').forEach((link) => {
         });
     });
 });
+
+// On a phone, tapping a closed ticket's strip reopens that ticket.
+function restingScroll(ticket) {
+    const panels = [...document.querySelectorAll('.deck > .panel')].filter((panel) => panel.offsetHeight);
+    let top = document.getElementById('top').getBoundingClientRect().top + window.scrollY;
+
+    for (const panel of panels) {
+        if (panel === ticket) break;
+        top += panel.offsetHeight + parseFloat(getComputedStyle(document.querySelector('.ground')).rowGap);
+    }
+
+    return top - parseFloat(getComputedStyle(ticket).top);
+}
+
+document.addEventListener('click', (event) => {
+    const ticket = event.target.closest('.deck > .panel');
+    if (!ticket || getComputedStyle(ticket).position !== 'sticky') return;
+
+    const panels = [...document.querySelectorAll('.deck > .panel')].filter((panel) => panel.offsetHeight);
+    const next = panels[panels.indexOf(ticket) + 1];
+    const closed = next && next.getBoundingClientRect().top - ticket.getBoundingClientRect().top <= 40;
+    if (!closed) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    window.scrollTo({ top: restingScroll(ticket), behavior: 'smooth' });
+}, true);
