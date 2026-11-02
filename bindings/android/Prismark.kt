@@ -1,6 +1,7 @@
 /*
- * Kotlin entry point for the Android app (phase 4). Load the library from
- * the app's jniLibs (libprismark_jni.so and libprismark-kernels-*.so).
+ * Kotlin entry point for the Android app (apps/android). The library,
+ * libprismark_jni.so, holds the whole core and every kernel; the app
+ * packages it from its jniLibs (tools/build-android.sh).
  *
  * Measurement isolation (spec 7.1): call run() from a worker thread and show
  * a static screen with no animations or timers until it returns.
@@ -23,6 +24,9 @@ object Prismark {
     const val MC_INSTANCES = 1 shl 5
     const val ALL = COLD_BURST or PERIODIC or ST_BURST or ST_SUSTAINED or MC_THREADED or MC_INSTANCES
 
+    /** PMK_BUSY_LOAD (ABI 9): background load above this fraction of all CPUs marks a result as busy. */
+    const val BUSY_LOAD = 0.05
+
     fun interface Listener {
         /** kind: 0 phase, 1 info, 2 warning. tempC is NaN when unknown. Called between measurement windows. */
         fun onEvent(kind: Int, phase: String?, kernel: String?, message: String?, step: Int, steps: Int, tempC: Double)
@@ -30,16 +34,27 @@ object Prismark {
 
     val version: String get() = nativeVersion()
 
+    /** What this build can run on this device (capabilities, CPUs), as JSON. Not while a run is in progress. */
+    fun info(): String = nativeInfo()
+
     /** Blocking; returns the result document (JSON), also for a cancelled run. */
     fun run(modes: Int = ALL, kernels: String? = null, quick: Boolean = false, listener: Listener? = null): String =
         nativeRun(modes, kernels, quick, listener)
 
     fun cancel() = nativeCancel()
 
+    /**
+     * Reports a touch during a run. The modes that need an idle device (started from rest, timer punctuality)
+     * then skip themselves, as they do for keyboard and mouse input on a desktop. Safe from any thread.
+     */
+    fun notifyInput() = nativeNotifyInput()
+
     /** Compares two result documents; throws IllegalArgumentException with the reason if they are not comparable. */
     fun compare(a: String, b: String, profiles: String? = null): String = nativeCompare(a, b, profiles)
 
     @JvmStatic private external fun nativeVersion(): String
+    @JvmStatic private external fun nativeInfo(): String
+    @JvmStatic private external fun nativeNotifyInput()
     @JvmStatic private external fun nativeRun(modes: Int, kernels: String?, quick: Boolean, listener: Listener?): String
     @JvmStatic private external fun nativeCancel()
     @JvmStatic private external fun nativeCompare(a: String, b: String, profiles: String?): String

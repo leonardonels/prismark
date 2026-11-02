@@ -68,6 +68,36 @@ For development with any other compiler, use the `dev` preset instead
 official ones. Other presets: `windows-clang`, `macos-clang`, `android-arm64`
 (needs `ANDROID_NDK`), `ios-arm64` (static libraries for `bindings/swift`).
 
+## Android
+
+The Android app (`apps/android`, Kotlin and Jetpack Compose) runs the core in
+its own process through the JNI bridge (`bindings/android`). One script builds
+the library with the `android-arm64` preset, fetches the pinned fonts and builds
+the APK with Gradle:
+
+```sh
+export ANDROID_HOME=~/Android/Sdk                  # the SDK, with platform 35
+export ANDROID_NDK=$ANDROID_HOME/ndk/27.2.12479018 # the NDK CI uses
+tools/build-android.sh                             # build/android/prismark-<version>-android-arm64-debug.apk
+adb install build/android/prismark-*-android-arm64-debug.apk
+```
+
+It needs CMake 3.25 or later, Ninja and a JDK 17 or later. CI builds the same
+APK (job `android`, artifact `android-arm64-debug-apk`). A debug APK is signed
+with the key of the machine that built it: uninstall one from elsewhere before
+installing another. Phones run ARM64 only; Compiling code, Full software build
+and the stress test are not offered on them. The preset also builds the command
+line for Android (`build/android-arm64/prismark`), which runs from `adb shell`
+after `adb push` to `/data/local/tmp`.
+
+What Android does not let an app read is recorded as unknown (null in the
+result) and does not stop a run: the CPU temperature where SELinux hides the
+thermal zones, the clock where cpufreq is closed (0 MHz, as on Windows), the
+background load (`/proc/stat` is closed to apps since Android 8), pinning where
+the app's cpuset or the vendor refuses it, and the cycle counter.
+An unknown background load never marks a run as busy; where it can be read and
+is above 5 % (`PMK_BUSY_LOAD`), the run warns, continues and is marked busy.
+
 ## Install (adds Prismark to the applications menu)
 
 After building, install Prismark so the desktop app shows up among the other
