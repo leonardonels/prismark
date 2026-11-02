@@ -252,7 +252,9 @@ class Cli(unittest.TestCase):
 
     def test_stress_wrong_result_exits_4(self):
         out = os.path.join(self.home, "fault.json")
-        env = dict(self.env, PRISMARK_STRESS_FAULT="0:2")  # one wrong result on CPU 0 after 2 s
+        # One wrong result on CPU 0 after 15 s: well after the first job, whose results are the references (a fault
+        # in the first job has no known CPU, see the next test), even on a slow (sanitizer) build.
+        env = dict(self.env, PRISMARK_STRESS_FAULT="0:15")
         p = subprocess.run([PRISMARK, "run", "--skip-preflight", "--mode", "stress", "--stress", "all-cores",
                             "--stress-time", "1m", "-o", out], env=env, stdin=subprocess.DEVNULL, capture_output=True,
                            text=True, timeout=120)
