@@ -66,7 +66,7 @@ JNIEXPORT jstring JNICALL Java_org_prismark_Prismark_nativeRun(JNIEnv *env, jcla
                                                                jboolean quick, jobject listener_obj) {
   (void)cls;
   pmk_config cfg;
-  pmk_config_init(&cfg);
+  pmk_config_init(&cfg); /* library defaults, including max_background_load: a busy device warns, never stops */
   cfg.modes = (uint32_t)modes;
   cfg.frontend = "android";
   cfg.ui_state = "frozen";

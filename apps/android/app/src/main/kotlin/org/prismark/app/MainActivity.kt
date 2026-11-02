@@ -230,7 +230,8 @@ private fun PickScreen(onOpen: (Run) -> Unit) {
                             .padding(14.dp),
                     ) {
                         BasicText(run.started, style = Type.body(), modifier = Modifier.weight(1f))
-                        Label(listOfNotNull(if (run.quick) "quick" else "full", if (!run.complete) "partial" else null).joinToString(" · "))
+                        Label(listOfNotNull(if (run.quick) "quick" else "full", if (!run.complete) "partial" else null,
+                            if (run.busy) "busy" else null).joinToString(" · "))
                     }
                 }
             }
@@ -291,13 +292,19 @@ private fun ResultsScreen(run: Run, onBack: () -> Unit) {
 
     Column(Modifier.fillMaxSize()) {
         Column(Modifier.weight(1f).verticalScroll(rememberScrollState()).padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            Label(listOfNotNull("Your run", if (run.quick) "quick" else null, if (!run.complete) "partial" else null).joinToString(" · "))
+            Label(listOfNotNull("Your run", if (run.quick) "quick" else null, if (!run.complete) "partial" else null,
+                if (run.busy) "busy" else null).joinToString(" · "))
             BasicText("Results", style = Type.heading())
             BasicText(run.started, style = Type.mono())
             if (!run.complete)
                 BasicText("The tests finished so far are kept as a partial result.", style = Type.body(p.muted))
             if (run.quick)
                 BasicText("A quick run: short series, not for comparison.", style = Type.body(p.muted))
+            if (run.busy)
+                BasicText(
+                    "Other apps were working when this run started, so its results may be lower than this phone can do.",
+                    style = Type.body(p.muted),
+                )
             for (g in groups) {
                 val shown = tests.filter { it.group == g.id && values[it] != null }
                 if (shown.isEmpty()) continue

@@ -173,7 +173,7 @@ fun unknowns(d: JSONObject): List<Unknown> {
     if (cores.all { it.optInt("max_mhz") <= 0 } && clocks.none { it.isFinite() && it > 0 })
         out += Unknown("Clock speed", "The CPU's clock is not readable by apps on this phone.")
     if (pre != null && !pre.optBoolean("skipped") && !pre.num("background_load").isFinite())
-        out += Unknown("Background load", "Android does not let apps read /proc/stat, so the check that the phone is idle could not run.")
+        out += Unknown("Background load", "Android does not let apps read /proc/stat, so whether other apps were working could not be checked. The run is not marked busy.")
     val caps = machine?.optJSONObject("capabilities")
     if (caps != null && !caps.optBoolean("pinning"))
         out += Unknown("Core placement", "Threads cannot be pinned to a core here; Android chose the cores, and each series records where it ran.")

@@ -95,6 +95,8 @@ result) and does not stop a run: the CPU temperature where SELinux hides the
 thermal zones, the clock where cpufreq is closed (0 MHz, as on Windows), the
 background load (`/proc/stat` is closed to apps since Android 8), pinning where
 the app's cpuset or the vendor refuses it, and the cycle counter.
+An unknown background load never marks a run as busy; where it can be read and
+is above 5 % (`PMK_BUSY_LOAD`), the run warns, continues and is marked busy.
 
 ## Install (adds Prismark to the applications menu)
 

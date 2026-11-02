@@ -24,6 +24,9 @@ object Prismark {
     const val MC_INSTANCES = 1 shl 5
     const val ALL = COLD_BURST or PERIODIC or ST_BURST or ST_SUSTAINED or MC_THREADED or MC_INSTANCES
 
+    /** PMK_BUSY_LOAD (ABI 9): background load above this fraction of all CPUs marks a result as busy. */
+    const val BUSY_LOAD = 0.05
+
     fun interface Listener {
         /** kind: 0 phase, 1 info, 2 warning. tempC is NaN when unknown. Called between measurement windows. */
         fun onEvent(kind: Int, phase: String?, kernel: String?, message: String?, step: Int, steps: Int, tempC: Double)

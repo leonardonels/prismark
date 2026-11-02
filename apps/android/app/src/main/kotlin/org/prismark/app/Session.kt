@@ -22,6 +22,14 @@ class Run(val file: File, val json: String) {
     val started: String get() = doc.optString("started_utc").replace('T', ' ').removeSuffix("Z").let { if (it.isEmpty()) file.name else "$it UTC" }
     val quick: Boolean get() = doc.optJSONObject("config")?.optBoolean("quick") == true
     val complete: Boolean get() = doc.optBoolean("complete", false)
+
+    /**
+     * Measured while other programs were working (as pmk_describe's `busy`): the preflight saw more than
+     * PMK_BUSY_LOAD. An unknown load (NaN, null in the file: /proc/stat closed to apps) never counts as busy.
+     */
+    val busy: Boolean get() = doc.optJSONObject("preflight")?.let { pre ->
+        !pre.isNull("background_load") && pre.optDouble("background_load", Double.NaN).let { it.isFinite() && it > Prismark.BUSY_LOAD }
+    } == true
 }
 
 object Session {
