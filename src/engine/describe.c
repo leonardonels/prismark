@@ -72,6 +72,7 @@ int pmk_describe(const char *result_json, pmk_brief *brief, char **summary_text)
   const jv *quick = jv_path(root, "config.quick");
   brief->quick = quick ? jv_bool(quick, 0) : -1;
   brief->complete = jv_bool(jv_get(root, "complete"), 0);
+  brief->busy = jv_num(jv_path(root, "preflight.background_load"), 0) > PMK_BUSY_LOAD;
   const jv *res = jv_get(root, "results");
   for (size_t i = 0; res && res->t == JV_ARR && i < res->n; i++) {
     const char *mode = jv_str(jv_get(&res->items[i], "mode"), "");

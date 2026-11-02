@@ -1176,9 +1176,8 @@ static void help_main(FILE *f) {
           "\nMore run options (repetitions, warm-up, timings): prismark help advanced\n"
           "\nA full run takes about 30 minutes on a 4-core laptop. Ctrl+C stops it and keeps what was measured.\n"
           "Results go to %s%s.\n"
-          "\nExit status: 0 done, 1 failed, 2 wrong usage, 3 machine too busy to measure (another program is\n"
-          "working; nothing was measured), 4 the stress test found wrong results, 130 stopped with Ctrl+C (what was\n"
-          "measured is saved).\n",
+          "\nExit status: 0 done, 1 failed, 2 wrong usage, 3 background load above --max-load (nothing was measured),\n"
+          "4 the stress test found wrong results, 130 stopped with Ctrl+C (what was measured is saved).\n",
           o(BOLD), pmk_version(), o(RESET), o(BOLD), o(RESET), o(BOLD), o(RESET), o(BOLD), o(RESET), o(BOLD),
           o(RESET), o(BOLD), o(RESET), has_dir ? pretty_path(pd, sizeof pd, dir) : "the current folder",
           has_dir ? ",\nwhich the desktop app reads too (the current folder when run as root)" : "");
@@ -1201,7 +1200,7 @@ static void help_advanced(FILE *f) {
           "  --periodic-seconds X     duration of each timer punctuality condition (default 60)\n"
           "  --k1x-reps N             Full software build: builds per thread count (default 3)\n"
           "  --skip-preflight         skip the background-load check and temperature wait\n"
-          "  --max-load X             preflight background-load threshold, fraction (default 0.05)\n"
+          "  --max-load X             stop if background load is above this fraction (default: warn above 0.05, run anyway)\n"
           "\n%sused by the desktop app:%s\n"
           "  --frontend NAME          recorded front-end kind (default cli)\n"
           "  --progress-json          progress events as JSON lines on stderr\n"
@@ -1405,6 +1404,7 @@ static int cmd_show(int argc, char **argv) {
     else fprintf(stderr, "prismark: %s is not a Prismark result\n", path);
     return 1;
   }
+  if (b.busy) printf("%sMeasured on a busy machine: other programs were working, so results may be lower.%s\n\n", o(YELLOW), o(RESET));
   if (summary) print_summary(summary);
   else
     printf("%sPrismark run %s%s\n%s, started %s, %s run%s\n\nThis result was saved by an older Prismark, which did "
@@ -1546,6 +1546,12 @@ static int save_reference(const char *path, const char *name, int force, int *ex
   b.struct_size = sizeof b;
   if (pmk_describe(json, &b, NULL) != PMK_OK) {
     fprintf(stderr, "prismark: %s is not a measured Prismark result\n", path);
+    free(json);
+    return EXIT_FAILED;
+  }
+  if (b.busy) {
+    fprintf(stderr, "prismark: run %.8s was measured on a busy machine, so it cannot be a reference; close other "
+                    "programs and run it again\n", b.run_id);
     free(json);
     return EXIT_FAILED;
   }

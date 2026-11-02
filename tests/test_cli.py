@@ -279,6 +279,33 @@ class Cli(unittest.TestCase):
         self.assertIn(part["first_error_cpu"], (-1, 0))
         self.assertLessEqual(set(part["wrong_by_cpu"]), {"0"})
 
+    def test_busy_machine_warns_and_runs(self):
+        spinners = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(os.cpu_count())]
+        try:
+            out = os.path.join(self.home, "busy.json")
+            _, err = self.run_cli("run", "--quick", "--tests", "json", "--mode", "short-task", "-o", out, timeout=300)
+        finally:
+            for s in spinners:
+                s.kill()
+                s.wait()
+        self.assertIn("other programs are working", err)
+        with open(out) as f:
+            self.assertTrue(json.load(f)["complete"])
+
+    def test_busy_run_cannot_be_a_reference(self):
+        out = os.path.join(self.home, "run.json")
+        self.run_cli(*SHORT_RUN, "-o", out)
+        with open(out) as f:
+            doc = json.load(f)
+        doc["preflight"]["background_load"] = 0.5
+        with open(out, "w") as f:
+            json.dump(doc, f)
+        stdout, _ = self.run_cli("show", out)
+        self.assertIn("busy machine", stdout)
+        _, err = self.run_cli("references", "add", out, "busy-run", code=1)
+        self.assertIn("busy machine", err)
+        self.assertFalse(os.path.exists(os.path.join(self.refs_dir(), "busy-run.json")))
+
     def test_too_busy_exits_3(self):
         _, err = self.run_cli("run", "--quick", "--max-load", "0", "--tests", "json", "--mode", "short-task",
                               "-o", os.path.join(self.home, "busy.json"), code=3)
