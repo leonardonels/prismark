@@ -873,6 +873,7 @@ void MainWindow::refreshRanking() {
     if (&r == latest && allRuns_->isChecked()) row.tags << "latest";
     if (r.state["ac_online"] == QJsonValue(false)) row.tags << tr("on battery");
     if (!r.complete) row.tags << "partial";
+    if (r.busy) row.tags << tr("busy machine");
     row.value = r.metrics[m->id];
     if (row.value.unsettled) row.tags << "did not settle";
     if (row.value.ofThreads) row.tags << tr("%1 of %2 threads").arg(row.value.threads).arg(row.value.ofThreads);
@@ -1193,6 +1194,7 @@ void MainWindow::refreshDetails() {
   if (!r->date.isEmpty()) meta << pill(r->date, t.muted, t.track);
   if (r->quick) meta << pill(tr("quick run"), t.muted, t.track);
   if (!r->complete) meta << pill(tr("incomplete"), t.bad, t.track);
+  if (r->busy) meta << pill(tr("busy machine"), t.warnText, t.warnBg);
   if (!r->stress.isEmpty()) { /* the stress test's verdict, over its parts */
     QString v = "stable";
     for (const auto &x : r->stress)
@@ -1202,6 +1204,10 @@ void MainWindow::refreshDetails() {
                               : pill(tr("stress test stable"), t.good, t.track));
   }
   detailsLayout_->addWidget(pillRow(meta));
+  if (r->busy)
+    detailsLayout_->addWidget(text(tr("Other programs were working when this run started, so its results may be lower "
+                                      "than this computer can do."),
+                                   9, QFont::Normal, t.muted));
   if (r->placeholder)
     detailsLayout_->addWidget(text(tr("Made-up example values shown for comparison until real reference machines "
                                       "have been measured."),
@@ -2016,6 +2022,11 @@ static QString suggestReferenceName(QString model) {
 void MainWindow::saveAsReference() {
   const RunSummary *r = selectedRun();
   if (!r || r->reference) return;
+  if (r->busy) {
+    Stub::tell(this, Stub::System, tr("RES / REFERENCE"), tr("This run cannot be a reference"),
+               tr("Other programs were working when it started. Close them and run it again."));
+    return;
+  }
   QString file = r->file, model = r->machine["cpu"].toObject()["model"].toString(r->name);
   bool quick = r->quick;
   static const QRegularExpression valid(QStringLiteral("^[A-Za-z0-9_-][A-Za-z0-9._-]{0,79}$"));

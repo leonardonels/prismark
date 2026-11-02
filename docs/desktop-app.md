@@ -32,6 +32,9 @@ started from the applications menu like any other app.
   the computer as it is set up. Where the processor's power is readable only
   with administrator rights (Windows; Linux since 5.10), it offers to get them
   before a run, and runs without watts if you decline.
+- **Busy machine.** A run starts even if other programs are working. Above 5%
+  background load the result is marked "busy machine", and it cannot be saved
+  as a reference.
 - **Hands off.** Cold start and periodic measure waits and wake-ups. Keyboard
   or mouse input during them skips that test: its series are discarded, the
   result lists it as skipped, and the run continues. On GNOME the app watches

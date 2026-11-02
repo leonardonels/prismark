@@ -61,6 +61,7 @@ struct Metric {
 struct RunSummary {
   QString id, name, file, date; /* date: local "YYYY-MM-DD HH:MM", empty for references */
   bool reference = false, placeholder = false, complete = true, verified = false, quick = false;
+  bool busy = false; /* other programs were working when it started (PMK_BUSY_LOAD in prismark.h) */
   QJsonObject machine, tiers, harness, frontend, state;
   QJsonArray unavailable;
   QMap<QString, Value> metrics;

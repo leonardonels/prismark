@@ -17,14 +17,18 @@
 extern "C" {
 #endif
 
-#define PMK_ABI_VERSION 8
+#define PMK_ABI_VERSION 9
+
+/* ABI 9. Background load above this fraction of all CPUs marks a result as measured on a busy machine: it warns,
+   and the result cannot become a reference system. */
+#define PMK_BUSY_LOAD 0.05
 
 /* Return codes. */
 enum {
   PMK_OK = 0,
   PMK_ERR_INVALID = -1,   /* bad configuration */
   PMK_ERR_CANCELLED = -2, /* pmk_cancel() was called; a partial result is still returned */
-  PMK_ERR_BUSY = -3,      /* preflight found too much background load */
+  PMK_ERR_BUSY = -3,      /* preflight found more background load than max_background_load allows */
   PMK_ERR_SYSTEM = -4,    /* platform layer failure */
   PMK_ERR_NOMEM = -5,
   PMK_ERR_RUNNING = -6    /* a run is already in progress in this process */
@@ -64,7 +68,8 @@ typedef struct pmk_config {
   double periodic_period_ms; /* K10 period */
   double periodic_seconds;   /* duration of each periodic condition */
   int32_t skip_preflight;    /* skip background-load check and temperature wait */
-  double max_background_load;/* preflight abort threshold, fraction of all CPUs */
+  double max_background_load;/* stop the run above this fraction of all CPUs; negative (default since ABI 9): never
+                                stop, warn above PMK_BUSY_LOAD */
   const char *frontend;      /* "cli", "gui", ... recorded with the result */
   const char *ui_state;      /* e.g. "none", "frozen" */
   int32_t cold_max_reps;     /* maximum repetitions per cold-burst series (default 300; each waits 50-500 ms) */
@@ -191,6 +196,8 @@ typedef struct pmk_brief {
   int32_t quick;          /* 1 quick run, 0 full run, -1 not recorded */
   int32_t complete;       /* 0 if cancelled or failed part-way */
   uint32_t modes;         /* PMK_MODE_* bits of the modes with results */
+  /* ABI 9 */
+  int32_t busy;           /* 1 if preflight measured more than PMK_BUSY_LOAD */
 } pmk_brief;
 
 /*
