@@ -178,6 +178,7 @@ build/macos-clang/prismark compare intel-i9-14900k apple-m2-macos
   machines don't report their power source.
 - **Power modes** appear as recorded, for example the Italian "Bilanciato".
 - **Download links** go to the Releases page, not straight to each file.
+- **Android** has no compile tests or stress test. The main README says so, the homepage doesn't yet.
 
 ## Still to do
 
