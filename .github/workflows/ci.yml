@@ -402,6 +402,53 @@ jobs:
       - name: Compare checksums across ISAs
         run: python3 tools/ci/compare_checksums.py checksums-x86_64.json checksums-aarch64.json
 
+  # Android ARM64 (tools/build-android.sh): the core, the kernels and the JNI bridge with the android-arm64 preset
+  # (NDK Clang), then the app (apps/android) as a debug APK, installable without a signing key. Built only: no
+  # phone runs it here, and an emulator's numbers would mean nothing.
+  android:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      NDK_VERSION: "27.2.12479018"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - uses: gradle/actions/setup-gradle@v4
+
+      - name: Install the NDK, the SDK platform and Ninja
+        run: |
+          sudo apt-get install -y ninja-build
+          yes | "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" --install "ndk;$NDK_VERSION" "platforms;android-35" \
+            "build-tools;35.0.0" > /dev/null
+          echo "ANDROID_NDK=$ANDROID_HOME/ndk/$NDK_VERSION" >> "$GITHUB_ENV"
+
+      - name: Build the libraries and the APK
+        run: tools/build-android.sh debug
+
+      - name: Check the APK
+        run: |
+          apk=$(ls build/android/prismark-*-android-arm64-debug.apk)
+          unzip -l "$apk" | grep -E 'lib/arm64-v8a/libprismark_jni.so|assets/fonts/'
+          # 16 KB pages (Android 15 and later): every LOAD segment aligned to at least 16 KB, and the library
+          # stored uncompressed at a 16 KB boundary in the APK.
+          for a in $(readelf -lW build/android-arm64/libprismark_jni.so | awk '$1 == "LOAD" { print $NF }'); do
+            echo "LOAD align $a"; [ $((a)) -ge 16384 ]
+          done
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
+          file build/android-arm64/prismark
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: android-arm64-debug-apk
+          path: build/android/*.apk
+
   python:
     runs-on: ubuntu-24.04
     steps:

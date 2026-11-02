@@ -77,6 +77,26 @@ static void find_cpu_temp(void) {
       }
     }
   }
+#ifdef __ANDROID__
+  /*
+   * Phones name their CPU zones after the cluster or the sensor: "cpu-1-0-usr", "cpuss-0", "cpu0-silver-usr"
+   * (Qualcomm), "mtktscpu" (MediaTek), "soc_thermal". The first one this app may read and that reports a
+   * plausible value is used. SELinux keeps most of /sys/class/thermal from apps on recent Android, so this
+   * usually finds nothing, and the temperature stays unknown (NaN, null in the result).
+   */
+  static const char *prefixes[] = {"cpu", "mtktscpu", "soc_thermal", "soc"};
+  for (size_t k = 0; k < sizeof prefixes / sizeof *prefixes; k++) {
+    for (int z = 0; z < 128; z++) {
+      snprintf(p, sizeof p, "/sys/class/thermal/thermal_zone%d/type", z);
+      if (sysfs_read(p, name, sizeof name) || strncmp(name, prefixes[k], strlen(prefixes[k]))) continue;
+      snprintf(p, sizeof p, "/sys/class/thermal/thermal_zone%d/temp", z);
+      long long v = sysfs_read_ll(p, LLONG_MIN);
+      if (v < 1000 || v > 150000) continue; /* unreadable, or not in millidegrees */
+      snprintf(g_cpu_temp_path, sizeof g_cpu_temp_path, "%s", p);
+      return;
+    }
+  }
+#endif
 }
 
 /* ---------- power telemetry ---------- */
@@ -373,6 +393,19 @@ int pal_init(pmk_machine *m) {
 
   cpu_set_t set;
   m->caps.pinning = sched_getaffinity(0, sizeof set, &set) == 0;
+#ifdef __ANDROID__
+  /*
+   * An app's threads may only run on the CPUs of its cpuset, which Android changes with the app's state (all
+   * CPUs in the foreground, the small cores in the background), and some vendors refuse affinity outright.
+   * Pinning counts as available only if every online CPU accepts this thread now; otherwise the run places
+   * nothing and records where each series actually ran.
+   */
+  if (m->caps.pinning) {
+    for (int i = 0; m->caps.pinning && i < m->ncpu; i++)
+      if (pal_pin_self(m->cpus[i].id)) m->caps.pinning = 0;
+    if (sched_setaffinity(0, sizeof set, &set)) pal_unpin_self(); /* as it was */
+  }
+#endif
   int fd = pal_cycles_open();
   m->caps.perf_counters = fd >= 0;
   pal_cycles_close(fd);

@@ -11,7 +11,7 @@ Where the project stands and how the source is laid out.
 | 1 | Linux core, all six modes, 3D rendering, Compression, Wake-up test, Timer punctuality | implemented; gate 1 needs repeat runs on an x86-64 and an ARM64 machine |
 | 2 | Compiling code, Full software build, Opening a photo, Reading JSON, Starting a script, Memory delay, statistics in the core, analyzer | implemented; Compiling code and Full software build untested (need the Clang 19 development libraries and a snapshot) |
 | 3 | Windows PAL, CLI | portable package cross-built with llvm-mingw (`tools/package-windows.sh`), compile tests included; run under Wine (both compile tests, the app, the commands), not yet on Windows itself |
-| 4 | Android (JNI bridge), GUI | JNI bridge and Kotlin wrapper written, untested; desktop app (Qt) working on Linux |
+| 4 | Android app, GUI | Android: core, JNI bridge and a Compose app (`apps/android`) built as a debug APK in CI; not yet run on a phone. Desktop app (Qt) working on Linux |
 | 5 | macOS / iOS PAL, Swift wrapper | macOS built and run on Apple M2, disk-image package (`tools/package-macos.sh`) with the compile tests; iOS and the Swift wrapper not yet compiled |
 | 6 | Stress test (one core, all cores, each core in turn, memory test) with checks and verdict; Vector maths benchmark; ISA uplift and Matrix maths removed | implemented; run on Linux x86-64 (AVX2; AVX-512 not yet run) |
 
@@ -28,6 +28,7 @@ src/result/                   JSON writer and reader
 pal/                          platform layers: linux, darwin, windows, posix
 kernels/                      one directory per kernel; compiled once, for the baseline ISA level
 apps/cli, apps/gui            command-line runner, desktop app
+apps/android                  Android app (Kotlin, Jetpack Compose; tools/build-android.sh)
 apps/viewer                   static web viewer
 bindings/android, bindings/swift   JNI bridge and Kotlin wrapper; Swift package
 tools/k1x, tools/ci           compile-test snapshot preparation, checksum gate
