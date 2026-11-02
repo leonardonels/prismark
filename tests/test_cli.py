@@ -263,6 +263,22 @@ class Cli(unittest.TestCase):
         self.assertEqual((part["verdict"], part["stop_reason"], part["first_error_cpu"]), ("failed", "error", 0))
         self.assertEqual(part["wrong_by_cpu"], {"0": 1})
 
+    def test_stress_wrong_result_in_first_job_blames_no_other_cpu(self):
+        # The first job's task results become the references later jobs are checked against. A wrong one there
+        # must not turn into blame for the CPUs that later compute the task correctly.
+        out = os.path.join(self.home, "fault-first.json")
+        env = dict(self.env, PRISMARK_STRESS_FAULT="0:0.001")
+        p = subprocess.run([PRISMARK, "run", "--skip-preflight", "--mode", "stress", "--stress", "all-cores",
+                            "--stress-time", "1m", "-o", out], env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                           text=True, timeout=120)
+        self.assertEqual(p.returncode, 4, p.stderr)
+        with open(out) as f:
+            (part,) = json.load(f)["analysis"]["stress"]
+        self.assertEqual((part["verdict"], part["stop_reason"]), ("failed", "error"))
+        self.assertGreaterEqual(part["checksum_errors"], 1)
+        self.assertIn(part["first_error_cpu"], (-1, 0))
+        self.assertLessEqual(set(part["wrong_by_cpu"]), {"0"})
+
     def test_too_busy_exits_3(self):
         _, err = self.run_cli("run", "--quick", "--max-load", "0", "--tests", "json", "--mode", "short-task",
                               "-o", os.path.join(self.home, "busy.json"), code=3)
