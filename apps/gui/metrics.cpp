@@ -352,6 +352,7 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
   if (t.isValid()) s.date = t.toLocalTime().toString("yyyy-MM-dd HH:mm");
   s.complete = doc["complete"].toBool();
   s.verified = doc["verified"].toBool();
+  s.busy = doc["preflight"].toObject()["background_load"].toDouble(0) > 0.05;
   QJsonObject cfg = doc["config"].toObject();
   s.quick = cfg.contains("quick") ? cfg["quick"].toBool() : cfg["sustained_max_s"].toDouble(600) < 30; /* older */
   s.tiers = doc["tiers"].toObject();

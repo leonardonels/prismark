@@ -39,8 +39,7 @@ run after the current measurement and saves what was measured; a second
 Ctrl+C quits at once.
 
 The exit status says how a run ended: 0 done, 1 failed, 2 wrong usage, 3
-the machine was too busy to measure (another program was working; nothing was
-measured), 4 the stress test found wrong results, 130 stopped with Ctrl+C (what was measured is saved).
+background load was above `--max-load` (nothing was measured), 4 the stress test found wrong results, 130 stopped with Ctrl+C (what was measured is saved).
 
 A stress test run with `--stress-time until-stopped` ends with Ctrl+C: that is
 its normal end, so the run is saved as complete and the command exits 0.
@@ -92,6 +91,10 @@ shows it in its rankings. `--detail` compares every
 measured series instead, and needs two measured results. It refuses runs
 measured under different capabilities, and reports a
 profile only when every kernel it names exists in both runs.
+
+A run first measures background load for 5 seconds. Above 5% of all CPUs it warns
+and runs anyway: `prismark show` marks the result as measured on a busy machine, and
+it cannot become a reference. To stop instead, set a limit with `--max-load`.
 
 ## Machine state and power
 

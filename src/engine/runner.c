@@ -73,7 +73,7 @@ void pmk_config_init(pmk_config *cfg) {
   cfg->cold_max_reps = 300;
   cfg->periodic_period_ms = 1.0;
   cfg->periodic_seconds = 60.0;
-  cfg->max_background_load = 0.05;
+  cfg->max_background_load = -1;
   cfg->frontend = "cli";
   cfg->ui_state = "none";
   cfg->window_ms = 1000;
@@ -741,12 +741,16 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
     ctx_emit(c, PMK_EV_PHASE, "preflight", NULL, 1, 2, "measuring background load for 5 s");
     double load = pal_background_load(5.0);
     jw_num(&w, "background_load", load);
-    jw_num(&w, "max_background_load", c->cfg.max_background_load);
-    if (isfinite(load) && load > c->cfg.max_background_load) {
+    if (c->cfg.max_background_load >= 0) jw_num(&w, "max_background_load", c->cfg.max_background_load);
+    if (isfinite(load) && c->cfg.max_background_load >= 0 && load > c->cfg.max_background_load) {
       ctx_emit(c, PMK_EV_WARNING, "preflight", NULL, 0, 0, "background load %.1f%% is above %.1f%%", load * 100,
                c->cfg.max_background_load * 100);
       rc = PMK_ERR_BUSY;
     } else {
+      if (isfinite(load) && load > PMK_BUSY_LOAD)
+        ctx_emit(c, PMK_EV_WARNING, "preflight", NULL, 0, 0,
+                 "background load %.1f%% is above %.1f%%: other programs are working, so results may come out lower",
+                 load * 100, PMK_BUSY_LOAD * 100);
       temp_wait tw = wait_temperature(c, "preflight", NAN, 60);
       idle_temp = tw.temp_c;
       jw_num(&w, "temp_wait_s", tw.seconds);
