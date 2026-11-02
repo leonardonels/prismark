@@ -91,7 +91,7 @@ std::function<std::optional<Value>(const QJsonObject &)> k7(bool all) {
     if (all) r = largestN(at);
     else
       for (const auto &x : at)
-        if (x["n"].toInt() == 1) r = x;
+        if (x["n"].toInt() == 1) { r = x; break; } /* the first, as prismark compare and the website read it */
     return r.isEmpty() ? std::nullopt : ci(r["median"]);
   };
 }
