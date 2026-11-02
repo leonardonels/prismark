@@ -22,14 +22,15 @@ typedef struct loader {
   atomic_int *stop;
 } loader;
 
-static volatile uint64_t g_sink;
+/* Written by several threads at once (after their timed loops), so atomic: a plain store would be a data race. */
+static _Atomic uint64_t g_sink;
 
 static void *loader_main(void *arg) {
   loader *l = arg;
   pal_pin_self(l->cpu);
   uint64_t p = l->start;
   while (!atomic_load_explicit(l->stop, memory_order_relaxed)) p = l->c->k->k7_chase(l->nodes, p, 1u << 14);
-  g_sink = p;
+  atomic_store_explicit(&g_sink, p, memory_order_relaxed);
   return NULL;
 }
 
