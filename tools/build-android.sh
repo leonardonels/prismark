@@ -47,8 +47,8 @@ fetch $gf/ibmplexmono/IBMPlexMono-Regular.ttf IBMPlexMono-Regular.ttf 6a3412f058
 fetch $gf/ibmplexmono/IBMPlexMono-Medium.ttf IBMPlexMono-Medium.ttf a9b4c49bb299e05b5f6c481e7fb5e78943d2793249a0c8874ab574a2d1ea6755
 fetch $gf/ibmplexmono/IBMPlexMono-SemiBold.ttf IBMPlexMono-SemiBold.ttf d3c38e55c78f5b0f28009fddba4834ec503278936a5986032424c9bd2d23aa46
 
-# 3. The APK. A release build is unsigned (sign it with apksigner); a debug build is signed with the local
-#    debug key, so one built elsewhere must be uninstalled before another installs over it.
+# 3. The APK. A release build is signed when PRISMARK_ANDROID_KEYSTORE is set (docs/packaging.md), else unsigned;
+#    a debug build is signed with the local debug key, so one built elsewhere must be uninstalled before another installs over it.
 task=assemble${type^}
 (cd apps/android && ./gradlew --no-daemon "$task")
 version=$(sed -n 's/^project(prismark VERSION \([0-9.]*\).*/\1/p' CMakeLists.txt)

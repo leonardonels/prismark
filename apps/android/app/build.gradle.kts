@@ -21,9 +21,21 @@ android {
         ndk { abiFilters += "arm64-v8a" }
     }
 
+    // The release key comes from the environment (docs/packaging.md); without it a release build is unsigned.
+    signingConfigs {
+        System.getenv("PRISMARK_ANDROID_KEYSTORE")?.let { path ->
+            create("release") {
+                storeFile = file(path)
+                storePassword = System.getenv("PRISMARK_ANDROID_KEYSTORE_PASSWORD")
+                keyAlias = System.getenv("PRISMARK_ANDROID_KEY_ALIAS")
+                keyPassword = System.getenv("PRISMARK_ANDROID_KEY_PASSWORD")
+            }
+        }
+    }
     buildTypes {
         release {
             isMinifyEnabled = false
+            signingConfig = signingConfigs.findByName("release")
         }
     }
     compileOptions {

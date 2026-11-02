@@ -22,8 +22,9 @@ Get the latest release from the [Releases page](https://github.com/leonardonels/
 | Windows 10 or later, x86-64 | `prismark-…-windows-x86_64.zip` | Unzip anywhere and start `prismark-gui.exe`. |
 | Ubuntu 22.04+, Debian 12+ | `prismark_…_amd64.deb` · `_arm64.deb` | `sudo apt install ./prismark_…_amd64.deb` |
 | Fedora | `prismark-…-1.x86_64.rpm` · `.aarch64.rpm` | `sudo dnf install ./prismark-…-1.x86_64.rpm` |
+| Android 9 or later, ARM64 | `prismark-…-android-arm64-release.apk` | Open it on the phone and allow the install. No compile tests or stress test. |
 
-Every package holds the desktop app, the command line and everything the tests need. Nothing else to install.
+Every desktop package holds the app, the command line and everything the tests need. Nothing else to install.
 
 ## What it measures
 

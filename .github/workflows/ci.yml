@@ -447,7 +447,31 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: android-arm64-debug-apk
-          path: build/android/*.apk
+          path: build/android/*-debug.apk
+
+      # A tag: the APK that goes to the release, signed with the project's key (docs/packaging.md).
+      - name: Build the signed release APK
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          PRISMARK_ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          PRISMARK_ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+          PRISMARK_ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+        run: |
+          [ -n "$KEYSTORE_BASE64" ] || { echo "the ANDROID_KEYSTORE_BASE64 secret is not set"; exit 1; }
+          export PRISMARK_ANDROID_KEYSTORE=$RUNNER_TEMP/release.keystore
+          base64 -d <<< "$KEYSTORE_BASE64" > "$PRISMARK_ANDROID_KEYSTORE"
+          tools/build-android.sh release
+          rm -f "$PRISMARK_ANDROID_KEYSTORE"
+          apk=$(ls build/android/prismark-*-android-arm64-release.apk)
+          "$ANDROID_HOME/build-tools/35.0.0/apksigner" verify --print-certs "$apk"
+          "$ANDROID_HOME/build-tools/35.0.0/zipalign" -c -P 16 4 "$apk"
+
+      - uses: actions/upload-artifact@v4
+        if: startsWith(github.ref, 'refs/tags/v')
+        with:
+          name: prismark-android-arm64
+          path: build/android/*-release.apk
 
   python:
     runs-on: ubuntu-24.04
@@ -462,7 +486,7 @@ jobs:
   # A pushed v* tag: every package goes to its GitHub release (a draft is made when there is none yet).
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux-packages, linux-install-check, windows-portable, macos-package]
+    needs: [linux-packages, linux-install-check, windows-portable, macos-package, android]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

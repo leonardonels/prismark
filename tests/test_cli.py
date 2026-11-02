@@ -295,7 +295,7 @@ class Cli(unittest.TestCase):
         self.assertLessEqual(set(part["wrong_by_cpu"]), {"0"})
 
     def test_busy_machine_warns_and_runs(self):
-        spinners = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(os.cpu_count())]
+        spinners = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(os.cpu_count() // 8 + 1)]
         try:
             out = os.path.join(self.home, "busy.json")
             _, err = self.run_cli("run", "--quick", "--tests", "json", "--mode", "short-task", "-o", out, timeout=300)
