@@ -41,6 +41,7 @@ analyzer/                     Python research tools
 ```sh
 cd analyzer
 uv run prismark-analyze plot ../prismark-<id>.json      # responsiveness, scaling, latency, perf(t), jitter
-uv run prismark-analyze check ../prismark-<id>.json     # recompute the core's medians from raw samples
+uv run prismark-analyze check ../prismark-<id>.json     # recompute the core's statistics from raw samples
+uv run python -m unittest discover tests                 # the analyzer's own tests (check against references/)
 uv run prismark-analyze table run1.json run2.json       # CSV of medians across runs
 ```
