@@ -149,14 +149,17 @@ static int each_core(pmk_ctx *c, const pmk_tk *tk, void *inst, const int *order,
   }
   uint64_t t0 = pal_now_ns();
   double total = part_seconds(c);
+  /* The part's length is its measured windows, as the score counts them: each visit also spends time starting and
+     ending (up to a task's length), so counting the clock instead left the part a window short of a score. */
+  double measured = 0;
   for (int visit = 0; rc == PMK_OK && n > 0 && !c->stopped; visit++) {
-    double done = (double)(pal_now_ns() - t0) * 1e-9;
-    if (done >= total - 1) break;
+    double done = (double)(pal_now_ns() - t0) * 1e-9; /* since the part began, for the time of a first error */
+    if (measured >= total - 1) break;
     int k = visit % n;
     pmk_result v = {0};
     v.kernel = tk->id, v.mode = "stress", v.unit = tk->unit, v.k = c->k, v.part = "each_core";
     sus_spec s = {.tk = tk, .inst = inst, .nthreads = 1, .cpus = &cores[k],
-                  .measure_s = CYCLE_S < total - done ? CYCLE_S : total - done, .window_ms = PMK_STRESS_WINDOW_MS,
+                  .measure_s = CYCLE_S < total - measured ? CYCLE_S : total - measured, .window_ms = PMK_STRESS_WINDOW_MS,
                   .open_ended = open_ended, .check_tasks = 1, .stop_on_error = c->cfg.stress_stop_on_error,
                   .max_temp_c = c->cfg.stress_max_temp_c};
     if (visit % n == 0)
@@ -164,7 +167,10 @@ static int each_core(pmk_ctx *c, const pmk_tk *tk, void *inst, const int *order,
     rc = wl_sustained(c, &s, &v);
     if (rc == PMK_OK && v.n) rc = merge_visit(&c->res[idx[k]], &v, done);
     if (v.stopped) c->stopped = 1;
+    measured += (double)v.n * PMK_STRESS_WINDOW_MS / 1e3;
+    int none = !v.n;
     result_free(&v);
+    if (rc == PMK_OK && none) break; /* a visit that measured nothing would never end the part */
   }
   free(cores);
   free(idx);

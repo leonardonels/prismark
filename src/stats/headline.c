@@ -45,6 +45,7 @@ static const struct metric {
     {"c_k6", "Responsiveness", "Starting a small script from rest", "ms", 0, MEDIAN, "K6", "cold_burst", "cold", 1e-6},
     {"s_st", "Stress test", "One core under stress (10th minute)", "GFLOP/s", 1, STRESS, "K12", NULL, "one_core", 0},
     {"s_mc", "Stress test", "All cores under stress (10th minute)", "GFLOP/s", 1, STRESS, "K12", NULL, "all_cores", 0},
+    {"s_cc", "Stress test", "Each core in turn (the slowest core)", "GFLOP/s", 1, STRESS, "K12", NULL, "each_core", 0},
     {"s_mem", "Stress test", "Memory under stress (10th minute)", "GB/s", 1, STRESS, "K11", NULL, "memory", 0},
 };
 #define NMETRICS (sizeof METRICS / sizeof *METRICS)

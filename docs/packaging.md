@@ -33,8 +33,8 @@ an `.rpm` for Fedora, for x86-64 and ARM64. Install with the system's own tool,
 which also brings in the few libraries every desktop has:
 
 ```sh
-sudo apt install ./prismark_0.4.2_amd64.deb        # Ubuntu 22.04 or later, Debian 12 or later
-sudo dnf install ./prismark-0.4.2-1.x86_64.rpm     # Fedora
+sudo apt install ./prismark_0.4.3_amd64.deb        # Ubuntu 22.04 or later, Debian 12 or later
+sudo dnf install ./prismark-0.4.3-1.x86_64.rpm     # Fedora
 ```
 
 Prismark then appears in the desktop's menu; `prismark` and `prismark-gui`
@@ -97,3 +97,10 @@ the `.rpm` with dnf on the newest Fedora and the `.deb` with apt on Ubuntu
 measure and the app must start. When a
 `v*` tag is pushed, every package is attached to its GitHub release. To
 repackage an earlier release, run the workflow by hand with that tag as `ref`.
+
+The Android APK of a release is signed with the project's key, kept in four
+GitHub secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
+`ANDROID_KEY_ALIAS` and `ANDROID_KEY_PASSWORD`. Without them a tagged build
+fails. Keep a copy of the keystore outside GitHub: Android installs an update
+only if it is signed with the same key, so a lost key means users must
+uninstall the app to get a new version.

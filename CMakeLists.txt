@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(prismark VERSION 0.4.2 LANGUAGES C)
+project(prismark VERSION 0.4.3 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -206,5 +206,7 @@ if(BUILD_TESTING)
     add_test(NAME cli COMMAND Python3::Interpreter ${PROJECT_SOURCE_DIR}/tests/test_cli.py
              $<TARGET_FILE:prismark_cli> ${PROJECT_SOURCE_DIR})
     set_tests_properties(cli PROPERTIES TIMEOUT 300)
+    # The app, prismark compare and the website list the same tests, with the same unit and direction.
+    add_test(NAME catalogue COMMAND Python3::Interpreter ${PROJECT_SOURCE_DIR}/tests/test_catalogue.py ${PROJECT_SOURCE_DIR})
   endif()
 endif()

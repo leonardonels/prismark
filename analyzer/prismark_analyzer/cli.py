@@ -7,6 +7,7 @@ from pathlib import Path
 
 import numpy as np
 
+from .check import check
 from .load import load
 from .stats import boot_median, boot_ratio, tail
 
@@ -38,22 +39,15 @@ def cmd_plot(args) -> int:
 
 
 def cmd_check(args) -> int:
-    """Recomputes the core's medians from raw samples; differences beyond 1e-9 relative are reported."""
-    run = load(args.file)
+    """Recomputes the core's statistics from the raw samples; differences beyond the JSON's precision are reported."""
     bad = 0
-    for row in run.analysis.get("series", []):
-        if "median" not in row:
-            continue
-        match = [s for s in run.series if s.kernel == row["kernel"] and s.mode == row["mode"]
-                 and s.n == row["n"] and s.tier == row["tier"] and s.core.get("requested") == row["core_type"]
-                 and s.params.get("working_set_bytes") == row.get("working_set_bytes")
-                 and s.params.get("start") == row.get("start")]
-        for s in match[:1]:
-            m = float(np.median(s.samples))
-            if abs(m - row["median"]["est"]) > 1e-9 * abs(m):
-                print(f"mismatch {s.label}: core {row['median']['est']} analyzer {m}")
-                bad += 1
-    print("medians agree with the core" if not bad else f"{bad} mismatches")
+    for path in args.files:
+        c = check(load(path))
+        for p in c.problems:
+            print(f"{path}: {p}")
+        print(f"{path}: {c.checked} values agree with the core" if not c.problems
+              else f"{path}: {len(c.problems)} of {c.checked} values differ")
+        bad += len(c.problems)
     return 1 if bad else 0
 
 
@@ -97,8 +91,8 @@ def main(argv=None) -> int:
     p.add_argument("file")
     p.add_argument("-o", "--out", help="output directory (default: next to the file)")
     p.set_defaults(fn=cmd_plot)
-    p = sub.add_parser("check", help="cross-check the core's medians against the raw samples")
-    p.add_argument("file")
+    p = sub.add_parser("check", help="cross-check the core's statistics against the raw samples")
+    p.add_argument("files", nargs="+")
     p.set_defaults(fn=cmd_check)
     p = sub.add_parser("table", help="CSV of medians, one column per run")
     p.add_argument("files", nargs="+")

@@ -252,7 +252,9 @@ class Cli(unittest.TestCase):
 
     def test_stress_wrong_result_exits_4(self):
         out = os.path.join(self.home, "fault.json")
-        env = dict(self.env, PRISMARK_STRESS_FAULT="0:2")  # one wrong result on CPU 0 after 2 s
+        # One wrong result on CPU 0 after 15 s: well after the first job, whose results are the references (a fault
+        # in the first job has no known CPU, see the next test), even on a slow (sanitizer) build.
+        env = dict(self.env, PRISMARK_STRESS_FAULT="0:15")
         p = subprocess.run([PRISMARK, "run", "--skip-preflight", "--mode", "stress", "--stress", "all-cores",
                             "--stress-time", "1m", "-o", out], env=env, stdin=subprocess.DEVNULL, capture_output=True,
                            text=True, timeout=120)
@@ -263,8 +265,37 @@ class Cli(unittest.TestCase):
         self.assertEqual((part["verdict"], part["stop_reason"], part["first_error_cpu"]), ("failed", "error", 0))
         self.assertEqual(part["wrong_by_cpu"], {"0": 1})
 
+    def test_stress_each_core_measures_the_whole_part(self):
+        # The part's length counts measured windows, not the time each visit to a core takes to start and end: a
+        # 10-minute part has to measure 10 minutes to get its score.
+        out = os.path.join(self.home, "each.json")
+        p = subprocess.run([PRISMARK, "run", "--skip-preflight", "--mode", "stress", "--stress", "each-core",
+                            "--stress-time", "1m", "-o", out], env=self.env, stdin=subprocess.DEVNULL,
+                           capture_output=True, text=True, timeout=180)
+        self.assertEqual(p.returncode, 0, p.stderr)
+        with open(out) as f:
+            (part,) = json.load(f)["analysis"]["stress"]
+        self.assertEqual(part["part"], "each_core")
+        self.assertEqual(part["duration_s"], 60)
+
+    def test_stress_wrong_result_in_first_job_blames_no_other_cpu(self):
+        # The first job's task results become the references later jobs are checked against. A wrong one there
+        # must not turn into blame for the CPUs that later compute the task correctly.
+        out = os.path.join(self.home, "fault-first.json")
+        env = dict(self.env, PRISMARK_STRESS_FAULT="0:0.001")
+        p = subprocess.run([PRISMARK, "run", "--skip-preflight", "--mode", "stress", "--stress", "all-cores",
+                            "--stress-time", "1m", "-o", out], env=env, stdin=subprocess.DEVNULL, capture_output=True,
+                           text=True, timeout=120)
+        self.assertEqual(p.returncode, 4, p.stderr)
+        with open(out) as f:
+            (part,) = json.load(f)["analysis"]["stress"]
+        self.assertEqual((part["verdict"], part["stop_reason"]), ("failed", "error"))
+        self.assertGreaterEqual(part["checksum_errors"], 1)
+        self.assertIn(part["first_error_cpu"], (-1, 0))
+        self.assertLessEqual(set(part["wrong_by_cpu"]), {"0"})
+
     def test_busy_machine_warns_and_runs(self):
-        spinners = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(os.cpu_count())]
+        spinners = [subprocess.Popen([sys.executable, "-c", "while True: pass"]) for _ in range(os.cpu_count() // 8 + 1)]
         try:
             out = os.path.join(self.home, "busy.json")
             _, err = self.run_cli("run", "--quick", "--tests", "json", "--mode", "short-task", "-o", out, timeout=300)

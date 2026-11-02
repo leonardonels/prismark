@@ -78,6 +78,9 @@ typedef struct shared {
      wrong one is known. A task index is never run twice at once (a job starts when the last one is done). */
   uint64_t *ref;
   unsigned char *ref_set;
+  /* The references come from the first job that runs each task. They are trusted once that job's checksum matched
+     the known-good one; a job known to be wrong cannot provide them (worker 0 only, between jobs). */
+  int refs_trusted;
   _Atomic uint64_t wrong_tasks;
   _Atomic uint64_t *wrong_by_cpu; /* by CPU id, ncpu_ids entries */
   int ncpu_ids;
@@ -130,6 +133,13 @@ static void record_job(shared *sh, uint64_t ns, uint64_t sum) {
     sh->checksum_bad++;
     note_wrong(sh, -1);
   }
+  /* Per-task references taken from a wrong job would hold the wrong value, and every CPU that later computes the
+     task correctly would be blamed for it. Such a job's error is counted above (CPU unknown); the references are
+     taken again from the next job. Without a known-good checksum the first job has to be trusted. */
+  if (sh->ref_set && !sh->refs_trusted) {
+    if (!sh->expected || sum == sh->expected) sh->refs_trusted = 1;
+    else memset(sh->ref_set, 0, sh->ntasks);
+  }
   if (dvec_push(&sh->job_ns, (double)ns)) atomic_store(&sh->failed, 1);
   atomic_fetch_add(&sh->njobs, 1);
 }
@@ -144,10 +154,10 @@ static void work_tasks(shared *sh, int w, const void *inst, void *scratch) {
     if (!ctx_cancelled() && !atomic_load_explicit(&sh->stop, memory_order_relaxed)) {
       uint64_t t_start = pal_now_raw_ns();
       uint64_t h = sh->tk->task(inst, scratch, i);
-      atomic_fetch_add(&sh->job_sum, pmk_job_combine(0, i, h));
       if (sh->ref && sh->fault_after && pal_current_cpu() == sh->fault_cpu &&
           pal_now_raw_ns() - sh->t0_raw > sh->fault_after && !atomic_exchange(&sh->fault_done, 1))
-        h ^= 1; /* PRISMARK_STRESS_FAULT: one wrong result, for testing the checks */
+        h ^= 1; /* PRISMARK_STRESS_FAULT: one wrong result, for testing the checks; like a real one, it is in the job's checksum too */
+      atomic_fetch_add(&sh->job_sum, pmk_job_combine(0, i, h));
       if (sh->ref) {
         if (!sh->ref_set[i]) {
           sh->ref[i] = h;

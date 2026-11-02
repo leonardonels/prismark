@@ -96,6 +96,68 @@ static void test_bootstrap(void) {
   CHECK(z.est == 3 && z.lo == 3 && z.hi == 3);
 }
 
+/* The interval from replicates, and replicates of a ratio of medians. */
+static void test_bootstrap_reps(void) {
+  enum { N = 2000 };
+  double reps[N];
+  pmk_rng r;
+  pmk_rng_seed(&r, 3);
+  for (int i = 0; i < N; i++) reps[i] = i + 1;
+  for (int i = N - 1; i > 0; i--) { /* shuffled: the interval must not depend on the order */
+    int j = (int)pmk_rng_below(&r, (uint64_t)i + 1);
+    double t = reps[i];
+    reps[i] = reps[j];
+    reps[j] = t;
+  }
+  pmk_ci ci = pmk_ci_from_reps(7, reps, N);
+  /* Type-7 quantiles of 1..2000: 1 + 1999 q. */
+  NEAR(ci.est, 7, 0);
+  NEAR(ci.lo, 1 + 1999 * 0.025, 1e-9);
+  NEAR(ci.hi, 1 + 1999 * 0.975, 1e-9);
+
+  double a[5] = {4, 4, 4, 4, 4}, b[3] = {2, 2, 2}, out[100];
+  CHECK(pmk_boot_ratio_reps(a, 5, b, 3, 100, &r, out) == 0);
+  int all = 1;
+  for (int i = 0; i < 100; i++) all &= out[i] == 2;
+  CHECK(all);
+  CHECK(pmk_boot_ratio_reps(a, 0, b, 3, 100, &r, out) != 0);
+  /* The replicates are those pmk_boot_median_ratio summarises, from the same random stream. */
+  double x[40], y[40];
+  for (int i = 0; i < 40; i++) x[i] = 100 + i % 7, y[i] = 50 + i % 5;
+  pmk_rng r1, r2;
+  pmk_rng_seed(&r1, 11);
+  pmk_rng_seed(&r2, 11);
+  double many[PMK_BOOT_B];
+  CHECK(pmk_boot_ratio_reps(x, 40, y, 40, PMK_BOOT_B, &r1, many) == 0);
+  pmk_ci direct = pmk_boot_median_ratio(x, 40, y, 40, PMK_BOOT_B, &r2);
+  pmk_ci via = pmk_ci_from_reps(pmk_median(x, 40) / pmk_median(y, 40), many, PMK_BOOT_B);
+  NEAR(direct.est, via.est, 0);
+  NEAR(direct.lo, via.lo, 0);
+  NEAR(direct.hi, via.hi, 0);
+}
+
+/* prismark compare's headline: each test's direction, and the stress test's every part. */
+static void test_compare_headline(void) {
+  static const char fmt[] =
+      "{\"schema\":\"prismark/1\",\"run_id\":\"%s\",\"machine\":{\"cpu\":{\"model\":\"m\",\"cores\":[]}},"
+      "\"analysis\":{\"series\":[],\"periodic\":[{\"condition\":\"idle\",\"p999_ns\":%g}],"
+      "\"stress\":[{\"part\":\"each_core\",\"score\":{\"est\":%g,\"lo\":%g,\"hi\":%g}}]}}";
+  char a[1024], b[1024];
+  /* A: twice as fast under stress, and its timer twice as late (worse: lower is better). */
+  snprintf(a, sizeof a, fmt, "a", 2000.0, 20.0, 19.0, 21.0);
+  snprintf(b, sizeof b, fmt, "b", 1000.0, 10.0, 9.0, 11.0);
+  char *text = NULL;
+  CHECK(pmk_compare_headline(a, b, &text) == PMK_OK && text);
+  if (text) {
+    const char *cc = strstr(text, "Each core in turn");
+    CHECK(cc && strstr(cc, "2.00x better"));
+    const char *timer = strstr(text, "Timer punctuality, idle");
+    CHECK(timer && strstr(timer, "2.00x worse"));
+    CHECK(strstr(text, "A is better on 1, worse on 1"));
+  }
+  pmk_free(text);
+}
+
 static void test_json(void) {
   pmk_jw w = {0};
   jw_obj_begin(&w, NULL);
@@ -388,6 +450,7 @@ static void test_compare(void) {
 int main(void) {
   test_quantiles();
   test_bootstrap();
+  test_bootstrap_reps();
   test_json();
   test_kernels();
   test_steady();
@@ -396,6 +459,7 @@ int main(void) {
   test_zstd_roundtrip();
   test_throughput_kernels();
   test_compare();
+  test_compare_headline();
   if (failures) {
     fprintf(stderr, "%d check(s) failed\n", failures);
     return 1;

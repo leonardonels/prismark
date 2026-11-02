@@ -301,7 +301,8 @@ typedef struct chaser {
   pal_thread *th;
 } chaser;
 
-static volatile uint64_t g_sink;
+/* Written by several threads at once (after their timed loops), so atomic: a plain store would be a data race. */
+static _Atomic uint64_t g_sink;
 
 static void *chaser_main(void *arg) {
   chaser *ch = arg;
@@ -309,7 +310,7 @@ static void *chaser_main(void *arg) {
   else if (ch->c->m.caps.qos_only) pal_unpin_self();
   uint64_t p = ch->start;
   while (!atomic_load_explicit(ch->stop, memory_order_relaxed)) p = ch->c->k->k7_chase(ch->nodes, p, 1u << 12);
-  g_sink = p;
+  atomic_store_explicit(&g_sink, p, memory_order_relaxed);
   return NULL;
 }
 
@@ -396,7 +397,7 @@ static int k7_series(pmk_ctx *c, const int *cpus, const int *steps, int nsteps) 
             break;
           }
         }
-        g_sink = p;
+        atomic_store_explicit(&g_sink, p, memory_order_relaxed);
       }
       atomic_store(&stop, 1);
       for (int i = 1; i < n; i++)
