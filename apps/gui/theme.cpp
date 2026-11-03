@@ -12,14 +12,16 @@ Theme g_theme;
 QString g_family, g_display, g_mono;
 
 /*
- * Flat blocks, square corners, no gradients: navy ink, paper, a volt accent for actions and the highlighted
- * result, and signal blue for structure and reference machines. Red is kept for wrong results and failures.
+ * Flat panels with seams of ink between them, square corners, no gradients: navy ink, paper, a volt accent for
+ * actions and your result, and signal blue for structure and reference machines. Red is kept for wrong results and
+ * failures.
  */
 const Theme kDark = {
     true,
     QColor(7, 12, 31),      /* bg */
     QColor(20, 29, 59),     /* card */
     QColor(31, 43, 82),     /* raised */
+    QColor(15, 23, 48),     /* recess */
     QColor(42, 55, 96),     /* border */
     QColor(232, 236, 239),  /* text */
     QColor(174, 184, 214),  /* muted */
@@ -39,9 +41,10 @@ const Theme kDark = {
 
 const Theme kLight = {
     false,
-    QColor(221, 226, 232),  /* bg */
+    QColor(12, 20, 48),     /* bg */
     QColor(247, 248, 249),  /* card */
     QColor(232, 236, 239),  /* raised */
+    QColor(201, 208, 218),  /* recess */
     QColor(201, 208, 218),  /* border */
     QColor(12, 20, 48),     /* text */
     QColor(30, 39, 66),     /* muted */
@@ -59,6 +62,16 @@ const Theme kLight = {
     QColor(194, 38, 26),    /* bad */
 };
 
+/* Point sizes are the same picture on every system: macOS counts 72 points to the inch where the others count 96. */
+double points(double pt) {
+#ifdef Q_OS_MACOS
+  static const bool cocoa = QGuiApplication::platformName() == QLatin1String("cocoa"); /* not when drawing offscreen */
+  return cocoa ? pt * 96 / 72 : pt;
+#else
+  return pt;
+#endif
+}
+
 QString addFont(const QString &file) {
   int id = QFontDatabase::addApplicationFont(QStringLiteral(":/fonts/") + file);
   return id >= 0 ? QFontDatabase::applicationFontFamilies(id).value(0) : QString();
@@ -66,10 +79,7 @@ QString addFont(const QString &file) {
 
 void loadFonts() {
   if (!g_family.isEmpty()) return;
-  for (const char *w : {"Regular", "Medium", "SemiBold", "Bold"}) {
-    QString f = addFont(QStringLiteral("Inter-%1.otf").arg(w));
-    if (g_family.isEmpty()) g_family = f;
-  }
+  g_family = addFont(QStringLiteral("Archivo.ttf"));
   if (g_family.isEmpty()) g_family = QApplication::font().family();
   g_display = addFont(QStringLiteral("Saira.ttf"));
   for (const char *w : {"Regular", "Medium", "SemiBold"}) {
@@ -85,16 +95,19 @@ const Theme &theme() { return g_theme; }
 QFont uiFont(double pt, int weight) {
   loadFonts();
   QFont f(g_family);
-  f.setPointSizeF(pt);
+  f.setPointSizeF(points(pt));
   f.setWeight(static_cast<QFont::Weight>(weight));
   f.setHintingPreference(QFont::PreferVerticalHinting);
+#if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
+  f.setVariableAxis(QFont::Tag("wght"), weight);
+#endif
   return f;
 }
 
 QFont monoFont(double pt, int weight) {
   loadFonts();
   QFont f = g_mono.isEmpty() ? QFontDatabase::systemFont(QFontDatabase::FixedFont) : QFont(g_mono);
-  f.setPointSizeF(pt);
+  f.setPointSizeF(points(pt));
   f.setWeight(static_cast<QFont::Weight>(weight));
   return f;
 }
@@ -104,7 +117,7 @@ QFont displayFont(double pt, int weight, double width) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 7, 0)
   if (!g_display.isEmpty()) {
     QFont f(g_display);
-    f.setPointSizeF(pt);
+    f.setPointSizeF(points(pt));
     f.setWeight(static_cast<QFont::Weight>(weight));
     f.setVariableAxis(QFont::Tag("wght"), weight);
     f.setVariableAxis(QFont::Tag("wdth"), width);
@@ -164,6 +177,14 @@ void applyTheme(bool dark) {
     QPushButton:disabled { color: %5; }
     QPushButton#primary { border: none; color: %7; font-weight: 700; padding: 10px 22px; background: %6; }
     QPushButton#primary:hover { background: %11; }
+    QPushButton#raisedBlock { background: %1; border: none; padding: 10px 22px; }
+    QPushButton#raisedBlock:hover { background: %3; }
+    QPushButton#row { background: transparent; border: none; padding: 0; text-align: left; color: %2; }
+    QPushButton#row:hover { color: %12; }
+    QPushButton#plain { background: %1; border: none; }
+    QPushButton#plain:hover { background: %3; }
+    QPushButton#outline { background: transparent; border: 1.5px solid %2; }
+    QPushButton#outline:hover { background: %1; }
     QPushButton#ghost { background: transparent; border: 1.5px solid transparent; padding: 6px 10px; color: %8; }
     QPushButton#ghost:hover { background: %1; color: %2; }
     QToolButton#iconButton { background: %1; border: none; padding: 9px; }

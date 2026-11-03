@@ -63,13 +63,6 @@ PLIST=$APP/Contents/Info.plist
 plist() { /usr/libexec/PlistBuddy -c "Delete :$1" "$PLIST" 2>/dev/null || true; /usr/libexec/PlistBuddy -c "Add :$1 $2 $3" "$PLIST"; }
 plist CFBundleDisplayName string Prismark
 plist NSHighResolutionCapable bool true
-# The layered glass icon of macOS 26 and later, the same design as the iOS app's, and its flat render for older
-# macOS. Compiled ahead of time, as the CI machine's Xcode cannot read the format. After changing the icon:
-#   xcrun actool apps/ios/Prismark/Prismark/AppIcon.icon --compile apps/gui/icons/mac --platform macosx \
-#     --minimum-deployment-target 13.0 --app-icon AppIcon --output-partial-info-plist /tmp/icon.plist
-cp "$SRC"/apps/gui/icons/mac/Assets.car "$SRC"/apps/gui/icons/mac/AppIcon.icns "$RES"/
-plist CFBundleIconFile string AppIcon
-plist CFBundleIconName string AppIcon
 
 # Qt's frameworks and plugins, and every library the runner needs, into Contents/Frameworks.
 "$QT"/bin/macdeployqt "$APP" -executable="$APP"/Contents/MacOS/prismark -always-overwrite

@@ -6,6 +6,7 @@
 #include <QClipboard>
 #include <QCloseEvent>
 #include <QCoreApplication>
+#include <QDate>
 #include <QDateTime>
 #include <QDebug>
 #include <QDesktopServices>
@@ -21,7 +22,7 @@
 #include <QJsonArray>
 #include <QJsonDocument>
 #include <QLabel>
-#include <QMenu>
+#include <QLocale>
 #include <QPainter>
 #include <QPlainTextEdit>
 #include <QPushButton>
@@ -32,10 +33,11 @@
 #include <QStackedWidget>
 #include <QStandardPaths>
 #include <QTimer>
-#include <QToolButton>
 #include <QUrl>
 #include <QVBoxLayout>
 #include <algorithm>
+#include <array>
+#include <cmath>
 
 #ifdef Q_OS_WIN
 #ifndef NOMINMAX
@@ -95,28 +97,96 @@ QFrame *card() {
   return f;
 }
 
-class Logo : public QWidget {
+/* The logo and the name on a volt tile, in both themes: the head of every page. */
+class Brand : public QWidget {
  public:
-  Logo() { setFixedSize(52, 52); }
+  Brand() {
+    setFixedHeight(68);
+    setFixedWidth(16 + 36 + 10 + QFontMetrics(displayFont(12.5, QFont::ExtraBold, 125)).horizontalAdvance(kName) + 18);
+  }
 
  protected:
-  void paintEvent(QPaintEvent *) override { /* ink mark on a volt tile, in both themes */
+  void paintEvent(QPaintEvent *) override {
     QPainter p(this);
     p.setRenderHint(QPainter::Antialiasing);
     p.fillRect(rect(), theme().accent);
-    paintLogo(p, QRectF(rect()).adjusted(9, 9, -9, -9));
+    paintLogo(p, QRectF(16, 16, 36, 36));
+    p.setPen(theme().onAccent);
+    p.setFont(displayFont(12.5, QFont::ExtraBold, 125));
+    p.drawText(QRectF(62, 0, width() - 62, height()), Qt::AlignVCenter | Qt::AlignLeft, kName);
+  }
+
+ private:
+  const QString kName = QStringLiteral("PRISMARK");
+};
+
+/* A panel that can carry the pass's printed dots (dynamic property "dots"), as on the phones. */
+class PrintedFrame : public QFrame {
+ protected:
+  void paintEvent(QPaintEvent *e) override {
+    QFrame::paintEvent(e);
+    if (!property("dots").toBool()) return;
+    QPainter p(this);
+    p.setRenderHint(QPainter::Antialiasing);
+    p.setPen(Qt::NoPen);
+    p.setBrush(QColor(92, 128, 255));
+    for (int x = 12; x < width(); x += 24)
+      for (int y = 12; y < height(); y += 24) p.drawEllipse(QPointF(x, y), 1.2, 1.2);
   }
 };
 
-/* Menu icon (three lines), painted in the theme colour. */
-QIcon gearIcon() {
-  QPixmap pm(44, 44);
-  pm.fill(Qt::transparent);
-  QPainter p(&pm);
-  p.setRenderHint(QPainter::Antialiasing);
-  p.setPen(QPen(theme().text, 3.6, Qt::SolidLine, Qt::RoundCap));
-  for (int y : {12, 22, 32}) p.drawLine(QPointF(9, y), QPointF(35, y));
-  return QIcon(pm);
+/* Puts widgets just added under root in place at once. Qt would show them at the next turn of the event loop, and
+   for that one turn the column stands empty. */
+void settle(QWidget *root) {
+  for (QWidget *c : root->findChildren<QWidget *>())
+    if (!c->testAttribute(Qt::WA_WState_ExplicitShowHide)) c->show();
+  if (root->layout()) root->layout()->activate();
+}
+
+QFrame *hairline() {
+  auto *f = new QFrame;
+  f->setFixedHeight(1);
+  f->setStyleSheet(QStringLiteral("background:%1; border:none;").arg(theme().border.name()));
+  return f;
+}
+
+QPushButton *loudButton(const QString &label, const QString &object = QStringLiteral("primary")) {
+  auto *b = new QPushButton(label);
+  b->setObjectName(object);
+  b->setCursor(Qt::PointingHandCursor);
+  b->setFont(displayFont(10.5, QFont::ExtraBold, 125));
+  b->setFixedHeight(68);
+  return b;
+}
+
+/* The processor's name without the marks and words every processor has, as on the phones. */
+QString shortCpu(QString name) {
+  for (const char *junk : {"(R)", "(TM)", "AMD ", "Intel ", " Processor", "Genuine ", "Apple "}) name.remove(QString::fromLatin1(junk));
+  name.replace(QStringLiteral("Ryzen Threadripper PRO"), QStringLiteral("Threadripper"));
+  name.remove(QRegularExpression(QStringLiteral(" w/ .*$| \\d+-Cores?.*$| CPU.*$")));
+  return name.simplified();
+}
+
+QString prettyOs(const QString &os) {
+  static const QMap<QString, QString> names = {{"macos", "macOS"}, {"windows", "Windows"}, {"linux", "Linux"},
+                                               {"ios", "iOS"},     {"ipados", "iPadOS"},   {"android", "Android"}};
+  return names.value(os, os);
+}
+
+QString prettyIsa(const QString &isa) {
+  return isa == "aarch64" ? QStringLiteral("ARM64") : isa == "x86_64" ? QStringLiteral("x86-64") : isa;
+}
+
+/* Empties a layout rebuilt in place; the widgets go at the next turn of the event loop. */
+void clearLayout(QLayout *l) {
+  while (QLayoutItem *it = l->takeAt(0)) {
+    if (it->widget()) {
+      it->widget()->hide();
+      it->widget()->deleteLater();
+    }
+    if (it->layout()) clearLayout(it->layout());
+    delete it;
+  }
 }
 
 /* The small window shown alone during a run; closing it asks to cancel. */
@@ -243,7 +313,11 @@ bool restartAsAdmin() {
 
 MainWindow::MainWindow() {
   QSettings s;
-  applyTheme(s.value("dark", true).toBool());
+  /* PRISMARK_GUI_DARK and PRISMARK_GUI_PAGE, with PRISMARK_GUI_SCREENSHOT: pictures of a page in a theme, without
+     touching the settings. */
+  const QByteArray darkEnv = qgetenv("PRISMARK_GUI_DARK");
+  applyTheme(darkEnv.isEmpty() ? s.value("dark", true).toBool() : darkEnv != "0");
+  page_ = qBound(0, qEnvironmentVariableIntValue("PRISMARK_GUI_PAGE"), 2);
   if (const Metric *m = findMetric(s.value("metric").toString())) {
     metric_ = m->id;
     group_ = m->group;
@@ -252,7 +326,18 @@ MainWindow::MainWindow() {
   input_ = new InputWatch(this);
   connect(input_, &InputWatch::activity, this, &MainWindow::onInputActivity);
   buildUi();
+  measure_ = buildMeasuringWindow();
+  auto shortcut = [this](const QKeySequence &key, auto slot) {
+    auto *a = new QAction(this);
+    a->setShortcut(key);
+    connect(a, &QAction::triggered, this, slot);
+    addAction(a);
+  };
+  shortcut(QKeySequence::Open, [this] { openResult(); });
+  shortcut(QKeySequence::HelpContents, [this] { showGlossary(); });
+  shortcut(QKeySequence::Quit, [] { QApplication::quit(); });
   loadInfo();
+  refreshDevice();
   moveOldDataFolders();
   loadAll();
   for (auto it = runs_.rbegin(); it != runs_.rend(); ++it)
@@ -262,7 +347,7 @@ MainWindow::MainWindow() {
     }
   refresh();
   resize(1440, 900);
-  setMinimumSize(1180, 720);
+  setMinimumSize(1280, 720);
   setWindowTitle(QStringLiteral("Prismark"));
 }
 
@@ -277,120 +362,97 @@ MainWindow::~MainWindow() {
 
 /* ---------- layout ---------- */
 
-QWidget *MainWindow::buildMenuButton() {
-  auto *b = new QToolButton;
-  b->setObjectName("iconButton");
-  b->setIcon(gearIcon());
-  b->setIconSize(QSize(22, 22));
-  b->setToolTip(tr("Menu"));
-  b->setPopupMode(QToolButton::InstantPopup);
-  auto *m = new QMenu(b);
-  m->addAction(tr("Open result…"), this, &MainWindow::openResult)->setShortcut(QKeySequence::Open);
-  m->addSeparator();
-  m->addAction(tr("Prepare compile tests…"), this, &MainWindow::prepareCompileTests);
-  m->addAction(tr("Use another compile-test snapshot…"), this, &MainWindow::chooseSnapshot);
-#ifdef Q_OS_LINUX
-  QAction *admin = m->addAction(tr("Allow power readings until reboot…"), this, [this] {
-    if (proc_) return;
-    if (allowPowerReadings()) {
-      loadInfo();
-      Stub::tell(this, Stub::System, tr("SYS / POWER"), tr("Power readings allowed"),
-                 tr("Runs record the processor's power until the next reboot."));
-    } else {
-      powerNotAllowed(false);
-    }
-  });
-#else
-  QAction *admin = m->addAction(tr("Restart as administrator to measure power"), this, [this] {
-    if (!proc_ && restartAsAdmin()) qApp->quit();
-  });
-#endif
-  connect(m, &QMenu::aboutToShow, admin, [this, admin] { admin->setVisible(powerNeedsAdmin(info_)); });
-  m->addSeparator();
-  QAction *dark = m->addAction(tr("Dark theme"));
-  dark->setCheckable(true);
-  dark->setChecked(theme().dark);
-  connect(dark, &QAction::toggled, this, [this, b](bool on) {
-    QSettings().setValue("dark", on);
-    applyTheme(on);
-    b->setIcon(gearIcon());
-    measure_->setStyleSheet(QStringLiteral("#measureWindow { background:%1; }").arg(theme().card.name()));
-    for (QWidget *w : QApplication::allWidgets()) w->update();
-    refresh();
-  });
-  m->addAction(tr("What do these terms mean?"), this, &MainWindow::showGlossary)->setShortcut(QKeySequence::HelpContents);
-  m->addAction(tr("Data folders…"), this, &MainWindow::showDataFolders);
-  m->addAction(tr("About Prismark"), this, &MainWindow::showAbout);
-  m->addSeparator();
-  m->addAction(tr("Quit"), qApp, &QApplication::quit)->setShortcut(QKeySequence::Quit);
-  b->setMenu(m);
-  return b;
-}
-
 void MainWindow::buildUi() {
   auto *page = new QWidget;
-  setCentralWidget(page);
-  auto *outer = new QVBoxLayout(page);
-  outer->setContentsMargins(24, 18, 24, 20);
-  outer->setSpacing(14);
+  setCentralWidget(page); /* a rebuild, for a new theme: the old page goes with it */
+  auto *outer = new QHBoxLayout(page);
+  outer->setContentsMargins(8, 8, 8, 8);
+  outer->setSpacing(8);
+  pages_ = new QStackedWidget;
+  pages_->addWidget(buildTestsPage());
+  pages_->addWidget(buildResultsPage());
+  pages_->addWidget(buildDevicePage());
+  pages_->setCurrentIndex(page_);
+  outer->addWidget(pages_, 1);
+  auto *side = new SideColumn({tr("Tests"), tr("Results"), tr("Device")});
+  side->setCurrent(page_);
+  connect(side, &SideColumn::changed, this, [this](int i) {
+    page_ = i;
+    pages_->setCurrentIndex(i);
+    if (i == 0) refreshRanking();
+  });
+  side_ = side;
+  outer->addWidget(side);
+}
+
+void MainWindow::showPage(int i) {
+  page_ = i;
+  pages_->setCurrentIndex(i);
+  side_->setCurrent(i);
+  if (i == 0) refreshRanking();
+}
+
+/* The chosen theme is the whole window: every label is built with its colours, so it is built again. */
+void MainWindow::setDark(bool on) {
+  QSettings().setValue("dark", on);
+  applyTheme(on);
+  measure_->setStyleSheet(QStringLiteral("#measureWindow { background:%1; }").arg(theme().card.name()));
+  QTimer::singleShot(0, this, [this] { /* not under the switch that was just pressed */
+    buildUi();
+    refreshDevice();
+    refresh();
+  });
+}
+
+/* Tests: the header with the groups and Run all, the cards, the ranking, and the highlighted result with what the
+   test means. */
+QWidget *MainWindow::buildTestsPage() {
+  auto *pageW = new QWidget;
+  auto *outer = new QVBoxLayout(pageW);
+  outer->setContentsMargins(0, 0, 0, 0);
+  outer->setSpacing(8);
 
   /* header */
   auto *head = new QHBoxLayout;
-  head->setSpacing(14);
-  head->addWidget(new Logo);
-  auto *brand = new QVBoxLayout;
-  brand->setSpacing(0);
-  QLabel *name = text(QStringLiteral("PRISMARK"), 17);
-  name->setFont(displayFont(17, QFont::ExtraBold, 125));
-  name->setWordWrap(false);
-  brand->addWidget(name);
-  QLabel *sub = text(tr("Each test is ranked on its own · there is no overall score"), 9, QFont::Normal, theme().muted);
-  sub->setFont(monoFont(8));
-  sub->setWordWrap(false);
-  brand->addWidget(sub);
-  head->addLayout(brand);
-  head->addStretch();
+  head->setSpacing(8);
+  head->addWidget(new Brand);
   groups_ = new Segmented; /* items set in refresh(): Simple shows fewer tabs */
   groups_->setNumbered(1);
+  groups_->setFilling(68);
   connect(groups_, &Segmented::changed, this, [this](int i) {
     QVector<QString> shown = visibleGroups();
-    shown.removeAll(QStringLiteral("stress"));
     if (i < 0 || i >= shown.size()) return;
     group_ = shown[i];
     metric_ = firstVisible(group_);
     refresh();
   });
-  head->addWidget(groups_, 0, Qt::AlignBottom);
-  /* The stress test in a bubble of its own: minutes of load, run on its own, not one more benchmark tab. */
-  stressTab_ = new Segmented;
-  stressTab_->setItems({tr("Stress test")});
-  connect(stressTab_, &Segmented::changed, this, [this] {
-    group_ = QStringLiteral("stress");
-    metric_ = firstVisible(group_);
-    refresh();
-  });
-  head->addWidget(stressTab_, 0, Qt::AlignBottom);
-  head->addStretch();
-  quick_ = new Toggle(tr("Quick"));
+  head->addWidget(groups_, 1);
+  QFrame *quickPanel = card();
+  quickPanel->setFixedSize(92, 68);
+  auto *qp = new QVBoxLayout(quickPanel);
+  qp->setContentsMargins(12, 9, 12, 7);
+  qp->setSpacing(0);
+  auto *quickLabel = new QLabel(tr("Quick"));
+  quickLabel->setFont(labelFont(8));
+  qp->addWidget(quickLabel);
+  quick_ = new Toggle(QString());
   quick_->setToolTip(tr("On: quick runs, a few minutes, for a first look. Their numbers are rough, so they are not "
                         "ranked: each test page shows your latest one under its ranking.\n"
                         "Off: full runs, accurate and ranked; all tests take about 30 minutes on a laptop."));
   quick_->setChecked(QSettings().value("quick", false).toBool());
-  QSizePolicy keep = quick_->sizePolicy(); /* hidden on the stress tab without moving the tabs */
-  keep.setRetainSizeWhenHidden(true);
-  quick_->setSizePolicy(keep);
   connect(quick_, &Toggle::toggled, this, [this](bool on) {
     QSettings().setValue("quick", on);
     refreshRunLabels();
   });
-  head->addWidget(quick_);
-  runAll_ = new QPushButton;
-  runAll_->setObjectName("primary");
-  runAll_->setCursor(Qt::PointingHandCursor);
-  runAll_->setFont(displayFont(10.5, QFont::ExtraBold, 125));
-  connect(runAll_, &QPushButton::clicked, this, [this] { runTest(QString(), quick_->isChecked()); });
+  qp->addWidget(quick_);
+  quickPanel_ = quickPanel;
+  head->addWidget(quickPanel);
+  runAll_ = loudButton(QString());
+  connect(runAll_, &QPushButton::clicked, this, [this] {
+    if (group_ == "stress") runTest(metric_, false); /* the selected test, as set on its tab */
+    else runTest(QString(), quick_->isChecked());
+  });
   head->addWidget(runAll_);
-  head->addWidget(buildMenuButton());
   outer->addLayout(head);
 
   banner_ = text(tr("Reference systems show <b>placeholder values</b>, not measurements, until real reference results "
@@ -401,15 +463,49 @@ void MainWindow::buildUi() {
   outer->addWidget(banner_);
 
   auto *body = new QHBoxLayout;
-  body->setSpacing(6);
+  body->setSpacing(8);
   outer->addLayout(body, 1);
 
-  /* tests column */
+  /* tests column: what the group is, then its cards; a volt card fills what they leave */
   auto *left = new QWidget;
   auto *ll = new QVBoxLayout(left);
-  ll->setContentsMargins(0, 0, 4, 0);
+  ll->setContentsMargins(0, 0, 0, 0);
   ll->setSpacing(8);
+  QFrame *info = card();
+  auto *il = new QVBoxLayout(info);
+  il->setContentsMargins(14, 12, 14, 12);
+  il->setSpacing(6);
+  testsTitle_ = new QLabel;
+  testsTitle_->setFont(labelFont(8));
+  il->addWidget(testsTitle_);
+  groupDesc_ = text(QString(), 9.5, QFont::Normal, theme().muted);
+  il->addWidget(groupDesc_);
+  moreTests_ = text(QString(), 9, QFont::Normal, theme().muted);
+  moreTests_->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
+  connect(moreTests_, &QLabel::linkActivated, this, [this] { level_->setCurrent(1); emit level_->changed(1); });
+  il->addWidget(moreTests_);
+  ll->addWidget(info);
+  ll->addWidget(buildStressSettings());
+  cardsLayout_ = new QVBoxLayout;
+  cardsLayout_->setSpacing(8);
+  ll->addLayout(cardsLayout_);
+  progress_ = new GroupProgress;
+  ll->addWidget(progress_, 1);
+  testsColumn_ = left;
+  auto *ls = new QScrollArea;
+  ls->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  ls->setWidget(left);
+  ls->setWidgetResizable(true);
+  ls->setFrameShape(QFrame::NoFrame);
+  /* the column, with the Simple/Advanced switch in its own panel at the foot */
+  auto *leftCol = new QVBoxLayout;
+  leftCol->setSpacing(8);
+  leftCol->addWidget(ls, 1);
+  QFrame *levelPanel = card();
+  auto *lv = new QVBoxLayout(levelPanel);
+  lv->setContentsMargins(8, 8, 8, 8);
   level_ = new Segmented;
+  level_->setFilling(44);
   level_->setItems({tr("Simple"), tr("Advanced")});
   level_->setCurrent(advanced_ ? 1 : 0);
   level_->setToolTip(tr("Simple: a few tests that run everywhere and are easy to relate to.\nAdvanced: every test."));
@@ -418,71 +514,45 @@ void MainWindow::buildUi() {
     QSettings().setValue("advanced", advanced_);
     refresh();
   });
-  testsTitle_ = sectionLabel(QString());
-  testsTitle_->setContentsMargins(4, 0, 0, 2);
-  ll->addWidget(testsTitle_);
-  groupDesc_ = text(QString(), 9, QFont::Normal, theme().muted);
-  groupDesc_->setContentsMargins(4, 0, 4, 6);
-  ll->addWidget(groupDesc_);
-  ll->addWidget(buildStressSettings());
-  cardsLayout_ = new QVBoxLayout;
-  cardsLayout_->setSpacing(6);
-  ll->addLayout(cardsLayout_);
-  moreTests_ = text(QString(), 9, QFont::Normal, theme().faint);
-  moreTests_->setContentsMargins(4, 2, 4, 0);
-  moreTests_->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
-  connect(moreTests_, &QLabel::linkActivated, this, [this] { level_->setCurrent(1); emit level_->changed(1); });
-  ll->addWidget(moreTests_);
-  ll->addStretch();
-  auto *ls = new QScrollArea;
-  ls->setWidget(left);
-  ls->setWidgetResizable(true);
-  ls->setFrameShape(QFrame::NoFrame);
-  /* the tests column, with the Simple/Advanced switch pinned to its bottom left */
-  auto *leftCol = new QWidget;
-  leftCol->setFixedWidth(340);
-  auto *lc = new QVBoxLayout(leftCol);
-  lc->setContentsMargins(0, 0, 0, 0);
-  lc->setSpacing(10);
-  lc->addWidget(ls, 1);
-  lc->addWidget(level_, 0, Qt::AlignLeft | Qt::AlignBottom);
-  body->addWidget(leftCol);
+  lv->addWidget(level_);
+  leftCol->addWidget(levelPanel);
+  auto *leftW = new QWidget;
+  leftW->setLayout(leftCol);
+  leftCol->setContentsMargins(0, 0, 0, 0);
+  leftW->setFixedWidth(340);
+  body->addWidget(leftW);
   cards_.setExclusive(true);
 
   /* test page: what the test is, the ranking, and the chart that explains the highlighted result */
   QFrame *center = card();
   auto *cl = new QVBoxLayout(center);
-  cl->setContentsMargins(4, 4, 4, 12);
-  cl->setSpacing(6);
+  cl->setContentsMargins(0, 0, 0, 0);
+  cl->setSpacing(0);
   auto *testPage = new QWidget;
   auto *pl = new QVBoxLayout(testPage);
-  pl->setContentsMargins(20, 16, 20, 8);
-  pl->setSpacing(6);
+  pl->setContentsMargins(0, 0, 0, 0);
+  pl->setSpacing(0);
+  auto *top = new QVBoxLayout;
+  top->setContentsMargins(20, 18, 20, 8);
+  top->setSpacing(6);
   title_ = text(QString(), 17, QFont::Bold);
-  title_->setFont(displayFont(22, QFont::Bold, 112));
-  desc_ = text(QString(), 10.5);
-  pl->addWidget(title_);
-  pl->addWidget(desc_);
-  auto section = [&](const QString &head, QLabel *&body) {
-    QLabel *h = sectionLabel(head);
-    h->setContentsMargins(0, 8, 0, 0);
-    pl->addWidget(h);
-    body = text(QString(), 10, QFont::Normal, theme().muted);
-    pl->addWidget(body);
-  };
-  section(tr("How it is measured"), how_);
-  section(tr("Reading the result"), read_);
-  pl->addWidget(sectionLabel(tr("Ranking")));
-  auto *legend = new QHBoxLayout;
-  legend->setContentsMargins(0, 0, 0, 4);
-  legend->addWidget(pill(tr("■ Your runs"), theme().onAccent, theme().accentSoft));
-  legend->addWidget(pill(tr("■ Reference"), theme().ref, theme().track));
-  legend->addStretch();
-  QLabel *ciNote = text(tr("thin line on a bar = measurement uncertainty"), 8.5, QFont::Normal, theme().faint);
-  ciNote->setWordWrap(false);
-  ciNote->setToolTip(tr("The true value lies within this range with 95 % confidence. Overlapping ranges: treat as equal."));
-  legend->addWidget(ciNote);
-  pl->addLayout(legend);
+  title_->setFont(displayFont(21, QFont::ExtraBold, 118));
+  desc_ = text(QString(), 10.5, QFont::Normal, theme().muted);
+  top->addWidget(title_);
+  top->addWidget(desc_);
+  auto *rankHead = new QHBoxLayout;
+  rankHead->setContentsMargins(0, 6, 0, 0);
+  rankTitle_ = new QLabel;
+  rankTitle_->setFont(labelFont(8));
+  rankHead->addWidget(rankTitle_, 1);
+  auto *legend = new QLabel(QStringLiteral("<span style='color:%1'>■</span> %2 &nbsp; <span style='color:%3'>■</span> %4")
+                                .arg(theme().mine.name(), tr("YOUR RUN"), theme().ref.name(), tr("REFERENCE")));
+  legend->setFont(monoFont(8));
+  legend->setToolTip(tr("The thin line under a bar is the measurement's uncertainty: the true value lies within it with "
+                        "95 % confidence. Overlapping ranges: treat as equal."));
+  rankHead->addWidget(legend);
+  top->addLayout(rankHead);
+  pl->addLayout(top);
   ranking_ = new RankingView;
   connect(ranking_, &RankingView::runSelected, this, [this](const QString &id) {
     selected_ = id;
@@ -491,17 +561,14 @@ void MainWindow::buildUi() {
   });
   pl->addWidget(ranking_);
   quickNote_ = text(QString(), 9, QFont::Normal, theme().muted);
+  quickNote_->setContentsMargins(20, 8, 20, 0);
   quickNote_->setTextInteractionFlags(Qt::LinksAccessibleByMouse);
-  connect(quickNote_, &QLabel::linkActivated, this, [this](const QString &id) {
-    selected_ = id;
-    refreshRanking();
-    refreshDetails();
-  });
+  connect(quickNote_, &QLabel::linkActivated, this, [this](const QString &id) { openRun(id); });
   quickNote_->hide();
   pl->addWidget(quickNote_);
   context_ = new QWidget;
   contextLayout_ = new QVBoxLayout(context_);
-  contextLayout_->setContentsMargins(0, 8, 0, 0);
+  contextLayout_->setContentsMargins(20, 8, 20, 12);
   contextLayout_->setSpacing(4);
   pl->addWidget(context_);
   pl->addStretch();
@@ -511,60 +578,470 @@ void MainWindow::buildUi() {
   ps->setWidgetResizable(true);
   ps->setFrameShape(QFrame::NoFrame);
   cl->addWidget(ps, 1);
+  cl->addWidget(hairline());
   auto *foot = new QHBoxLayout;
-  foot->setContentsMargins(20, 0, 20, 0);
+  foot->setContentsMargins(20, 6, 20, 6);
   allRuns_ = new Toggle(tr("All my runs"));
   allRuns_->setToolTip(tr("Show every saved run, not only the latest one per test"));
   connect(allRuns_, &Toggle::toggled, this, [this] { refreshRanking(); });
   foot->addWidget(allRuns_);
-  foot->addStretch();
-  QLabel *rel = text(tr("+/− % vs. the highlighted result"), 8.5, QFont::Normal, theme().faint);
+  QLabel *rel = text(tr("+/− % against the highlighted result"), 8.5, QFont::Normal, theme().muted);
   rel->setWordWrap(false);
-  foot->addWidget(rel);
-  foot->addSpacing(14);
+  rel->setMinimumWidth(0);
+  rel->setSizePolicy(QSizePolicy::Ignored, QSizePolicy::Preferred);
+  rel->setAlignment(Qt::AlignRight | Qt::AlignVCenter);
+  foot->addSpacing(12);
+  foot->addWidget(rel, 1);
+  cl->addLayout(foot);
+  body->addWidget(center, 1);
+
+  /* the highlighted result as a pass, and what the test means */
+  auto *aside = new QVBoxLayout;
+  aside->setSpacing(8);
+  pass_ = new PrintedFrame;
+  pass_->setObjectName("pass");
+  /* the same height with or without its hot line, and its foot well clear of the side column's first seam */
+  pass_->setMinimumHeight(310);
+  pass_->setAttribute(Qt::WA_StyledBackground);
+  auto *pa = new QVBoxLayout(pass_);
+  pa->setContentsMargins(16, 14, 16, 16);
+  pa->setSpacing(0);
+  auto *passHead = new QHBoxLayout;
+  passKind_ = new QLabel;
+  passKind_->setFont(monoFont(8));
+  passDate_ = new QLabel;
+  passDate_->setFont(monoFont(8));
+  passHead->addWidget(passKind_, 1);
+  passHead->addWidget(passDate_);
+  pa->addLayout(passHead);
+  passScore_ = new QLabel;
+  pa->addWidget(passScore_);
+  passUnit_ = new QLabel;
+  passUnit_->setFont(monoFont(9));
+  passUnit_->setWordWrap(true);
+  pa->addWidget(passUnit_);
+  pa->addStretch();
+  passRule_ = new QFrame;
+  passRule_->setFixedHeight(2);
+  pa->addSpacing(14);
+  pa->addWidget(passRule_);
+  pa->addSpacing(12);
+  passHotHead_ = new QLabel(tr("WHEN HOT"));
+  passHotHead_->setFont(labelFont(8));
+  pa->addWidget(passHotHead_);
+  passHot_ = new QLabel;
+  passHot_->setFont(uiFont(11, QFont::DemiBold));
+  passHot_->setWordWrap(true);
+  passHot_->setContentsMargins(0, 2, 0, 12);
+  pa->addWidget(passHot_);
+  passOpen_ = new QPushButton(tr("OPEN THIS RUN"));
+  passOpen_->setCursor(Qt::PointingHandCursor);
+  passOpen_->setFixedHeight(44);
+  passOpen_->setFont(displayFont(9, QFont::ExtraBold, 125));
+  connect(passOpen_, &QPushButton::clicked, this, [this] { openRun(selected_); });
+  pa->addWidget(passOpen_);
+  aside->addWidget(pass_);
+  QFrame *explain = card();
+  auto *el = new QVBoxLayout(explain);
+  el->setContentsMargins(0, 0, 0, 0);
+  el->setSpacing(0);
+  auto *et = new QWidget;
+  auto *etl = new QVBoxLayout(et);
+  etl->setContentsMargins(16, 16, 16, 12);
+  etl->setSpacing(4);
+  auto section = [&](const QString &head, QLabel *&bodyLabel, int topMargin) {
+    QLabel *h = new QLabel(head);
+    h->setFont(labelFont(8));
+    h->setContentsMargins(0, topMargin, 0, 0);
+    etl->addWidget(h);
+    bodyLabel = text(QString(), 10);
+    etl->addWidget(bodyLabel);
+  };
+  section(tr("How it is measured"), how_, 0);
+  section(tr("Reading the result"), read_, 12);
+  etl->addStretch();
+  auto *es = new QScrollArea;
+  es->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  es->setWidget(et);
+  es->setWidgetResizable(true);
+  es->setFrameShape(QFrame::NoFrame);
+  el->addWidget(es, 1);
   QLabel *help = text(QStringLiteral("<a href='#' style='color:%1; text-decoration:none'>%2</a>")
                           .arg(theme().link.name(), tr("What do these terms mean?")),
-                      8.5, QFont::DemiBold);
-  help->setWordWrap(false);
+                      10, QFont::DemiBold);
+  help->setContentsMargins(16, 6, 16, 14);
   help->setCursor(Qt::PointingHandCursor);
   connect(help, &QLabel::linkActivated, this, &MainWindow::showGlossary);
-  foot->addWidget(help);
-  cl->addLayout(foot);
-  body->addWidget(center, 3);
+  el->addWidget(help);
+  aside->addWidget(explain, 1);
+  auto *asideW = new QWidget;
+  asideW->setLayout(aside);
+  aside->setContentsMargins(0, 0, 0, 0);
+  asideW->setFixedWidth(300);
+  body->addWidget(asideW);
+  return pageW;
+}
 
-  /* details card */
-  QFrame *right = card();
-  auto *rl = new QVBoxLayout(right);
-  rl->setContentsMargins(4, 4, 4, 4);
+/* A page's head: the logo and its title, with an action on the right. */
+QHBoxLayout *MainWindow::pageHead(const QString &title, QLabel **right) {
+  auto *head = new QHBoxLayout;
+  head->setSpacing(8);
+  head->addWidget(new Brand);
+  QFrame *panel = card();
+  panel->setFixedHeight(68);
+  auto *h = new QHBoxLayout(panel);
+  h->setContentsMargins(20, 0, 20, 0);
+  QLabel *t = new QLabel(title);
+  t->setFont(displayFont(19, QFont::ExtraBold, 118));
+  h->addWidget(t);
+  h->addStretch();
+  if (right) {
+    *right = new QLabel;
+    h->addWidget(*right);
+  }
+  head->addWidget(panel, 1);
+  return head;
+}
+
+/* Results: your runs as tickets, the report of the one highlighted, and what it ran on with what can be done to it. */
+QWidget *MainWindow::buildResultsPage() {
+  auto *pageW = new QWidget;
+  auto *outer = new QVBoxLayout(pageW);
+  outer->setContentsMargins(0, 0, 0, 0);
+  outer->setSpacing(8);
+  auto *head = pageHead(tr("Your runs"), &runsCount_);
+  runsCount_->setFont(labelFont(8));
+  auto *open = loudButton(tr("OPEN RESULT…"), QStringLiteral("raisedBlock"));
+  connect(open, &QPushButton::clicked, this, &MainWindow::openResult);
+  head->addWidget(open);
+  outer->addLayout(head);
+  auto *body = new QHBoxLayout;
+  body->setSpacing(8);
+  outer->addLayout(body, 1);
+
+  auto *left = new QWidget;
+  auto *ll = new QVBoxLayout(left);
+  ll->setContentsMargins(0, 0, 0, 0);
+  ll->setSpacing(8);
+  tickets_.clear();
+  runsLayout_ = new QVBoxLayout;
+  runsLayout_->setSpacing(8);
+  ll->addLayout(runsLayout_);
+  QFrame *cmp = card();
+  auto *cp = new QVBoxLayout(cmp);
+  cp->setContentsMargins(16, 16, 16, 16);
+  cp->setSpacing(8);
+  cp->addStretch();
+  QLabel *cmpHead = new QLabel(tr("COMPARE"));
+  cmpHead->setFont(labelFont(8));
+  cp->addWidget(cmpHead);
+  cp->addWidget(text(tr("Two of your runs side by side: <span style='font-family:\"%1\"; color:%2'>prismark compare</span> "
+                        "on the command line.")
+                         .arg(monoFont(9).family(), theme().text.name()),
+                     10, QFont::Normal, theme().muted));
+  cp->addWidget(webLink());
+  ll->addWidget(cmp, 1);
+  auto *ls = new QScrollArea;
+  ls->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  ls->setWidget(left);
+  ls->setWidgetResizable(true);
+  ls->setFrameShape(QFrame::NoFrame);
+  ls->setFixedWidth(340);
+  body->addWidget(ls);
+
+  QFrame *center = card();
+  auto *cl = new QVBoxLayout(center);
+  cl->setContentsMargins(0, 0, 0, 0);
   details_ = new QWidget;
   detailsLayout_ = new QVBoxLayout(details_);
-  detailsLayout_->setContentsMargins(18, 16, 18, 16);
-  detailsLayout_->setSpacing(4);
+  detailsLayout_->setContentsMargins(20, 20, 20, 20);
+  detailsLayout_->setSpacing(8);
   auto *ds = new QScrollArea;
   ds->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
   ds->setWidget(details_);
   ds->setWidgetResizable(true);
   ds->setFrameShape(QFrame::NoFrame);
-  rl->addWidget(ds);
-  right->setMinimumWidth(380);
-  body->addWidget(right, 2);
+  cl->addWidget(ds);
+  body->addWidget(center, 1);
 
-  measure_ = buildMeasuringWindow();
+  QFrame *right = card();
+  auto *rl = new QVBoxLayout(right);
+  rl->setContentsMargins(0, 0, 0, 0);
+  auto *rw = new QWidget;
+  aboutLayout_ = new QVBoxLayout(rw);
+  aboutLayout_->setContentsMargins(16, 16, 16, 16);
+  aboutLayout_->setSpacing(4);
+  auto *rs = new QScrollArea;
+  rs->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  rs->setWidget(rw);
+  rs->setWidgetResizable(true);
+  rs->setFrameShape(QFrame::NoFrame);
+  rl->addWidget(rs);
+  right->setFixedWidth(300);
+  body->addWidget(right);
+  return pageW;
+}
+
+/* The site's public comparison, which replaced the app's own. */
+QLabel *MainWindow::webLink() {
+  QLabel *web = text(QStringLiteral("<a href='https://prismark.leonardonels.com/compare.html' style='color:%1; "
+                                    "text-decoration:none'>%2 ↗</a>")
+                         .arg(theme().link.name(), tr("Compare processors on the web")),
+                     10, QFont::DemiBold);
+  web->setWordWrap(false);
+  web->setCursor(Qt::PointingHandCursor);
+  web->setOpenExternalLinks(true);
+  return web;
+}
+
+/* Device: this computer as `prismark info` sees it, and the app's own settings and tools. */
+QWidget *MainWindow::buildDevicePage() {
+  auto *pageW = new QWidget;
+  deviceLayout_ = new QVBoxLayout(pageW);
+  deviceLayout_->setContentsMargins(0, 0, 0, 0);
+  deviceLayout_->setSpacing(8);
+  return pageW;
+}
+
+void MainWindow::refreshDevice() {
+  clearLayout(deviceLayout_);
+  const Theme &t = theme();
+  QLabel *linkHolder = nullptr;
+  auto *head = pageHead(tr("This device"), &linkHolder);
+  linkHolder->setFont(uiFont(10, QFont::DemiBold));
+  linkHolder->setTextFormat(Qt::RichText);
+  linkHolder->setText(webLink()->text());
+  linkHolder->setCursor(Qt::PointingHandCursor);
+  linkHolder->setOpenExternalLinks(true);
+  deviceLayout_->addLayout(head);
+  auto *body = new QHBoxLayout;
+  body->setSpacing(8);
+  deviceLayout_->addLayout(body, 1);
+
+  const QJsonObject m = info_["machine"].toObject();
+  const QJsonObject cpu = m["cpu"].toObject();
+  const QJsonArray coreList = cpu["cores"].toArray();
+  QMap<QString, int> types;
+  for (const QJsonValue &c : coreList) types[c.toObject()["type"].toString()]++;
+  const bool hybrid = types.size() > 1;
+
+  /* the processor, as large as its name allows: the model at full size, the family above the rule */
+  QString model = cpu["model"].toString();
+  for (const char *junk : {"(R)", "(TM)", " Processor", "Genuine "}) model.remove(QString::fromLatin1(junk));
+  model.remove(QRegularExpression(QStringLiteral(" w/ .*$| \\d+-Core.*$| CPU(?= @|$)| @ .*$")));
+  QStringList words = model.simplified().split(' ', Qt::SkipEmptyParts);
+  const QString big = words.isEmpty() ? tr("CPU") : words.takeLast();
+  QFrame *hero = new PrintedFrame;
+  hero->setProperty("dots", true);
+  hero->setObjectName("hero");
+  hero->setAttribute(Qt::WA_StyledBackground);
+  hero->setStyleSheet(QStringLiteral("#hero { background:#2D5BFF; } #hero QLabel { color:#F7F8F9; }"));
+  hero->setFixedWidth(460);
+  auto *hl = new QVBoxLayout(hero);
+  hl->setContentsMargins(20, 16, 20, 20);
+  hl->setSpacing(0);
+  auto *top = new QHBoxLayout;
+  auto *procLabel = new QLabel(tr("Processor:"));
+  procLabel->setFont(monoFont(9));
+  auto *rev = new QLabel(tr("REV. %1").arg(info_["version"].toString()));
+  rev->setFont(monoFont(9));
+  top->addWidget(procLabel, 1);
+  top->addWidget(rev);
+  hl->addLayout(top);
+  hl->addStretch();
+  double pt = 300;
+  QFont bigFont = displayFont(pt, QFont::DemiBold, 50);
+  while (pt > 40 && QFontMetrics(bigFont).horizontalAdvance(big) > 420) bigFont = displayFont(pt -= 10, QFont::DemiBold, 50);
+  auto *bigLabel = new QLabel(big);
+  bigLabel->setFont(bigFont);
+  bigLabel->setStyleSheet(QStringLiteral("color:#0C1430"));
+  hl->addWidget(bigLabel);
+  auto *family = new QLabel(words.join(' ').toUpper());
+  family->setFont(displayFont(19, QFont::ExtraBold, 125));
+  family->setWordWrap(true);
+  hl->addWidget(family);
+  auto *rule = new QFrame;
+  rule->setFixedHeight(1);
+  rule->setStyleSheet(QStringLiteral("background:#9DB3FF; border:none;"));
+  hl->addSpacing(12);
+  hl->addWidget(rule);
+  hl->addSpacing(8);
+  QStringList counts;
+  if (hybrid) {
+    const QStringList kinds = types.keys();
+    for (auto k = kinds.rbegin(); k != kinds.rend(); ++k) /* P before E: fast first */
+      counts << QStringLiteral("%1 %2").arg(types[*k]).arg(*k == "P" ? tr("fast") : tr("efficient"));
+  } else {
+    counts << tr("%1 threads").arg(coreList.size());
+  }
+  auto *line = new QLabel(QStringLiteral("%1 · %2").arg(counts.join(QStringLiteral(" + ")), prettyOs(m["os"].toString())));
+  line->setFont(uiFont(11, QFont::DemiBold));
+  hl->addWidget(line);
+  body->addWidget(hero);
+
+  /* facts, then one tile per thread */
+  auto *mid = new QVBoxLayout;
+  mid->setSpacing(8);
+  auto *facts = new QGridLayout;
+  facts->setSpacing(8);
+  const QString powerSource = m["capabilities"].toObject()["power"].toString();
+  QVector<std::array<QString, 3>> stats = {
+      {tr("ARCHITECTURE"), prettyIsa(m["isa"].toString()), tr("The tests are built for this")},
+      {tr("LARGEST CACHE"),
+       cpu["llc_bytes"].toDouble() > 0 ? QStringLiteral("%1 MiB").arg(cpu["llc_bytes"].toDouble() / (1 << 20)) : QStringLiteral("—"),
+       tr("Shared between threads")},
+      {tr("POWER READINGS"), powerNeedsAdmin(info_) ? tr("Locked") : powerSource.isEmpty() ? tr("None") : tr("Readable"),
+       powerNeedsAdmin(info_) ? tr("Needs administrator rights") : tr("What runs can record")},
+      {tr("MODEL"), m["board"].toString().isEmpty() ? QStringLiteral("—") : m["board"].toString(), tr("As the system names it")},
+  };
+  for (int i = 0; i < stats.size(); i++) {
+    QFrame *f = card();
+    f->setFixedHeight(120);
+    auto *fl = new QVBoxLayout(f);
+    fl->setContentsMargins(16, 12, 16, 12);
+    fl->setSpacing(0);
+    auto *k = new QLabel(stats[i][0]);
+    k->setFont(labelFont(8));
+    fl->addWidget(k);
+    fl->addStretch();
+    auto *v = new QLabel(stats[i][1]);
+    double vp = 28;
+    QFont vf = displayFont(vp, QFont::DemiBold, 75);
+    while (vp > 14 && QFontMetrics(vf).horizontalAdvance(stats[i][1]) > 210) vf = displayFont(vp -= 2, QFont::DemiBold, 75);
+    v->setFont(vf);
+    fl->addWidget(v);
+    fl->addStretch();
+    fl->addWidget(text(stats[i][2], 9.5, QFont::Normal, t.muted));
+    facts->addWidget(f, i / 2, i % 2);
+  }
+  mid->addLayout(facts);
+  QFrame *threads = card();
+  auto *th = new QVBoxLayout(threads);
+  th->setContentsMargins(16, 14, 16, 16);
+  th->setSpacing(10);
+  auto *thHead = new QLabel(tr("THREADS"));
+  thHead->setFont(labelFont(8));
+  th->addWidget(thHead);
+  auto *tiles = new QWidget;
+  auto *tg = new QGridLayout(tiles);
+  tg->setContentsMargins(0, 0, 0, 0);
+  tg->setSpacing(8);
+  const int n = int(coreList.size()), cols = std::max(4, int(std::ceil(std::sqrt(n * 1.4))));
+  QMap<QString, int> seen;
+  for (int i = 0; i < n; i++) {
+    const QString type = coreList[i].toObject()["type"].toString();
+    const bool fast = hybrid && type == "P";
+    const QString kind = !hybrid ? tr("THREAD") : fast ? tr("FAST") : tr("EFFICIENT");
+    auto *f = new QFrame;
+    f->setObjectName("threadTile");
+    f->setAttribute(Qt::WA_StyledBackground);
+    const QColor bg = fast ? t.accent : t.raised, fg = fast ? t.onAccent : t.text;
+    f->setStyleSheet(QStringLiteral("#threadTile { background:%1; } #threadTile QLabel { color:%2; }").arg(bg.name(), fg.name()));
+    f->setMinimumHeight(n > 16 ? 44 : 84);
+    auto *fl = new QVBoxLayout(f);
+    fl->setContentsMargins(cols > 6 ? 6 : 10, 8, cols > 6 ? 6 : 10, 8);
+    fl->setSpacing(0);
+    if (cols <= 6) {
+      auto *kl = new QLabel(kind);
+      kl->setFont(monoFont(8));
+      fl->addWidget(kl);
+      fl->addStretch();
+    }
+    auto *num = new QLabel(QString::number(++seen[type]));
+    num->setFont(displayFont(cols > 6 ? 16 : 46, QFont::DemiBold, 50));
+    fl->addWidget(num);
+    tg->addWidget(f, i / cols, i % cols);
+  }
+  auto *ts = new QScrollArea;
+  ts->setHorizontalScrollBarPolicy(Qt::ScrollBarAlwaysOff);
+  ts->setWidget(tiles);
+  ts->setWidgetResizable(true);
+  ts->setFrameShape(QFrame::NoFrame);
+  th->addWidget(ts, 1);
+  mid->addWidget(threads, 1);
+  body->addLayout(mid, 1);
+
+  /* the app: what used to hide behind a menu */
+  QFrame *app = card();
+  app->setFixedWidth(300);
+  auto *al = new QVBoxLayout(app);
+  al->setContentsMargins(16, 16, 16, 16);
+  al->setSpacing(0);
+  auto *appHead = new QLabel(tr("THIS APP"));
+  appHead->setFont(labelFont(8));
+  appHead->setContentsMargins(0, 0, 0, 8);
+  al->addWidget(appHead);
+  al->addWidget(hairline());
+  auto *darkRow = new QWidget;
+  darkRow->setFixedHeight(52);
+  auto *dr = new QHBoxLayout(darkRow);
+  dr->setContentsMargins(0, 0, 0, 0);
+  auto *darkLabel = new QLabel(tr("Dark theme"));
+  darkLabel->setFont(uiFont(10.5, QFont::DemiBold));
+  dr->addWidget(darkLabel, 1);
+  auto *dark = new Toggle(QString());
+  dark->setChecked(t.dark);
+  connect(dark, &Toggle::toggled, this, &MainWindow::setDark);
+  dr->addWidget(dark);
+  al->addWidget(darkRow);
+  al->addWidget(hairline());
+  auto row = [&](const QString &label, auto slot) {
+    auto *b = new QPushButton(label);
+    b->setObjectName("row");
+    b->setCursor(Qt::PointingHandCursor);
+    b->setStyleSheet(QStringLiteral("min-height:52px; max-height:52px;"));
+    connect(b, &QPushButton::clicked, this, slot);
+    al->addWidget(b);
+    al->addWidget(hairline());
+  };
+  row(tr("Prepare compile tests…"), [this] { prepareCompileTests(); });
+  row(tr("Use another compile-test snapshot…"), [this] { chooseSnapshot(); });
+  if (powerNeedsAdmin(info_)) {
+#ifdef Q_OS_LINUX
+    row(tr("Allow power readings until reboot…"), [this] {
+      if (proc_) return;
+      if (allowPowerReadings()) {
+        loadInfo();
+        QTimer::singleShot(0, this, [this] { refreshDevice(); });
+        Stub::tell(this, Stub::System, tr("SYS / POWER"), tr("Power readings allowed"),
+                   tr("Runs record the processor's power until the next reboot."));
+      } else {
+        powerNotAllowed(false);
+      }
+    });
+#else
+    row(tr("Restart as administrator to measure power"), [this] {
+      if (!proc_ && restartAsAdmin()) qApp->quit();
+    });
+#endif
+  }
+  row(tr("Data folders…"), [this] { showDataFolders(); });
+  row(tr("What do these terms mean?"), [this] { showGlossary(); });
+  row(tr("About Prismark"), [this] { showAbout(); });
+  al->addStretch();
+  body->addWidget(app);
 }
 
 /* The stress test's settings, above its cards and shown only on its tab: Run starts it at once with these. Each
    change is remembered. */
 QWidget *MainWindow::buildStressSettings() {
-  stressSettings_ = new QWidget;
+  stressSettings_ = new QFrame; /* signal blue, in both themes */
+  stressSettings_->setObjectName("stressPanel");
+  stressSettings_->setAttribute(Qt::WA_StyledBackground);
+  stressSettings_->setStyleSheet(QStringLiteral("#stressPanel { background:#2D5BFF; } #stressPanel QLabel { color:#F7F8F9; }"));
   auto *l = new QVBoxLayout(stressSettings_);
-  l->setContentsMargins(4, 0, 4, 12);
+  l->setContentsMargins(14, 12, 14, 12);
   l->setSpacing(6);
-  l->addWidget(sectionLabel(tr("Run settings")));
+  auto *settingsHead = new QLabel(tr("Run settings"));
+  settingsHead->setFont(labelFont(8));
+  l->addWidget(settingsHead);
   QSettings set;
   auto choice = [&](const QString &label, const QString &key, const QVariant &dflt,
                     const QVector<QPair<QString, QVariant>> &items) {
     l->addWidget(text(label, 9.5, QFont::DemiBold));
     auto *seg = new Segmented;
+    seg->setOnSignal();
+    seg->setFilling(44); /* every row of choices as wide as the panel */
     QStringList names;
     int cur = 0;
     for (int i = 0; i < items.size(); i++) {
@@ -574,7 +1051,7 @@ QWidget *MainWindow::buildStressSettings() {
     seg->setItems(names);
     seg->setCurrent(cur);
     connect(seg, &Segmented::changed, this, [key, items](int i) { QSettings().setValue(key, items[i].second); });
-    l->addWidget(seg, 0, Qt::AlignLeft);
+    l->addWidget(seg);
   };
   choice(tr("Length"), "stress_time", "10m",
          {{tr("10 min"), "10m"}, {tr("30 min"), "30m"}, {tr("Until stopped"), "until-stopped"}});
@@ -582,6 +1059,7 @@ QWidget *MainWindow::buildStressSettings() {
          {{tr("Never"), 0}, {QStringLiteral("85°"), 85}, {QStringLiteral("90°"), 90}, {QStringLiteral("95°"), 95},
           {QStringLiteral("100°"), 100}});
   auto *stopErr = new Toggle(tr("Stop at the first wrong result"));
+  stopErr->setOnSignal();
   stopErr->setChecked(set.value("stress_stop_on_error", true).toBool());
   connect(stopErr, &Toggle::toggled, this, [](bool on) { QSettings().setValue("stress_stop_on_error", on); });
   l->addWidget(stopErr);
@@ -640,6 +1118,7 @@ QWidget *MainWindow::buildMeasuringWindow() {
   fzWarn_ = text(QString(), 9, QFont::Normal, theme().bad);
   l->addWidget(fzWarn_);
   fzCancel_ = new QPushButton(tr("Cancel run"));
+  fzCancel_->setObjectName("outline");
   fzCancel_->setCursor(Qt::PointingHandCursor);
   connect(fzCancel_, &QPushButton::clicked, this, &MainWindow::cancelRun);
   l->addWidget(fzCancel_, 0, Qt::AlignLeft);
@@ -754,17 +1233,12 @@ void MainWindow::refresh() {
   if (!shown.contains(group_)) group_ = shown.value(0);
   if (const Metric *m = findMetric(metric_); !m || !visible(*m) || m->group != group_) metric_ = firstVisible(group_);
   banner_->setVisible(std::any_of(runs_.begin(), runs_.end(), [](const RunSummary &r) { return r.placeholder; }));
-  QVector<QString> main = shown;
-  main.removeAll(QStringLiteral("stress"));
   QStringList names;
-  for (const QString &id : main)
+  for (const QString &id : shown)
     for (const Group &g : groups())
       if (g.id == id) names << QString(g.label).replace("&&", "&");
   groups_->setItems(names);
-  groups_->setCurrent(int(main.indexOf(group_))); /* -1 while the stress test is shown: no tab highlighted */
-  stressTab_->setVisible(shown.contains(QStringLiteral("stress")));
-  stressTab_->setNumbered(int(names.size()) + 1);
-  stressTab_->setCurrent(group_ == "stress" ? 0 : -1);
+  groups_->setCurrent(int(shown.indexOf(group_)));
   refreshTests();
   refreshRanking();
   refreshDetails();
@@ -773,6 +1247,7 @@ void MainWindow::refresh() {
 void MainWindow::refreshTests() {
   for (QAbstractButton *b : cards_.buttons()) {
     cards_.removeButton(b);
+    b->hide();
     b->deleteLater();
   }
   for (const Group &g : groups())
@@ -780,7 +1255,7 @@ void MainWindow::refreshTests() {
       testsTitle_->setText(QStringLiteral("%1 · %2").arg(tr("TESTS"), QString(g.label).replace("&&", "&").toUpper()));
       groupDesc_->setText(esc(g.desc));
     }
-  int hidden = 0;
+  int hidden = 0, shownCards = 0, measured = 0;
   for (const Metric &m : metrics()) {
     if (m.group != group_) continue;
     if (!visible(m)) {
@@ -803,6 +1278,8 @@ void MainWindow::refreshTests() {
       CompileStatus st = compileStatus(info_, QSettings().value("k1_data").toString());
       if (m.kernels == "K1" ? !st.canRunK1() : !st.canRunK1x()) note = tr("Needs one-time setup · press Run");
     }
+    shownCards++;
+    if (latest) measured++;
     c->setContent(m.name, m.sub, latest ? formatValue(latest->metrics[m.id].v) : QString(), m.unit, note);
     c->setToolTip(QStringLiteral("<p>%1</p>").arg(esc(m.desc)));
     c->setChecked(m.id == metric_);
@@ -824,16 +1301,28 @@ void MainWindow::refreshTests() {
                                   : QString());
   moreTests_->setVisible(hidden > 0);
   stressSettings_->setVisible(group_ == "stress");
+  const QVector<QString> shownGroups = visibleGroups();
+  for (const Group &g : groups())
+    if (g.id == group_)
+      progress_->setContent(QString(g.label).replace("&&", "&").toUpper(),
+                            tr("%1 OF %2").arg(shownGroups.indexOf(group_) + 1, 2, 10, QChar('0')).arg(shownGroups.size(), 2, 10, QChar('0')),
+                            measured, shownCards);
   refreshRunLabels();
+  settle(testsColumn_);
 }
 
 void MainWindow::refreshRunLabels() {
-  bool quick = quick_->isChecked();
-  runAll_->setText(quick ? tr("▶  Run all quick") : tr("▶  Run all full"));
-  runAll_->setToolTip(advanced_ ? tr("Runs every test but the stress tests, which run from their own cards.")
-                                : tr("Runs the tests of the Simple view. Switch to Advanced to run every test."));
-  bool stress = group_ == "stress";
-  quick_->setVisible(!stress); /* a stress test has no quick run */
+  bool quick = quick_->isChecked(), stress = group_ == "stress";
+  runAll_->setText(quick ? tr("RUN ALL QUICK") : tr("RUN ALL FULL"));
+  /* a stress test has no quick run: the button runs the selected one and takes the switch's place, and the tabs stay
+     where they are */
+  const int width = runAll_->sizeHint().width();
+  quickPanel_->setVisible(!stress);
+  runAll_->setFixedWidth(width + (stress ? quickPanel_->width() + 8 : 0));
+  if (stress) runAll_->setText(tr("RUN STRESS TEST"));
+  runAll_->setToolTip(stress ? tr("Runs the selected stress test, with the settings on this tab.")
+                      : advanced_ ? tr("Runs every test but the stress tests, which run from their own tab.")
+                                  : tr("Runs the tests of the Simple view. Switch to Advanced to run every test."));
   for (QAbstractButton *b : cards_.buttons())
     static_cast<TestCard *>(b)->setRunLabel(stress ? tr("Run") : quick ? tr("Run quick") : tr("Run full"));
 }
@@ -846,6 +1335,7 @@ void MainWindow::refreshRanking() {
   desc_->setText(esc(m->desc));
   how_->setText(esc(m->how));
   read_->setText(esc(m->read));
+  rankTitle_->setText(tr("RANKING · %1 · %2").arg(m->unit.toUpper(), m->higherBetter ? tr("HIGHER IS BETTER") : tr("LOWER IS BETTER")));
   QVector<RankRow> rows;
   /* Quick runs are a first look: rough numbers, so they stay out of the ranking; the latest is offered below it. */
   const RunSummary *latest = nullptr, *quick = nullptr;
@@ -865,11 +1355,10 @@ void MainWindow::refreshRanking() {
     RankRow row;
     row.runId = r.id;
     row.yours = !r.reference;
-    row.name = r.reference ? r.name : tr("This PC · %1").arg(r.name);
+    row.name = r.reference ? shortCpu(r.name) : tr("This device · %1").arg(shortCpu(r.name));
     row.detail = r.reference ? QString("%1 · %2").arg(r.machine["os"].toString(), r.machine["isa"].toString()) : r.date;
     if (m->kernels == "K12" && !r.vectorIsa.isEmpty()) row.detail += QStringLiteral(" · ") + r.vectorIsa;
     if (r.placeholder) row.tags << "placeholder";
-    if (r.reference && !r.placeholder) row.tags << "reference";
     if (&r == latest && allRuns_->isChecked()) row.tags << "latest";
     if (r.state["ac_online"] == QJsonValue(false)) row.tags << tr("on battery");
     if (!r.complete) row.tags << "partial";
@@ -889,14 +1378,14 @@ void MainWindow::refreshRanking() {
   }
   bool shown = std::any_of(rows.begin(), rows.end(), [&](const RankRow &x) { return x.runId == selected_; }) ||
                (quick && quick->id == selected_); /* a quick run opened from the note below */
-  if (!shown && (latest || quick)) { /* follow the test: select your result that this page shows */
+  /* on the Tests page, follow the test: select your result that it shows. Results may open any run. */
+  if (!shown && page_ == 0 && (latest || quick)) {
     selected_ = (latest ? latest : quick)->id;
     QTimer::singleShot(0, this, [this] { refreshDetails(); });
   }
   if (quick) {
     const QString link = QStringLiteral("<a href='%1' style='color:%2; text-decoration:none'>%3</a>")
-                             .arg(quick->id, theme().link.name(),
-                                  quick->id == selected_ ? tr("Shown on the right") : tr("Show its report"));
+                             .arg(quick->id, theme().link.name(), tr("Show its report"));
     if (!part.isEmpty() && !quick->metrics.contains(m->id)) {
       const RunSummary::Stress x = quick->stress.value(part);
       QString v = x.verdict == "failed"    ? QStringLiteral("<b style='color:%1'>%2</b>").arg(theme().bad.name(), tr("failed"))
@@ -916,6 +1405,61 @@ void MainWindow::refreshRanking() {
   quickNote_->setVisible(quick != nullptr);
   ranking_->setRows(rows, m->higherBetter, m->unit, selected_);
   refreshContext();
+  refreshPass();
+}
+
+/* The highlighted result on the test page: volt when it is yours, signal blue when it is a reference. */
+void MainWindow::refreshPass() {
+  const Theme &t = theme();
+  const Metric *m = findMetric(metric_);
+  const RunSummary *r = selectedRun();
+  const bool has = m && r && r->metrics.contains(m->id), reference = r && r->reference;
+  const QColor bg = reference ? QColor(45, 91, 255) : t.accent, fg = reference ? t.card : t.onAccent;
+  const QColor ink = t.onAccent, onInk = reference ? QColor(247, 248, 249) : t.accent;
+  pass_->setStyleSheet(QStringLiteral("#pass { background:%1; } #pass QLabel { color:%2; } "
+                                      "#pass QPushButton { background:%3; color:%4; border:none; }")
+                           .arg(bg.name(), reference ? QStringLiteral("#F7F8F9") : fg.name(), ink.name(), onInk.name()));
+  pass_->setProperty("dots", reference);
+  pass_->update();
+  passKind_->setText(!r ? tr("NO RUN YET") : reference ? tr("REFERENCE") : r->quick ? tr("QUICK RUN") : tr("YOUR RUN"));
+  passDate_->setText(r && r->date.size() >= 16
+                         ? QStringLiteral("%1 %2").arg(QDate::fromString(r->date.left(10), QStringLiteral("yyyy-MM-dd")).toString(QStringLiteral("d")),
+                                                       QLocale::c().monthName(r->date.mid(5, 2).toInt(), QLocale::ShortFormat).toUpper()) +
+                               " " + r->date.mid(11)
+                         : QString());
+  /* the number takes the size that fits the pass */
+  const QString score = has ? formatValue(r->metrics[m->id].v) : QStringLiteral("—");
+  double pt = 96;
+  QFont f = displayFont(pt, QFont::DemiBold, 50);
+  while (pt > 40 && QFontMetrics(f).horizontalAdvance(score) > 268) f = displayFont(pt -= 6, QFont::DemiBold, 50);
+  passScore_->setFont(f);
+  passScore_->setFixedHeight(QFontMetrics(f).capHeight() + 22); /* the figures, without the font's tall line */
+  passScore_->setText(score);
+  passUnit_->setText(!m ? QString() : r ? QStringLiteral("%1 · %2").arg(m->unit, r->name) : m->unit);
+  /* a dotted rule, the pass's tear line */
+  passRule_->setStyleSheet(QStringLiteral("border:none; border-top:2px dotted %1; background:transparent;")
+                               .arg(reference ? QStringLiteral("#F7F8F9") : t.onAccent.name()));
+  QString hot;
+  if (r && m) {
+    const QString mode = m->group == "st" ? QStringLiteral("st_sustained") : m->group == "mc" ? QStringLiteral("mc_threaded") : QString();
+    if (!mode.isEmpty() && r->hot.contains(mode)) {
+      const QString label = m->group == "st" ? tr("one core") : tr("all cores");
+      const double pct = (1 - r->hot[mode].v) * 100;
+      hot = pct >= 1 ? tr("%1 % slower on %2").arg(QString::number(pct, 'f', 0), label) : tr("no slowdown on %1").arg(label);
+    }
+  }
+  passHotHead_->setVisible(!hot.isEmpty());
+  passHot_->setVisible(!hot.isEmpty());
+  passHot_->setText(hot);
+  passRule_->setVisible(r != nullptr);
+  passOpen_->setVisible(r != nullptr);
+}
+
+void MainWindow::openRun(const QString &id) {
+  selected_ = id;
+  showPage(1);
+  refreshRanking();
+  refreshDetails();
 }
 
 void MainWindow::refreshContext() {
@@ -1172,148 +1716,171 @@ void MainWindow::selectMetric(const QString &id) {
 }
 
 void MainWindow::refreshDetails() {
+  refreshRuns();
   /* rebuild the report of the highlighted run */
-  while (QLayoutItem *it = detailsLayout_->takeAt(0)) {
-    if (it->widget()) it->widget()->deleteLater();
-    delete it;
-  }
+  clearLayout(detailsLayout_);
+  clearLayout(aboutLayout_);
   const Theme &t = theme();
   const RunSummary *r = selectedRun();
   if (!r) {
-    detailsLayout_->addWidget(text(tr("Pick a result in the ranking to see its report."), 10, QFont::Normal, t.muted));
+    detailsLayout_->addWidget(text(tr("No runs yet. Press Run on a test to measure this computer."), 10.5, QFont::Normal, t.muted));
     detailsLayout_->addStretch();
+    aboutLayout_->addStretch();
     return;
   }
 
   /* heading */
-  detailsLayout_->addWidget(text(esc(r->name), 14, QFont::Bold));
   QVector<QLabel *> meta;
   if (r->placeholder) meta << pill(tr("example values"), t.warnText, t.warnBg);
-  meta << pill(r->reference ? tr("reference") : tr("your run"), r->reference ? t.muted : t.onAccent,
-               r->reference ? t.track : t.accentSoft);
-  if (!r->date.isEmpty()) meta << pill(r->date, t.muted, t.track);
-  if (r->quick) meta << pill(tr("quick run"), t.muted, t.track);
-  if (!r->complete) meta << pill(tr("incomplete"), t.bad, t.track);
+  meta << pill(r->reference ? tr("reference") : tr("your run"), r->reference ? t.text : t.onAccent,
+               r->reference ? t.recess : t.accentSoft);
+  if (!r->date.isEmpty()) meta << pill(r->date, t.text, t.raised);
+  if (r->quick) meta << pill(tr("quick run"), t.text, t.raised);
+  if (!r->complete) meta << pill(tr("incomplete"), t.bad, t.raised);
   if (r->busy) meta << pill(tr("busy machine"), t.warnText, t.warnBg);
   if (!r->stress.isEmpty()) { /* the stress test's verdict, over its parts */
     QString v = "stable";
     for (const auto &x : r->stress)
       if (x.verdict == "failed" || (x.verdict == "too_hot" && v != "failed")) v = x.verdict;
-    meta << (v == "failed"    ? pill(tr("stress test failed"), t.bad, t.track)
+    meta << (v == "failed"    ? pill(tr("stress test failed"), t.bad, t.raised)
              : v == "too_hot" ? pill(tr("stopped hot"), t.warnText, t.warnBg)
-                              : pill(tr("stress test stable"), t.good, t.track));
+                              : pill(tr("stress test stable"), t.good, t.raised));
   }
   detailsLayout_->addWidget(pillRow(meta));
+  QLabel *heading = text(esc(r->name), 22, QFont::Bold);
+  heading->setFont(displayFont(25, QFont::ExtraBold, 118));
+  detailsLayout_->addWidget(heading);
   if (r->busy)
     detailsLayout_->addWidget(text(tr("Other programs were working when this run started, so its results may be lower "
                                       "than this computer can do."),
-                                   9, QFont::Normal, t.muted));
+                                   9.5, QFont::Normal, t.muted));
   if (r->placeholder)
     detailsLayout_->addWidget(text(tr("Made-up example values shown for comparison until real reference machines "
                                       "have been measured."),
-                                   9, QFont::Normal, t.muted));
+                                   9.5, QFont::Normal, t.muted));
   else if (r->quick)
     detailsLayout_->addWidget(text(tr("A quick run gives a first look. Its numbers are rough; use a full run to "
                                       "compare computers."),
-                                   9, QFont::Normal, t.muted));
+                                   9.5, QFont::Normal, t.muted));
 
-  /* results, grouped like the tabs; each name opens its test */
-  detailsLayout_->addWidget(sectionLabel(tr("Results")));
-  auto *tests = new QWidget;
-  auto *tg = new QGridLayout(tests);
-  tg->setContentsMargins(0, 0, 0, 0);
-  tg->setVerticalSpacing(5);
-  tg->setHorizontalSpacing(12);
-  tg->setColumnStretch(0, 1);
-  int row = 0;
-  QString lastGroup;
+  /* results, one tab per group, as on the phones; each tile opens its test */
+  QVector<QString> tabs;
   int hiddenResults = 0;
-  for (const Metric &mt : metrics()) {
-    if (!r->metrics.contains(mt.id)) continue;
-    if (!visible(mt)) {
-      hiddenResults++;
-      continue;
-    }
-    if (mt.group != lastGroup) {
-      lastGroup = mt.group;
-      for (const Group &gr : groups())
-        if (gr.id == mt.group) {
-          QString label = QString(gr.label).replace("&&", "&");
-          QLabel *h = text(esc(label), 8.5, QFont::DemiBold, t.faint);
-          h->setContentsMargins(0, row ? 6 : 0, 0, 0);
-          tg->addWidget(h, row++, 0, 1, 2);
+  for (const Group &g : groups())
+    for (const Metric &mt : metrics())
+      if (mt.group == g.id && r->metrics.contains(mt.id)) {
+        if (!visible(mt)) {
+          hiddenResults++;
+          continue;
         }
-    }
+        if (!tabs.contains(g.id)) tabs << g.id;
+      }
+  QString shownGroup = reportGroup_.isEmpty() ? group_ : reportGroup_;
+  if (!tabs.contains(shownGroup)) shownGroup = tabs.value(0);
+  if (!tabs.isEmpty()) {
+    auto *seg = new Segmented;
+    seg->setFilling(40);
+    QStringList names;
+    for (const QString &id : tabs)
+      for (const Group &g : groups())
+        if (g.id == id) names << QString(g.label).replace("&&", "&");
+    seg->setItems(names);
+    seg->setCurrent(int(tabs.indexOf(shownGroup)));
+    connect(seg, &Segmented::changed, this, [this, tabs](int i) {
+      reportGroup_ = tabs.value(i);
+      QTimer::singleShot(0, this, [this] { refreshDetails(); });
+    });
+    detailsLayout_->addSpacing(4);
+    detailsLayout_->addWidget(seg);
+  }
+  auto *grid = new QWidget;
+  grid->setSizePolicy(QSizePolicy::Preferred, QSizePolicy::Maximum);
+  auto *tg = new QGridLayout(grid);
+  tg->setContentsMargins(0, 4, 0, 0);
+  tg->setSpacing(8);
+  for (int c = 0; c < 3; c++) tg->setColumnStretch(c, 1);
+  int cell = 0;
+  for (const Metric &mt : metrics()) {
+    if (mt.group != shownGroup || !visible(mt) || !r->metrics.contains(mt.id)) continue;
     const Value &v = r->metrics[mt.id];
-    bool current = mt.id == metric_;
-    QLabel *name = text(QStringLiteral("<a href='%1' style='color:%2; text-decoration:none'>%3</a>")
-                            .arg(mt.id, (current ? t.link : t.text).name(), esc(mt.name)),
-                        9.5, current ? QFont::DemiBold : QFont::Normal);
-    name->setCursor(Qt::PointingHandCursor);
-    name->setToolTip(esc(mt.title));
-    connect(name, &QLabel::linkActivated, this, &MainWindow::selectMetric);
-    tg->addWidget(name, row, 0);
-    auto *val = text(QStringLiteral("<b>%1</b> <span style='color:%2'>%3</span>").arg(formatValue(v.v), t.muted.name(), esc(mt.unit)), 10);
-    val->setAlignment(Qt::AlignRight | Qt::AlignTop);
-    val->setWordWrap(false);
+    QStringList flags;
     QString tip = v.hasCi() ? tr("Likely between %1 and %2 %3").arg(formatValue(v.lo), formatValue(v.hi), mt.unit) : QString();
     if (v.unsettled && !r->quick) {
-      val->setText(QStringLiteral("<span style='color:%1; font-size:8pt'>%2</span> ").arg(t.warnText.name(), tr("not settled")) + val->text());
+      flags << tr("not settled");
       tip += tr("\nAn older result: the speed was still changing when its 10-minute limit was reached.");
     }
     if (v.clamped) {
-      val->setText(QStringLiteral("<span style='color:%1; font-size:8pt'>%2</span> ").arg(t.warnText.name(), tr("throttled")) +
-                   val->text());
+      flags << tr("throttled");
       tip += tr("\nThrottled: during %1 of its measured windows the computer's firmware held the CPU at %2 MHz, "
                 "below its own minimum clock. The score includes it.")
                  .arg(v.clamped)
                  .arg(QString::number(v.clampedMhz, 'f', 0));
     }
     if (v.ofThreads) {
-      val->setText(QStringLiteral("<span style='color:%1; font-size:8pt'>%2%3</span> ")
-                       .arg(t.warnText.name(), tr("%1 of %2 threads").arg(v.threads).arg(v.ofThreads),
-                            v.clamped ? QStringLiteral(" ·") : QString()) +
-                   val->text());
+      flags << tr("%1 of %2 threads").arg(v.threads).arg(v.ofThreads);
       tip += tr("\nMeasured on %1 of this computer's %2 threads (see Not measured below), so it is not an all-cores "
                 "result.")
                  .arg(v.threads)
                  .arg(v.ofThreads);
     }
-    val->setToolTip(tip);
-    tg->addWidget(val, row++, 1);
+    auto *tile = new ScoreTile(mt.name, mt.unit, mt.higherBetter, formatValue(v.v), flags.join(QStringLiteral(" · ")));
+    tile->setToolTip(tip.isEmpty() ? esc(mt.title) : tip.trimmed());
+    connect(tile, &ScoreTile::clicked, this, [this, id = mt.id] {
+      QTimer::singleShot(0, this, [this, id] {
+        page_ = 0; /* first: the Tests page may then select your result for this test */
+        selectMetric(id);
+        showPage(0);
+      });
+    });
+    tg->addWidget(tile, cell / 3, cell % 3);
+    cell++;
   }
-  if (!row)
+  /* how much slower the computer got during the warm-ups: what sustained use costs it */
+  const QString hotMode = shownGroup == "st" ? QStringLiteral("st_sustained") : shownGroup == "mc" ? QStringLiteral("mc_threaded") : QString();
+  if (!hotMode.isEmpty() && r->hot.contains(hotMode)) {
+    const double pct = std::max(0.0, (1 - r->hot[hotMode].v) * 100);
+    const QString label = shownGroup == "st" ? tr("one core") : tr("all cores");
+    auto *f = new QFrame;
+    f->setObjectName("hotTile");
+    f->setAttribute(Qt::WA_StyledBackground);
+    f->setStyleSheet(QStringLiteral("#hotTile { background:%1; } #hotTile QLabel { color:%2; }").arg(t.accent.name(), t.onAccent.name()));
+    f->setFixedHeight(150);
+    f->setToolTip(tr("Speed at the end of the one-minute warm-up against its first seconds. The long tests are measured "
+                     "after the warm-up, so they already include this slowdown."));
+    auto *fl = new QVBoxLayout(f);
+    fl->setContentsMargins(12, 10, 12, 10);
+    fl->setSpacing(0);
+    auto *k = new QLabel(tr("WHEN HOT"));
+    k->setFont(labelFont(8));
+    fl->addWidget(k);
+    fl->addStretch();
+    auto *n = new QLabel(tr("%1 %").arg(QString::number(pct, 'f', 0)));
+    n->setFont(displayFont(56, QFont::DemiBold, 50));
+    fl->addWidget(n);
+    fl->addStretch();
+    auto *s = new QLabel(pct >= 1 ? tr("slower on %1").arg(label) : tr("no slowdown on %1").arg(label));
+    s->setFont(uiFont(9.5, QFont::Bold));
+    fl->addWidget(s);
+    tg->addWidget(f, cell / 3, cell % 3, 1, cell % 3 == 2 ? 1 : 3 - cell % 3);
+  }
+  if (tabs.isEmpty())
     tg->addWidget(text(r->stress.isEmpty() ? tr("No results in this run.")
                                            : tr("A stress test shorter than 10 minutes has no score; its verdict is "
                                                 "above, and its test page shows the rest."),
                        9.5, QFont::Normal, t.muted),
-                  0, 0);
-  detailsLayout_->addWidget(tests);
+                  0, 0, 1, 3);
+  detailsLayout_->addWidget(grid);
   if (hiddenResults)
     detailsLayout_->addWidget(text(hiddenResults == 1 ? tr("1 more result in Advanced.") : tr("%1 more results in Advanced.").arg(hiddenResults),
-                                   9, QFont::Normal, t.faint));
-
-  /* how much slower the computer got during the warm-ups: what sustained use costs it */
-  if (!r->hot.isEmpty() || r->clampedSeries) {
-    QStringList hot;
-    for (const auto &[mode, label] : {std::pair{QStringLiteral("st_sustained"), tr("one core")},
-                                      std::pair{QStringLiteral("mc_threaded"), tr("all cores")}}) {
-      if (!r->hot.contains(mode)) continue;
-      double pct = (1 - r->hot[mode].v) * 100;
-      hot << (pct >= 1 ? tr("<b>%1 %</b> slower on %2").arg(QString::number(pct, 'f', 0), label)
-                       : tr("no slowdown on %1").arg(label));
-    }
-    if (r->clampedSeries)
-      hot << tr("the firmware throttled the CPU to <b>%1 MHz</b> during %2 test%3")
-                 .arg(QString::number(r->clampedMhz, 'f', 0))
-                 .arg(r->clampedSeries)
-                 .arg(r->clampedSeries == 1 ? QString() : QStringLiteral("s"));
-    detailsLayout_->addWidget(sectionLabel(tr("When hot")));
-    auto *l = text(hot.join(QStringLiteral(" · ")), 9.5);
-    l->setToolTip(tr("Speed at the end of the one-minute warm-up against its first seconds. The long tests are "
-                     "measured after the warm-up, so they already include this slowdown.\nFirmware throttling is the "
-                     "computer's firmware holding the CPU below its own minimum clock, often when it gets very hot; "
-                     "the tests it happened in are marked \"throttled\"."));
+                                   9, QFont::Normal, t.muted));
+  if (r->clampedSeries) {
+    auto *l = text(tr("The firmware throttled the CPU to <b>%1 MHz</b> during %2 test%3.")
+                       .arg(QString::number(r->clampedMhz, 'f', 0))
+                       .arg(r->clampedSeries)
+                       .arg(r->clampedSeries == 1 ? QString() : QStringLiteral("s")),
+                   9.5);
+    l->setToolTip(tr("Firmware throttling is the computer's firmware holding the CPU below its own minimum clock, often "
+                     "when it gets very hot; the tests it happened in are marked \"throttled\"."));
     detailsLayout_->addWidget(l);
   }
 
@@ -1337,22 +1904,19 @@ void MainWindow::refreshDetails() {
     detailsLayout_->addWidget(sectionLabel(tr("Not measured")));
     detailsLayout_->addWidget(text(un.join("<br>"), 9.5));
   }
+  detailsLayout_->addStretch();
 
   /* the computer, in a few lines */
-  detailsLayout_->addWidget(sectionLabel(r->reference ? tr("Computer") : tr("This computer")));
-  auto *grid = new QWidget;
-  auto *g = new QGridLayout(grid);
-  g->setContentsMargins(0, 0, 0, 0);
-  g->setHorizontalSpacing(14);
-  g->setVerticalSpacing(5);
-  g->setColumnStretch(1, 1);
-  int krow = 0;
-  auto kv = [&](QGridLayout *into, int &n, const QString &k, const QString &v, const QString &tip = QString()) {
+  QLabel *deviceHead = new QLabel(r->reference ? tr("DEVICE") : tr("THIS DEVICE"));
+  deviceHead->setFont(labelFont(8));
+  aboutLayout_->addWidget(deviceHead);
+  auto kv = [&](QVBoxLayout *into, const QString &k, const QString &v, const QString &tip = QString()) {
     if (v.trimmed().isEmpty()) return;
-    QLabel *key = text(k, 9.5, QFont::Normal, t.muted);
+    QLabel *key = text(esc(k), 9.5, QFont::Normal, t.muted);
+    key->setContentsMargins(0, 8, 0, 0);
     key->setToolTip(tip);
-    into->addWidget(key, n, 0, Qt::AlignTop);
-    into->addWidget(text(esc(v), 9.5), n++, 1);
+    into->addWidget(key);
+    into->addWidget(text(esc(v), 10, QFont::DemiBold));
   };
   const QJsonObject &m = r->machine;
   QJsonObject cpu = m["cpu"].toObject();
@@ -1361,99 +1925,123 @@ void MainWindow::refreshDetails() {
     QMap<QString, int> types;
     for (const QJsonValue &c : cpu["cores"].toArray()) types[c.toObject()["type"].toString()]++;
     QStringList tl;
-    for (auto it = types.begin(); it != types.end(); ++it)
-      tl << (it.key() == "P" && types.size() == 1 ? QString::number(it.value())
-                                                  : QStringLiteral("%1 %2").arg(it.value()).arg(it.key() == "P" ? tr("fast") : tr("efficient")));
+    const QStringList kinds = types.keys();
+    for (auto k = kinds.rbegin(); k != kinds.rend(); ++k) /* P before E: fast first */
+      tl << (*k == "P" && types.size() == 1 ? QString::number(types[*k])
+                                            : QStringLiteral("%1 %2").arg(types[*k]).arg(*k == "P" ? tr("fast") : tr("efficient")));
     cores = tr("%1 threads").arg(tl.join(" + "));
   } else {
     cores = tr("%1 threads").arg(m["cpus"].toInt());
   }
   QString model = cpu["model"].toString();
-  kv(g, krow, tr("Processor"), model.isEmpty() ? cores : model + " · " + cores);
-  QString os = m["os"].toString();
-  if (!os.isEmpty()) os[0] = os[0].toUpper();
-  kv(g, krow, tr("System"), os);
+  kv(aboutLayout_, tr("Processor"), model.isEmpty() ? cores : model + " · " + cores);
+  kv(aboutLayout_, tr("System"), prettyOs(m["os"].toString()));
   QJsonArray cpufreq = r->state["cpufreq"].toArray();
   if (!cpufreq.isEmpty())
-    kv(g, krow, tr("Power policy"), cpufreq[0].toObject()["governor"].toString(),
+    kv(aboutLayout_, tr("Power policy"), cpufreq[0].toObject()["governor"].toString(),
        tr("How the operating system picks the clock speed. It affects results, so it is recorded with every run."));
-  kv(g, krow, tr("Power mode"), r->state["power_mode"].toString());
+  kv(aboutLayout_, tr("Power mode"), r->state["power_mode"].toString());
   if (r->state.contains("ac_online") && !r->state["ac_online"].isNull())
-    kv(g, krow, tr("Power source"), r->state["ac_online"].toBool() ? tr("plugged in") : tr("battery"));
-  detailsLayout_->addWidget(grid);
+    kv(aboutLayout_, tr("Power source"), r->state["ac_online"].toBool() ? tr("plugged in") : tr("battery"));
 
   /* technical details, folded away */
   auto *techBtn = new QPushButton(techOpen_ ? tr("Hide technical details ▴") : tr("Technical details ▾"));
-  techBtn->setObjectName("ghost");
+  techBtn->setObjectName("row");
   techBtn->setCursor(Qt::PointingHandCursor);
   connect(techBtn, &QPushButton::clicked, this, [this] {
     techOpen_ = !techOpen_;
-    refreshDetails();
+    QTimer::singleShot(0, this, [this] { refreshDetails(); });
   });
-  auto *tbw = new QWidget;
-  auto *tbl = new QHBoxLayout(tbw);
-  tbl->setContentsMargins(0, 10, 0, 0);
-  tbl->addWidget(techBtn);
-  tbl->addStretch();
-  detailsLayout_->addWidget(tbw);
+  aboutLayout_->addSpacing(8);
+  aboutLayout_->addWidget(techBtn);
   if (techOpen_) {
-    auto *tw = new QWidget;
-    auto *tgl = new QGridLayout(tw);
-    tgl->setContentsMargins(0, 4, 0, 0);
-    tgl->setHorizontalSpacing(14);
-    tgl->setVerticalSpacing(5);
-    tgl->setColumnStretch(1, 1);
-    int trow = 0;
-    kv(tgl, trow, tr("Architecture"), m["isa"].toString());
-    kv(tgl, trow, tr("Kernel"), m["kernel"].toString());
-    kv(tgl, trow, tr("Board"), m["board"].toString());
+    kv(aboutLayout_, tr("Architecture"), m["isa"].toString());
+    kv(aboutLayout_, tr("Kernel"), m["kernel"].toString());
+    kv(aboutLayout_, tr("Board"), m["board"].toString());
     if (cpu["llc_bytes"].toDouble() > 0)
-      kv(tgl, trow, tr("Largest cache"), QStringLiteral("%1 MiB").arg(cpu["llc_bytes"].toDouble() / (1 << 20)));
+      kv(aboutLayout_, tr("Largest cache"), QStringLiteral("%1 MiB").arg(cpu["llc_bytes"].toDouble() / (1 << 20)));
     QString level = r->tiers["baseline"].toObject()["level"].toString();
-    if (!level.isEmpty()) kv(tgl, trow, tr("Built for"), QStringLiteral("%1 (%2)").arg(isaName(level), level));
+    if (!level.isEmpty()) kv(aboutLayout_, tr("Built for"), QStringLiteral("%1 (%2)").arg(isaName(level), level));
     if (!r->harness.isEmpty())
-      kv(tgl, trow, tr("Prismark"), tr("%1, built with %2").arg(r->harness["version"].toString(), r->harness["compiler"].toString()));
+      kv(aboutLayout_, tr("Prismark"), tr("%1, built with %2").arg(r->harness["version"].toString(), r->harness["compiler"].toString()));
     if (!r->frontend.isEmpty()) {
       QString kind = r->frontend["kind"].toString();
       QString fe = kind == "gui" ? tr("desktop app") : kind == "cli" ? tr("command line") : kind;
       if (r->frontend["ui_state"].toString() == "frozen") fe += tr(", window kept still");
-      kv(tgl, trow, tr("Started from"), fe);
+      kv(aboutLayout_, tr("Started from"), fe);
     }
-    if (!r->file.isEmpty()) kv(tgl, trow, tr("File"), r->file);
-    detailsLayout_->addWidget(tw);
+    if (!r->file.isEmpty()) kv(aboutLayout_, tr("File"), r->file);
   }
+  aboutLayout_->addStretch();
 
   bool ownReference = r->reference && QFileInfo(r->file).absolutePath() == QFileInfo(referencesDir()).absoluteFilePath();
   if (!r->reference || ownReference) {
-    auto *w = new QWidget;
-    auto *btns = new QHBoxLayout(w);
-    btns->setContentsMargins(0, 12, 0, 0);
-    auto *show = new QPushButton(tr("Show file"));
-    show->setObjectName("ghost");
-    connect(show, &QPushButton::clicked, this, [this] {
+    auto action = [&](const QString &label, const char *object) {
+      auto *b = new QPushButton(label);
+      b->setObjectName(object);
+      b->setCursor(Qt::PointingHandCursor);
+      b->setStyleSheet(QStringLiteral("min-height:26px;"));
+      aboutLayout_->addSpacing(4);
+      aboutLayout_->addWidget(b);
+      return b;
+    };
+    connect(action(tr("Show file"), "plain"), &QPushButton::clicked, this, [this] {
       if (const RunSummary *s = selectedRun()) QDesktopServices::openUrl(QUrl::fromLocalFile(QFileInfo(s->file).absolutePath()));
     });
-    btns->addWidget(show);
     if (ownReference) {
-      auto *rm = new QPushButton(tr("Remove reference"));
-      rm->setObjectName("ghost");
-      connect(rm, &QPushButton::clicked, this, &MainWindow::removeReference);
-      btns->addWidget(rm);
+      connect(action(tr("Remove reference"), "outline"), &QPushButton::clicked, this, &MainWindow::removeReference);
     } else {
-      auto *save = new QPushButton(tr("Save as reference…"));
-      save->setObjectName("ghost");
+      QPushButton *save = action(tr("Save as reference…"), "plain");
       save->setToolTip(tr("Keep this run in the rankings as a reference system to compare later runs with"));
       connect(save, &QPushButton::clicked, this, &MainWindow::saveAsReference);
-      auto *rm = new QPushButton(tr("Move to trash"));
-      rm->setObjectName("ghost");
-      connect(rm, &QPushButton::clicked, this, &MainWindow::removeSelected);
-      btns->addWidget(save);
-      btns->addWidget(rm);
+      connect(action(tr("Move to trash"), "outline"), &QPushButton::clicked, this, &MainWindow::removeSelected);
     }
-    btns->addStretch();
-    detailsLayout_->addWidget(w);
   }
-  detailsLayout_->addStretch();
+  settle(details_);
+  settle(aboutLayout_->parentWidget());
+}
+
+/* The Results page's list: your runs, newest first. Opening a run only moves the highlight: the list is built again
+   only when the runs themselves change, so it never stirs. */
+void MainWindow::refreshRuns() {
+  QStringList ids;
+  for (auto it = runs_.rbegin(); it != runs_.rend(); ++it)
+    if (!it->reference) ids << it->id;
+  bool same = ids.size() == tickets_.size();
+  for (int i = 0; same && i < ids.size(); i++) same = tickets_[i].first == ids[i];
+  if (same) {
+    for (const auto &[id, ticket] : tickets_) ticket->setChecked(id == selected_);
+    return;
+  }
+  clearLayout(runsLayout_);
+  tickets_.clear();
+  for (auto it = runs_.rbegin(); it != runs_.rend(); ++it) {
+    if (it->reference) continue;
+    QString kind = tr("Full"), note = it->complete ? tr("Every test it ran is ranked") : tr("Stopped early: a partial result");
+    if (it->quick) {
+      kind = tr("Quick");
+      note = tr("A first look, not ranked");
+    } else if (!it->stress.isEmpty()) {
+      kind = tr("Stress");
+      QString v = "stable";
+      for (const auto &x : it->stress)
+        if (x.verdict == "failed" || (x.verdict == "too_hot" && v != "failed")) v = x.verdict;
+      note = v == "failed" ? tr("Failed: a wrong result") : v == "too_hot" ? tr("Stopped at the temperature limit") : tr("Stable");
+    }
+    if (it->busy) note += tr(" · busy machine");
+    auto *ticket = new RunTicket(it->date, kind, note);
+    ticket->setChecked(it->id == selected_);
+    connect(ticket, &RunTicket::clicked, this, [this, id = it->id] {
+      QTimer::singleShot(0, this, [this, id] {
+        selected_ = id;
+        refreshRanking();
+        refreshDetails();
+      });
+    });
+    runsLayout_->addWidget(ticket);
+    tickets_.push_back({it->id, ticket});
+  }
+  runsCount_->setText(tr("%1 SAVED").arg(ids.size()));
 }
 
 /* ---------- pre-run checks ---------- */
@@ -1543,12 +2131,12 @@ bool MainWindow::askPower() {
   Stub box(this, Stub::System, tr("SYS / POWER"), tr("Allow power readings"),
            tr("Linux lets only root read the processor's energy counter. Allowing it asks for your password and "
               "lasts until the next reboot. Scores are the same either way; without it, results have no watts."));
-  const QString yes = tr("Allow power readings"), menu = tr("the menu can still allow them");
+  const QString yes = tr("Allow power readings"), menu = tr("the Device page can still allow them");
 #else
   Stub box(this, Stub::System, tr("SYS / POWER"), tr("Restart as administrator to measure power"),
            tr("This computer reports the processor's power draw only to administrators. Scores are the same "
               "either way; without it, results have no watts."));
-  const QString yes = tr("Restart as administrator"), menu = tr("the menu can still restart as administrator");
+  const QString yes = tr("Restart as administrator"), menu = tr("the Device page can still restart as administrator");
 #endif
   box.setTag(tr("optional"));
   QAbstractButton *noAsk = box.addCheck(tr("Do not ask again (%1)").arg(menu));
@@ -2001,7 +2589,7 @@ void MainWindow::showAbout() {
          tr("A CPU benchmark that treats every vendor the same. Each test is reported and ranked on its own; there "
             "is never one overall score. Reference systems tagged PLACEHOLDER are example values, not "
             "measurements."));
-  d.setCode(tr("Apache License 2.0\nInter, Saira, IBM Plex Mono: SIL Open Font License 1.1"));
+  d.setCode(tr("Apache License 2.0\nArchivo, Saira, IBM Plex Mono: SIL Open Font License 1.1"));
   d.addButton(tr("OK"), Stub::Primary);
   d.exec();
 }

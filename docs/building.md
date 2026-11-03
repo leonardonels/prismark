@@ -195,7 +195,7 @@ source needs a one-time setup, in this order:
    line in the configure output).
 3. **Prepare the snapshot.** This step is not done by any package or by the
    build: you start it yourself. In the app, press ▶ Run on a compile test and
-   then **Prepare now** (or Menu › Prepare compile tests). From a terminal:
+   then **Prepare now** (or Device › Prepare compile tests). From a terminal:
 
    ```sh
    tools/k1x/prepare.py                       # output in ~/.local/share/prismark/k1x

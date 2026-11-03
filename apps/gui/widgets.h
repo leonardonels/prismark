@@ -132,7 +132,7 @@ class TestCard : public QAbstractButton {
                   const QString &note);
   void setRunLabel(const QString &label); /* "Run quick" or "Run full" */
   QString id() const { return id_; }
-  QSize sizeHint() const override { return {300, 100}; }
+  QSize sizeHint() const override { return {300, 86}; }
 
  signals:
   void runRequested(const QString &id);
@@ -163,6 +163,9 @@ class Segmented : public QWidget {
   void setCurrent(int i);
   int current() const { return cur_; }
   void setNumbered(int first); /* the first item's number; 0: none */
+  void setFilling(int height); /* tabs of equal width that fill the widget, at this height */
+  void setCompact(); /* a small switch that fits in a panel's heading */
+  void setOnSignal() { onSignal_ = true; } /* for a signal blue panel: the current tab white, the others gray, as in the side column */
   QSize sizeHint() const override;
 
  signals:
@@ -177,6 +180,7 @@ class Segmented : public QWidget {
   QStringList items_;
   int cur_ = 0;
   int numbered_ = 0;
+  bool filling_ = false, compact_ = false, onSignal_ = false;
 };
 
 /* A switch with a label. */
@@ -185,9 +189,13 @@ class Toggle : public QAbstractButton {
  public:
   Toggle(const QString &text, QWidget *parent = nullptr);
   QSize sizeHint() const override;
+  void setOnSignal() { onSignal_ = true; } /* for a signal blue panel: a light label */
 
  protected:
   void paintEvent(QPaintEvent *) override;
+
+ private:
+  bool onSignal_ = false;
 };
 
 /* Static step indicator for the measuring page: a block with the step and a strip of parts, redrawn only when set. */
@@ -204,6 +212,88 @@ class StepRing : public QWidget {
  private:
   int step_ = 0, steps_ = 0;
   QString centre_;
+};
+
+/* The side column: the app's places, top to bottom, with labels that read bottom to top. */
+class SideColumn : public QWidget {
+  Q_OBJECT
+ public:
+  explicit SideColumn(const QStringList &items, QWidget *parent = nullptr);
+  void setCurrent(int i);
+  QSize sizeHint() const override { return {72, 400}; }
+
+ signals:
+  void changed(int i);
+
+ protected:
+  void paintEvent(QPaintEvent *) override;
+  void mousePressEvent(QMouseEvent *) override;
+
+ private:
+  QVector<QRectF> rects() const;
+  QStringList items_;
+  int cur_ = 0;
+};
+
+/* The space left under a group's test cards: how many of them have a result. It takes whatever height is free, and
+   states as much as fits. */
+class GroupProgress : public QWidget {
+  Q_OBJECT
+ public:
+  explicit GroupProgress(QWidget *parent = nullptr);
+  void setContent(const QString &group, const QString &position, int done, int total);
+  QSize sizeHint() const override { return {300, 0}; }
+  QSize minimumSizeHint() const override { return {0, 0}; }
+
+ protected:
+  void paintEvent(QPaintEvent *) override;
+
+ private:
+  QString group_, position_;
+  int done_ = 0, total_ = 0;
+};
+
+/* One saved run on the Results page: a stub with its date, torn along a dotted line from what kind of run it was. */
+class RunTicket : public QAbstractButton {
+  Q_OBJECT
+ public:
+  RunTicket(const QString &date, const QString &kind, const QString &note, QWidget *parent = nullptr);
+  QSize sizeHint() const override { return {300, 112}; }
+
+ protected:
+  void paintEvent(QPaintEvent *) override;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  void enterEvent(QEnterEvent *) override;
+#else
+  void enterEvent(QEvent *) override;
+#endif
+  void leaveEvent(QEvent *) override;
+
+ private:
+  QString date_, kind_, note_;
+  bool hover_ = false;
+};
+
+/* One result in a report: its unit and direction, the number, the test's name. Pressing it opens the test. */
+class ScoreTile : public QAbstractButton {
+  Q_OBJECT
+ public:
+  ScoreTile(const QString &name, const QString &unit, bool higherBetter, const QString &value, const QString &flag,
+            QWidget *parent = nullptr);
+  QSize sizeHint() const override { return {200, 150}; }
+
+ protected:
+  void paintEvent(QPaintEvent *) override;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+  void enterEvent(QEnterEvent *) override;
+#else
+  void enterEvent(QEvent *) override;
+#endif
+  void leaveEvent(QEvent *) override;
+
+ private:
+  QString name_, unit_, value_, flag_;
+  bool higher_, hover_ = false;
 };
 
 QColor seriesColor(int i);
