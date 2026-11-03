@@ -29,6 +29,7 @@ class Run(val file: File, val json: String) {
     val shortDate: String get() = startedAt?.format(DateTimeFormatter.ofPattern("d MMM"))?.uppercase() ?: "—"
     val time: String get() = startedAt?.format(DateTimeFormatter.ofPattern("yyyy, HH:mm")).orEmpty()
     val runId: String get() = doc.optString("run_id", "0000")
+    val skipped: Boolean get() = (doc.optJSONArray("skipped_modes")?.length() ?: 0) > 0
     val measured: Int get() = tests.count { runCatching { it.get(doc) }.getOrNull() != null }
     val quick: Boolean get() = doc.optJSONObject("config")?.optBoolean("quick") == true
     val complete: Boolean get() = doc.optBoolean("complete", false)

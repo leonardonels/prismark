@@ -214,7 +214,7 @@ fun MeasuringScreen() {
             }
             BasicText("Leave it on a table and do not touch it.", style = Type.archivo(19.sp, 600, OnSignal))
             BasicText(
-                "A touch skips the tests that measure waking up. During those tests the step does not count up, so the screen cannot disturb them. It has not stopped.",
+                "Tests that measure waking up can take up to half an hour in a full run. This screen stays still during them, so it cannot disturb them: it has not stopped. Any touch, even on Cancel run, discards them.",
                 style = Type.archivo(14.sp, color = OnSignal),
             )
             Box(

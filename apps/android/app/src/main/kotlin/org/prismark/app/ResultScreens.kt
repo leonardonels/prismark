@@ -103,6 +103,7 @@ private fun RunStub(run: Run, latest: Boolean, onOpen: () -> Unit) {
                 Tag(if (run.quick) "QUICK" else "FULL", latest)
                 if (!run.complete) Tag("PARTIAL", latest)
                 if (run.busy) Tag("BUSY", latest)
+                if (run.skipped) Tag("SKIPPED", latest)
             }
         }
         Tear(text, vertical = true)
@@ -136,8 +137,8 @@ private fun ResultsScreen(run: Run) {
     val p = LocalPalette.current
     val pages = LocalPages.current
     val save = rememberSaveFile(run)
-    var group by remember { mutableStateOf("st") }
     val values = remember(run) { tests.associateWith { runCatching { it.get(run.doc) }.getOrNull() } }
+    var group by remember(run) { mutableStateOf(if (tests.any { it.group == "st" && values[it] != null }) "st" else tests.firstOrNull { values[it] != null }?.group ?: "st") }
     val shown = tests.filter { it.group == group && values[it] != null }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -174,7 +175,7 @@ private fun ResultsScreen(run: Run) {
         }
         if (shown.isEmpty()) {
             BasicText(
-                "Not measured in this run: cancelled, skipped after a touch, or not available here.",
+                if (run.skipped) "Not measured in this run. A touch during the tests that measure waking up discarded them." else "Not measured in this run: cancelled, or not available here.",
                 style = Type.archivo(15.sp, color = p.muted), modifier = Modifier.fillMaxSize().background(p.panel).padding(20.dp),
             )
         } else {
