@@ -1,7 +1,9 @@
 /*
- * The Prismark desktop app. Header with the test groups and Run all; test
- * cards on the left (each with its own Run button); the ranking of the
- * selected test in the middle; details of the selected result on the right.
+ * The Prismark desktop app: three places in a side column. Tests has the test
+ * groups and Run all, the test cards (each with its own Run button), the
+ * ranking of the selected test and a pass with the highlighted result. Results
+ * has your runs and the report of the highlighted one. Device has this computer
+ * and the app's settings.
  *
  * Runs execute in the bundled `prismark` runner as a separate process, never
  * in the GUI process, and measure the computer as it is configured: the app
@@ -22,6 +24,8 @@
 
 #include "metrics.h"
 
+class QFrame;
+class QHBoxLayout;
 class QLabel;
 class QPushButton;
 class QStackedWidget;
@@ -29,7 +33,10 @@ class QTimer;
 class QVBoxLayout;
 class InputWatch;
 class RankingView;
+class GroupProgress;
+class RunTicket;
 class Segmented;
+class SideColumn;
 class StepRing;
 class TestCard;
 class Toggle;
@@ -62,7 +69,14 @@ class MainWindow : public QMainWindow {
   void buildUi();
   QWidget *buildMeasuringWindow();
   QWidget *buildStressSettings();
-  QWidget *buildMenuButton();
+  QWidget *buildTestsPage();
+  QWidget *buildResultsPage();
+  QWidget *buildDevicePage();
+  QHBoxLayout *pageHead(const QString &title, QLabel **right);
+  QLabel *webLink();
+  void showPage(int i);
+  void setDark(bool on);
+  void openRun(const QString &id); /* the run's report, on the Results page */
   void loadInfo();
   void moveOldDataFolders();
   void loadAll();
@@ -71,6 +85,9 @@ class MainWindow : public QMainWindow {
   void refreshTests();
   void refreshRanking();
   void refreshDetails();
+  void refreshPass();
+  void refreshRuns();
+  void refreshDevice();
   void refreshContext(); /* the chart or comparison under the ranking, for the highlighted result */
   void selectMetric(const QString &id);
   /* Simple shows only the tests isSimple() picks; Advanced shows every test. */
@@ -92,7 +109,11 @@ class MainWindow : public QMainWindow {
   QJsonObject info_; /* `prismark info` */
   QString group_ = "mc", metric_ = "mc_k2", selected_;
 
-  Segmented *groups_ = nullptr, *stressTab_ = nullptr; /* the benchmark tabs, and the stress test on its own */
+  int page_ = 0; /* 0 Tests, 1 Results, 2 Device */
+  QStackedWidget *pages_ = nullptr;
+  SideColumn *side_ = nullptr;
+  Segmented *groups_ = nullptr;
+  QWidget *quickPanel_ = nullptr;
   Toggle *quick_ = nullptr, *allRuns_ = nullptr;
   QPushButton *runAll_ = nullptr;
   QLabel *banner_ = nullptr, *testsTitle_ = nullptr, *groupDesc_ = nullptr, *title_ = nullptr, *desc_ = nullptr,
@@ -108,8 +129,18 @@ class MainWindow : public QMainWindow {
   QVBoxLayout *cardsLayout_ = nullptr;
   QButtonGroup cards_;
   RankingView *ranking_ = nullptr;
+  GroupProgress *progress_ = nullptr;
+  QWidget *testsColumn_ = nullptr;
+  QVector<QPair<QString, RunTicket *>> tickets_; /* the Results page's list, newest first */
+  QLabel *rankTitle_ = nullptr;
+  QFrame *pass_ = nullptr, *passRule_ = nullptr;
+  QLabel *passKind_ = nullptr, *passDate_ = nullptr, *passScore_ = nullptr, *passUnit_ = nullptr, *passHotHead_ = nullptr,
+         *passHot_ = nullptr;
+  QPushButton *passOpen_ = nullptr;
   QWidget *details_ = nullptr;
-  QVBoxLayout *detailsLayout_ = nullptr;
+  QVBoxLayout *detailsLayout_ = nullptr, *aboutLayout_ = nullptr, *runsLayout_ = nullptr, *deviceLayout_ = nullptr;
+  QLabel *runsCount_ = nullptr;
+  QString reportGroup_; /* the report's tab; empty: the group of the Tests page */
 
   /* measuring window: the only window shown while a run is in progress */
   QWidget *measure_ = nullptr;

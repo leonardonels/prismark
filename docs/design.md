@@ -8,8 +8,8 @@ colours and typefaces are in [`apps/gui/theme.cpp`](../apps/gui/theme.cpp), pain
 
 ## Principles
 
-- **Flat blocks.** Square corners, no gradients, no shadows drawn by the app. Panels sit on a background one step
-  darker (light) or lighter (dark) than themselves.
+- **Flat blocks.** Square corners, no gradients, no shadows drawn by the app. Panels sit on a dark ground with 8 px
+  seams between them, in both themes, as on the site and the phones.
 - **Ink, paper, volt and signal blue.** Navy ink and off-white paper for everything; volt for actions and your own
   result; signal blue for structure and reference machines. Red only for wrong results and failures.
 - **Quiet while measuring.** Nothing animates or repaints on a timer: a window paints only when Qt asks, so it never
@@ -20,9 +20,10 @@ colours and typefaces are in [`apps/gui/theme.cpp`](../apps/gui/theme.cpp), pain
 
 | Token | Dark | Light | Use |
 | --- | --- | --- | --- |
-| bg | `#070C1F` | `#DDE2E8` | window background |
+| bg | `#070C1F` | `#0C1430` | window background, the seams |
 | card | `#141D3B` | `#F7F8F9` | panels, dialogs |
-| raised | `#1F2B52` | `#E8ECEF` | recessed tabs, secondary buttons, code blocks |
+| raised | `#1F2B52` | `#E8ECEF` | secondary buttons, tiles in a panel, code blocks |
+| recess | `#0F1730` | `#C9D0DA` | tabs not chosen, switches when off |
 | border | `#2A3760` | `#C9D0DA` | hairlines |
 | text | `#E8ECEF` | `#0C1430` | text, your bars in light mode |
 | muted / faint | `#AEB8D6` / `#8591B5` | `#1E2742` / `#343E5A` | secondary text |
@@ -37,7 +38,7 @@ dialogs), and the dialogs' dashed rule, `#3A4874` dark and `#9AA5B4` light.
 ## Type
 
 - **Saira** (variable width and weight): headings wide (width 112–125, bold or extra bold) and scores condensed.
-- **Inter**: running text and buttons.
+- **Archivo**: running text and buttons.
 - **IBM Plex Mono**: units, IDs, clocks, and small labels in capitals with tracking (`labelFont`), such as
   `TESTS · ALL CORES` or `RUN SETTINGS`.
 
@@ -53,14 +54,25 @@ is an ink prism on a paper tile, the light look being the default (`prismark-app
 
 ## Components
 
+- **Side column.** The app's three places, Tests, Results and Device, as blocks down the right edge with labels that
+  read bottom to top. The current one is a little taller, with a volt edge.
 - **Segmented tabs.** Square tabs; the current one is a panel with a volt foot, the others recessed. Numbered tabs
-  carry `01`, `02` above their name.
+  carry `01`, `02` above their name and share the header's width equally.
 - **Toggle.** A square switch that says ON or OFF: OFF recessed with the knob left, ON volt with an ink knob right.
 - **Test card.** Name, what it measures, your latest score in condensed Saira, and its Run button; volt when
   selected.
+- **Pass.** The highlighted result beside the ranking: its score large in condensed Saira, a dotted tear line, the
+  slowdown when hot. Volt for your run; signal blue with printed dots for a reference, like the Device page's chip panel.
+- **Stress settings.** A plain signal blue panel, in both themes. Each row of choices fills its width; the current
+  choice is white with the volt foot, the others gray, as in the side column.
+- **Group progress.** The volt card under a group's test cards: how many have a result, as large as the free space
+  allows. With no space left it is gone.
+- **Run ticket.** One saved run on Results: its date on a stub, torn along a dotted line from the kind of run.
+- **Score tile.** One result in a report: unit and direction, the number, the test's name. Pressing it opens the test.
 - **Pill.** A small tag in mono capitals on a tinted block: `YOUR RUN`, `REFERENCE`, `PLACEHOLDER`.
-- **Ranking.** One row per machine; your bars volt (dark) or ink (light), references blue, a thin line for the 95 %
-  range.
+- **Ranking.** One row per machine, with the unit once above it; your bars volt (dark) or ink (light), references blue,
+  a thin line for the 95 % range. The highlighted row is raised with a volt edge. Processor names are short, as on the
+  phones.
 
 ## Dialogs
 
@@ -87,4 +99,5 @@ A dialog is a stub torn off the pass: a code, one sentence, two buttons.
 
 The README's banner and screenshots are in [`docs/images`](images): a dark and a light version of each, shown by
 GitHub to match the reader's theme. Screenshots come from the app itself (`PRISMARK_GUI_SCREENSHOT=file.png
-prismark-gui`, with `QT_QPA_PLATFORM=offscreen` and the theme set in the app's menu), at 1440 × 900.
+prismark-gui`, with `QT_QPA_PLATFORM=offscreen`, `PRISMARK_GUI_DARK=0` or `1`, and `PRISMARK_GUI_PAGE=0`, `1` or `2`), at
+1440 × 900.

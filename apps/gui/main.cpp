@@ -6,11 +6,12 @@
  *   prismark-gui --run [TEST] [--full]   start a quick (or full) run at once: all tests, or one test
  *                                        id such as mc_k2
  *
- * PRISMARK_GUI_ICONSET and PRISMARK_GUI_DMG_BACKGROUND draw the macOS icon and disk-image background, and
+ * PRISMARK_GUI_DMG_BACKGROUND draws the macOS disk-image background, and
  * PRISMARK_GUI_ICO the Windows icon (below).
  *
  * PRISMARK_GUI_SCREENSHOT=<file.png> renders the window once, saves it and
- * exits (used to check the layout headless, with QT_QPA_PLATFORM=offscreen).
+ * exits (used to check the layout headless, with QT_QPA_PLATFORM=offscreen);
+ * PRISMARK_GUI_PAGE=0|1|2 and PRISMARK_GUI_DARK=0|1 pick the page and theme.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
@@ -75,25 +76,6 @@ void registerDesktopEntry(const QIcon &icon) {
 
 int main(int argc, char **argv) {
   QApplication app(argc, argv);
-  /* PRISMARK_GUI_ICONSET=<dir.iconset> writes the macOS app icon's sizes for iconutil and exits (used by
-   * the macOS build). The tile sits in the middle 80 % of the canvas, as macOS icons do. */
-  QByteArray iconset = qgetenv("PRISMARK_GUI_ICONSET");
-  if (!iconset.isEmpty()) {
-    QSvgRenderer appIcon(QStringLiteral(":/prismark-app.svg")), smallIcon(QStringLiteral(":/prismark-app-small.svg"));
-    QDir().mkpath(QString::fromLocal8Bit(iconset));
-    for (int s : {16, 32, 128, 256, 512})
-      for (int k : {1, 2}) {
-        int px = s * k;
-        QImage im(px, px, QImage::Format_ARGB32_Premultiplied);
-        im.fill(Qt::transparent);
-        QPainter p(&im);
-        p.setRenderHint(QPainter::Antialiasing);
-        (px <= 32 ? smallIcon : appIcon).render(&p, QRectF(px * 0.1, px * 0.1, px * 0.8, px * 0.8));
-        p.end();
-        im.save(QStringLiteral("%1/icon_%2x%2%3.png").arg(QString::fromLocal8Bit(iconset)).arg(s).arg(k == 2 ? "@2x" : ""));
-      }
-    return 0;
-  }
   /* PRISMARK_GUI_DMG_BACKGROUND=<base> writes <base>.png and <base>@2x.png, the background of the macOS disk
    * image's window (laid out for 740 x 560 points; tools/package-macos.sh places the icons on it), and exits.
    * The Finder may open the window larger than asked (it does on macOS 27), so the image is larger too and blue
@@ -214,6 +196,8 @@ int main(int argc, char **argv) {
   QApplication::setOrganizationName("Prismark");
   QApplication::setApplicationName("Prismark");
   QApplication::setApplicationVersion(PMK_VERSION);
+  /* macOS shows the bundle's layered glass icon by itself; an icon set here would replace it in the Dock. */
+#ifndef Q_OS_MACOS
   /* The window and taskbar icon, drawn from vectors at each size the system may ask for; 32 px and below use
    * the simpler version (prism and one bar), which stays legible. */
   QIcon icon;
@@ -230,6 +214,7 @@ int main(int argc, char **argv) {
   QApplication::setWindowIcon(icon);
 #if defined(Q_OS_LINUX)
   registerDesktopEntry(icon);
+#endif
 #endif
   MainWindow w;
   w.show();

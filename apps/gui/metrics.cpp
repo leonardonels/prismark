@@ -147,7 +147,7 @@ const QVector<Group> &groups() {
        "clock to save power, and waking up costs time."},
       {"stress", "Stress test",
        "Ten minutes or more of full load, as in a long render or a game: how well the speed holds up as the "
-       "computer heats up, and whether every result stays correct. Run each test on its own; Run all leaves them out."},
+       "computer heats up, and whether every result stays correct. Run each test on its own."},
   };
   return g;
 }
@@ -552,7 +552,7 @@ QString glossaryHtml() {
 }
 
 QString plainReason(const QString &reason) {
-  if (reason.contains("snapshot") || reason.contains("k1-data")) return QStringLiteral("needs the one-time setup (Menu › Prepare compile tests)");
+  if (reason.contains("snapshot") || reason.contains("k1-data")) return QStringLiteral("needs the one-time setup (Device › Prepare compile tests)");
   if (reason == "not built") return QStringLiteral("not included in this build of Prismark");
   if (reason.startsWith("skipped: keyboard")) return QStringLiteral("skipped: the keyboard or mouse was used while it ran");
   if (reason.contains("no max-level tier") || reason.contains("supports no max-level"))

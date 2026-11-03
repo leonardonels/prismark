@@ -1,7 +1,9 @@
 /* Copyright 2026 The Prismark Authors. Apache-2.0. */
 #include "widgets.h"
 
+#include <QDate>
 #include <QKeyEvent>
+#include <QLocale>
 #include <QMap>
 #include <QMouseEvent>
 #include <QPainter>
@@ -13,7 +15,7 @@
 #include "theme.h"
 
 namespace {
-constexpr int kRowH = 70, kPad = 4, kRankW = 26; /* row tall enough for name, bar and detail line */
+constexpr int kRowH = 56, kPad = 0, kRankW = 26; /* row tall enough for the name line, the bar and its range */
 
 QPointF mousePos(QMouseEvent *e) {
 #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
@@ -105,7 +107,7 @@ void RankingView::paintEvent(QPaintEvent *) {
   if (rows_.isEmpty()) {
     p.setPen(t.muted);
     p.setFont(uiFont(10.5));
-    p.drawText(rect(), Qt::AlignCenter, tr("No result for this test yet.\nPress ▶ Run on its card to measure it."));
+    p.drawText(rect(), Qt::AlignCenter, tr("No result for this test yet.\nPress Run on its card to measure it."));
     return;
   }
   double top = 0;
@@ -119,98 +121,96 @@ void RankingView::paintEvent(QPaintEvent *) {
     if (r.runId == selected_) refRow = &r;
 
   QFont fName = uiFont(10.5, QFont::Medium), fNameBold = uiFont(10.5, QFont::Bold),
-        fVal = displayFont(17, QFont::DemiBold, 75);
-  QFont fSmall = monoFont(8.5), fTag = labelFont(7.5), fRank = monoFont(9.5, QFont::Medium);
-  QFontMetrics mName(fName), mVal(fVal), mSmall(fSmall), mTag(fTag);
+        fVal = displayFont(16, QFont::DemiBold, 75);
+  QFont fSmall = monoFont(8), fRel = monoFont(8.5), fTag = labelFont(7), fRank = monoFont(9, QFont::Medium);
+  QFontMetrics mName(fName), mVal(fVal), mSmall(fSmall), mRel(fRel), mTag(fTag);
+  /* the columns on the right line up from row to row */
+  double valCol = 0, relCol = mRel.horizontalAdvance(QStringLiteral("+100.0%"));
+  for (const RankRow &r : rows_) valCol = std::max<double>(valCol, mVal.horizontalAdvance(formatValue(r.value.v)));
   int w = width();
   for (int i = 0; i < rows_.size(); i++) {
     const RankRow &r = rows_[i];
-    QRectF row(kPad, kPad + i * kRowH, w - 2 * kPad, kRowH - 2);
+    QRectF row(0, i * kRowH, w, kRowH);
     bool sel = r.runId == selected_;
-    /* the highlighted result is a volt block; everything on it is ink */
-    QColor fg = sel ? t.onAccent : t.text, fgMuted = sel ? t.onAccent : t.muted;
+    /* the highlighted result: a raised row with a volt edge. Its bar keeps its colour: yours or a reference. */
+    p.setPen(Qt::NoPen);
     if (sel || i == hover_) {
-      p.setPen(Qt::NoPen);
-      p.setBrush(sel ? t.accentSoft : t.raised);
+      p.setBrush(t.raised);
       p.drawRect(row);
     }
-    if (!sel && i > 0 && i - 1 != hover_ && i != hover_ && rows_[i - 1].runId != selected_) {
-      p.setPen(QPen(t.border, 1));
-      p.drawLine(QPointF(row.left(), row.top() - 1), QPointF(row.right(), row.top() - 1));
+    if (sel) {
+      p.setBrush(t.accent);
+      p.drawRect(QRectF(row.left(), row.top(), 6, row.height()));
     }
+    p.setPen(QPen(t.border, 1));
+    p.drawLine(QPointF(row.left(), row.top() + 0.5), QPointF(row.right(), row.top() + 0.5));
     /* rank */
     p.setFont(fRank);
-    p.setPen(fgMuted);
-    p.drawText(QRectF(row.left() + 8, row.top(), kRankW, row.height()), Qt::AlignVCenter | Qt::AlignLeft,
+    p.setPen(t.text);
+    p.drawText(QRectF(row.left() + 20, row.top(), kRankW, row.height()), Qt::AlignVCenter | Qt::AlignLeft,
                QStringLiteral("%1").arg(i + 1, 2, 10, QLatin1Char('0')));
 
-    double x0 = row.left() + kRankW + 14, x1 = row.right() - 12;
-    double ty = row.top() + 9 + mName.ascent();
+    double x0 = row.left() + 20 + kRankW + 8, x1 = row.right() - 20;
     /* value and relative difference */
-    QString val = formatValue(r.value.v), unit = unit_.isEmpty() ? QString() : " " + unit_;
-    QString rel;
+    double vy = row.center().y() + mVal.ascent() / 2.0 - 2;
+    QString rel = QStringLiteral("—");
     if (refRow && refRow != &r) {
       double d = 100.0 * (speed(r.value.v) / speed(refRow->value.v) - 1);
       rel = QString("%1%2%").arg(d >= 0 ? "+" : "−").arg(formatValue(std::abs(d)));
     }
-    double relW = rel.isEmpty() ? 0 : mSmall.horizontalAdvance(rel) + 12;
-    double unitW = mSmall.horizontalAdvance(unit);
-    double valW = mVal.horizontalAdvance(val);
-    double vy = row.center().y() + mVal.ascent() / 2.0 - 2;
-    if (!rel.isEmpty()) {
-      p.setFont(fSmall);
-      p.setPen(sel ? t.onAccent : rel.startsWith('+') ? t.good : t.bad);
-      p.drawText(QPointF(x1 - relW + 12, vy), rel);
-    }
-    p.setFont(fSmall);
-    p.setPen(fgMuted);
-    p.drawText(QPointF(x1 - relW - unitW, vy), unit);
+    p.setFont(fRel);
+    p.setPen(rel.startsWith('+') ? t.good : rel.startsWith(QChar(0x2212)) ? t.bad : t.muted);
+    p.drawText(QRectF(x1 - relCol, row.top(), relCol, row.height()), Qt::AlignVCenter | Qt::AlignRight, rel);
+    double valRight = x1 - relCol - 12;
     p.setFont(fVal);
-    p.setPen(fg);
-    p.drawText(QPointF(x1 - relW - unitW - valW, vy), val);
+    p.setPen(t.text);
+    QString val = formatValue(r.value.v);
+    p.drawText(QPointF(valRight - mVal.horizontalAdvance(val), vy), val);
 
-    /* name, then tags */
-    double nameMax = x1 - relW - unitW - valW - 18 - x0;
-    QString tagsText = r.tags.join(" · ");
-    double tagsW = tagsText.isEmpty() ? 0 : mTag.horizontalAdvance(tagsText.toUpper()) + 16;
+    /* the name line: name, where it ran, then tags where they fit */
+    double right = valRight - valCol - 14, ty = row.top() + 8 + mName.ascent();
     p.setFont(r.yours ? fNameBold : fName);
     QFontMetrics fm(p.font());
-    QString name = fm.elidedText(r.name, Qt::ElideRight, int(std::max(50.0, nameMax - tagsW - 8))); /* 8: gap before the tag */
-    p.setPen(fg);
+    QString name = fm.elidedText(r.name, Qt::ElideRight, int(right - x0));
+    p.setPen(t.text);
     p.drawText(QPointF(x0, ty), name);
     double nx = x0 + fm.horizontalAdvance(name) + 8;
-    if (tagsW && nx + tagsW <= x0 + nameMax + 4) {
-      QRectF tr(nx, ty - mTag.ascent() - 3, tagsW - 6, mTag.height() + 4);
+    if (!r.detail.isEmpty() && nx + 30 < right) {
+      p.setFont(fSmall);
+      p.setPen(t.muted);
+      QString detail = mSmall.elidedText(r.detail, Qt::ElideRight, int(right - nx));
+      p.drawText(QPointF(nx, ty), detail);
+      nx += mSmall.horizontalAdvance(detail) + 8;
+    }
+    QString tagsText = r.tags.join(" · ");
+    double tagsW = tagsText.isEmpty() ? 0 : mTag.horizontalAdvance(tagsText.toUpper()) + 12;
+    if (tagsW && nx + tagsW <= right) {
+      QRectF tr(nx, ty - mTag.ascent() - 2, tagsW, mTag.height() + 3);
       bool warn = r.tags.contains("placeholder") || r.tags.contains("did not settle");
-      p.setPen(sel ? QPen(t.onAccent, 1) : Qt::NoPen);
-      p.setBrush(sel ? Qt::transparent : warn ? t.warnBg : t.track);
+      p.setPen(Qt::NoPen);
+      p.setBrush(warn ? t.warnBg : t.recess);
       p.drawRect(tr);
       p.setFont(fTag);
-      p.setPen(sel ? t.onAccent : warn ? t.warnText : t.muted);
+      p.setPen(warn ? t.warnText : t.text);
       p.drawText(tr, Qt::AlignCenter, tagsText);
     }
 
     /* bar: square, on no track; yours in ink or volt, references in signal blue */
-    QRectF bar(x0, row.top() + 31, x1 - x0 - relW - unitW - valW - 18, 10);
+    QRectF bar(x0, row.top() + 30, right - x0, 8);
     QRectF fill = bar;
     fill.setWidth(std::max(3.0, bar.width() * speed(r.value.v) / top));
     p.setPen(Qt::NoPen);
-    p.setBrush(sel ? t.onAccent : r.yours ? t.mine : t.ref);
+    p.setBrush(r.yours ? t.mine : t.ref);
     p.drawRect(fill);
     if (r.value.hasCi()) {
       double a = bar.left() + bar.width() * speed(r.value.lo) / top, b = bar.left() + bar.width() * speed(r.value.hi) / top;
-      QColor wc = sel ? t.onAccent : t.text;
+      QColor wc = t.text;
       wc.setAlphaF(0.7);
       p.setPen(QPen(wc, 1.4, Qt::SolidLine, Qt::FlatCap));
-      double cy = bar.center().y() + 9;
+      double cy = bar.bottom() + 6;
       p.drawLine(QPointF(std::min(a, b), cy), QPointF(std::max(a, b), cy));
       p.drawLine(QPointF(a, cy - 3), QPointF(a, cy + 3));
       p.drawLine(QPointF(b, cy - 3), QPointF(b, cy + 3));
-    }
-    if (!r.detail.isEmpty()) {
-      p.setFont(fSmall);
-      p.setPen(sel ? t.onAccent : t.faint);
-      p.drawText(QPointF(x0, bar.bottom() + mSmall.ascent() + 6), r.detail);
     }
   }
 }
@@ -427,7 +427,7 @@ TestCard::TestCard(const QString &id, QWidget *parent) : QAbstractButton(parent)
   setMouseTracking(true);
   setCursor(Qt::PointingHandCursor);
   setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
-  setFixedHeight(100);
+  setFixedHeight(86);
 }
 
 void TestCard::setContent(const QString &name, const QString &sub, const QString &score, const QString &unit,
@@ -446,10 +446,7 @@ void TestCard::setRunLabel(const QString &label) {
   update();
 }
 
-QRectF TestCard::runRect() const {
-  double w = QFontMetrics(displayFont(9.5, QFont::ExtraBold, 125)).horizontalAdvance(runLabel_.toUpper()) + 46;
-  return QRectF(width() - 14 - w, height() / 2.0 - 22, w, 44);
-}
+QRectF TestCard::runRect() const { return QRectF(width() - 82, height() / 2.0 - 28, 72, 56); }
 
 void TestCard::mousePressEvent(QMouseEvent *e) {
   if (runRect().contains(mousePos(e))) {
@@ -486,54 +483,45 @@ void TestCard::paintEvent(QPaintEvent *) {
   QPainter p(this);
   p.setRenderHint(QPainter::Antialiasing);
   const Theme &t = theme();
-  QRectF r = QRectF(rect()).adjusted(0, 0, 0, -2);
+  QRectF r = rect();
   bool on = isChecked();
   /* the open test is a volt block, the others panels */
-  QColor fg = on ? t.onAccent : t.text, fgMuted = on ? t.onAccent : t.muted;
+  QColor fg = on ? t.onAccent : t.text;
   p.setPen(Qt::NoPen);
   p.setBrush(on ? t.accent : hover_ ? t.raised : t.card);
   p.drawRect(r);
-  double x = r.left() + 18, right = runRect().left() - 10;
+  double x = r.left() + 14, right = runRect().left() - 8;
   p.setFont(uiFont(10.5, QFont::Bold));
   p.setPen(fg);
   QFontMetrics fn(p.font());
-  p.drawText(QPointF(x, r.top() + 12 + fn.ascent()), fn.elidedText(name_, Qt::ElideRight, int(right - x)));
+  p.drawText(QPointF(x, r.top() + 9 + fn.ascent()), fn.elidedText(name_, Qt::ElideRight, int(right - x)));
   p.setFont(uiFont(8.5));
   QFontMetrics fs(p.font());
-  p.setPen(fgMuted);
-  p.drawText(QPointF(x, r.top() + 33 + fs.ascent()), fs.elidedText(sub_, Qt::ElideRight, int(right - x)));
+  p.drawText(QPointF(x, r.top() + 27 + fs.ascent()), fs.elidedText(sub_, Qt::ElideRight, int(right - x)));
+  double by = r.bottom() - 9;
   if (!score_.isEmpty()) {
-    p.setFont(displayFont(24, QFont::DemiBold, 60));
+    p.setFont(displayFont(22, QFont::DemiBold, 50));
     QFontMetrics fv(p.font());
-    p.setPen(fg);
-    double by = r.bottom() - 11;
     p.drawText(QPointF(x, by), score_);
-    p.setFont(monoFont(8.5, QFont::Medium));
-    p.setPen(fgMuted);
-    p.drawText(QPointF(x + fv.horizontalAdvance(score_) + 6, by), unit_);
+    p.setFont(monoFont(7.5));
+    p.drawText(QPointF(x + fv.horizontalAdvance(score_) + 5, by), unit_);
   } else {
     p.setFont(monoFont(8.5));
-    p.setPen(on ? t.onAccent : t.faint);
-    p.drawText(QPointF(x, r.bottom() - 14), note_);
+    QFontMetrics fo(p.font());
+    p.drawText(QPointF(x, by), fo.elidedText(note_, Qt::ElideRight, int(right - x)));
   }
   /* run button: on the open test an ink block with volt type; elsewhere recessed, so only one action is loud */
   QRectF b = runRect();
-  QColor bbg = on ? t.onAccent : hoverRun_ ? t.accent : t.raised, bfg = on ? t.accent : hoverRun_ ? t.onAccent : t.text;
+  QColor bbg = on ? t.onAccent : hoverRun_ ? t.accent : hover_ ? t.card : t.raised, bfg = on ? t.accent : hoverRun_ ? t.onAccent : t.text;
   if (on && hoverRun_) bbg = bbg.lighter(160);
   p.setPen(Qt::NoPen);
   p.setBrush(bbg);
   p.drawRect(b);
-  QPainterPath tri;
-  double cx = b.left() + 18, cy = b.center().y();
-  tri.moveTo(cx - 4, cy - 6);
-  tri.lineTo(cx + 6, cy);
-  tri.lineTo(cx - 4, cy + 6);
-  tri.closeSubpath();
-  p.setBrush(on || hoverRun_ ? bfg : t.link);
-  p.drawPath(tri);
   p.setPen(bfg);
-  p.setFont(displayFont(9.5, QFont::ExtraBold, 125));
-  p.drawText(b.adjusted(30, 0, 0, 0), Qt::AlignVCenter | Qt::AlignLeft, runLabel_.toUpper());
+  p.setFont(displayFont(9, QFont::ExtraBold, 125));
+  QString label = runLabel_.toUpper();
+  label.replace(' ', '\n');
+  p.drawText(b, Qt::AlignCenter, label);
 }
 
 /* ---------- Segmented ---------- */
@@ -557,24 +545,43 @@ void Segmented::setCurrent(int i) {
 
 void Segmented::setNumbered(int first) {
   numbered_ = first;
-  setFixedHeight(first ? 54 : 44);
+  if (!filling_) setFixedHeight(first ? 54 : 44);
   updateGeometry();
   update();
 }
 
+void Segmented::setFilling(int h) {
+  filling_ = true;
+  setFixedHeight(h);
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  updateGeometry();
+}
+
+void Segmented::setCompact() {
+  compact_ = true;
+  setFixedHeight(28);
+  updateGeometry();
+}
+
 QVector<QRectF> Segmented::rects() const {
-  QFontMetrics fm(uiFont(10, QFont::Bold));
+  QFontMetrics fm(uiFont(compact_ ? 8.5 : 10, QFont::Bold));
   QVector<QRectF> out;
   double x = 0;
+  if (filling_ && !items_.isEmpty()) { /* equal widths; the last takes what rounding leaves */
+    const double gap = 8, w = (width() - gap * (items_.size() - 1)) / items_.size();
+    for (int i = 0; i < items_.size(); i++) out.push_back(QRectF(i * (w + gap), 0, w, height()));
+    return out;
+  }
   for (const QString &s : items_) {
-    double w = std::max(fm.horizontalAdvance(s) + 32, numbered_ ? 96 : 0);
+    double w = std::max(fm.horizontalAdvance(s) + (compact_ ? 22 : 32), numbered_ ? 96 : 0);
     out.push_back(QRectF(x, 0, w, height()));
-    x += w + 4;
+    x += w + (compact_ ? 2 : 4);
   }
   return out;
 }
 
 QSize Segmented::sizeHint() const {
+  if (filling_) return {int(items_.size()) * 80, height()};
   auto r = rects();
   return {r.isEmpty() ? 100 : int(r.last().right()), height()};
 }
@@ -589,7 +596,8 @@ void Segmented::mousePressEvent(QMouseEvent *e) {
     }
 }
 
-/* Square tabs: the current one a panel with a volt foot, the others recessed. */
+/* Square tabs: the current one a panel with a volt foot, the others recessed. Inside a panel, the current one is
+   raised so it still stands out. */
 void Segmented::paintEvent(QPaintEvent *) {
   QPainter p(this);
   const Theme &t = theme();
@@ -597,22 +605,26 @@ void Segmented::paintEvent(QPaintEvent *) {
   for (int i = 0; i < r.size(); i++) {
     bool on = i == cur_;
     p.setPen(Qt::NoPen);
-    p.setBrush(on ? t.card : t.raised);
+    const QColor fg = onSignal_ ? t.onAccent : t.text;
+    p.setBrush(onSignal_ ? (on ? QColor(247, 248, 249) : QColor(201, 208, 218)) : on ? (numbered_ ? t.card : t.raised) : t.recess);
     p.drawRect(r[i]);
+    int foot = compact_ ? 3 : 5;
     if (on) {
       p.setBrush(t.accent);
-      p.drawRect(QRectF(r[i].left(), r[i].bottom() - 4, r[i].width(), 5));
+      p.drawRect(QRectF(r[i].left(), r[i].bottom() - foot + 1, r[i].width(), foot));
     }
-    QRectF tr = r[i].adjusted(14, 0, -10, -4);
+    QRectF tr = compact_ ? r[i].adjusted(8, 0, -4, -foot + 1)
+                : onSignal_ ? r[i].adjusted(2, 0, -2, -foot + 1) : r[i].adjusted(12, 0, -8, -foot + 1);
     if (numbered_) {
       p.setFont(monoFont(8));
-      p.setPen(on ? t.text : t.muted);
-      p.drawText(tr.adjusted(0, 8, 0, 0), Qt::AlignTop | Qt::AlignLeft, QStringLiteral("%1").arg(numbered_ + i, 2, 10, QLatin1Char('0')));
+      p.setPen(t.text);
+      p.drawText(tr.adjusted(0, 9, 0, 0), Qt::AlignTop | Qt::AlignLeft, QStringLiteral("%1").arg(numbered_ + i, 2, 10, QLatin1Char('0')));
     }
-    p.setFont(uiFont(10, on ? QFont::Bold : QFont::DemiBold));
-    p.setPen(on ? t.text : t.muted);
-    p.drawText(tr.adjusted(0, 0, 0, numbered_ ? -6 : 0), (numbered_ ? Qt::AlignBottom : Qt::AlignVCenter) | Qt::AlignLeft,
-               items_[i]);
+    QFont f = uiFont(compact_ ? 8.5 : 10, QFont::Bold);
+    p.setFont(f);
+    p.setPen(fg);
+    p.drawText(tr.adjusted(0, 0, 0, numbered_ ? -8 : 0), (numbered_ ? Qt::AlignBottom | Qt::AlignLeft : onSignal_ ? int(Qt::AlignCenter) : Qt::AlignVCenter | Qt::AlignLeft),
+               QFontMetrics(f).elidedText(items_[i], Qt::ElideRight, int(tr.width())));
   }
 }
 
@@ -625,7 +637,7 @@ Toggle::Toggle(const QString &text, QWidget *parent) : QAbstractButton(parent) {
 }
 
 QSize Toggle::sizeHint() const {
-  return {QFontMetrics(uiFont(10, QFont::Medium)).horizontalAdvance(text()) + 70, 32};
+  return {text().isEmpty() ? 58 : QFontMetrics(uiFont(10, QFont::Medium)).horizontalAdvance(text()) + 70, 32};
 }
 
 /* A square switch that states its position: OFF on a recessed track with the knob on the left, ON on volt with an
@@ -636,18 +648,18 @@ void Toggle::paintEvent(QPaintEvent *) {
   bool on = isChecked();
   QRectF track(0, height() / 2.0 - 13, 58, 26);
   p.setPen(Qt::NoPen);
-  p.setBrush(on ? t.accent : t.raised);
+  p.setBrush(on ? t.accent : t.recess);
   p.drawRect(track);
   QRectF knob(0, 0, 20, 20);
   knob.moveCenter(QPointF(on ? track.right() - 13 : track.left() + 13, track.center().y()));
   p.setBrush(on ? t.onAccent : t.text);
   p.drawRect(knob);
   p.setFont(monoFont(7.5, QFont::DemiBold));
-  p.setPen(on ? t.onAccent : t.muted);
+  p.setPen(on ? t.onAccent : t.text);
   QRectF word = on ? QRectF(track.left() + 4, track.top(), knob.left() - track.left() - 4, track.height())
                    : QRectF(knob.right(), track.top(), track.right() - knob.right() - 2, track.height());
   p.drawText(word, Qt::AlignCenter, on ? tr("ON") : tr("OFF"));
-  p.setPen(t.text);
+  p.setPen(onSignal_ ? QColor(247, 248, 249) : t.text);
   p.setFont(uiFont(10, QFont::Medium));
   p.drawText(QRectF(68, 0, width() - 68, height()), Qt::AlignVCenter | Qt::AlignLeft, text());
 }
@@ -699,4 +711,219 @@ void StepRing::paintEvent(QPaintEvent *) {
   double pt = centre_.size() <= 3 ? 50 : centre_.size() <= 5 ? 38 : 28;
   p.setFont(displayFont(pt, QFont::DemiBold, 50));
   p.drawText(r.adjusted(12, 12, -12, -34), Qt::AlignLeft | Qt::AlignBottom, centre_);
+}
+
+/* ---------- SideColumn ---------- */
+
+SideColumn::SideColumn(const QStringList &items, QWidget *parent) : QWidget(parent), items_(items) {
+  setCursor(Qt::PointingHandCursor);
+  setFixedWidth(72);
+}
+
+void SideColumn::setCurrent(int i) {
+  cur_ = i;
+  update();
+}
+
+/* The current place is a little taller than the others. */
+QVector<QRectF> SideColumn::rects() const {
+  const double gap = 8, unit = (height() - gap * (items_.size() - 1)) / (items_.size() + 0.15);
+  QVector<QRectF> out;
+  double y = 0;
+  for (int i = 0; i < items_.size(); i++) {
+    double h = i == cur_ ? unit * 1.15 : unit;
+    out.push_back(QRectF(0, y, width(), h));
+    y += h + gap;
+  }
+  return out;
+}
+
+void SideColumn::mousePressEvent(QMouseEvent *e) {
+  auto r = rects();
+  for (int i = 0; i < r.size(); i++)
+    if (r[i].contains(mousePos(e)) && i != cur_) {
+      cur_ = i;
+      update();
+      emit changed(i);
+    }
+}
+
+void SideColumn::paintEvent(QPaintEvent *) {
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing);
+  const Theme &t = theme();
+  auto r = rects();
+  for (int i = 0; i < r.size(); i++) {
+    bool on = i == cur_;
+    p.setPen(Qt::NoPen);
+    p.setBrush(on ? t.card : t.recess);
+    p.drawRect(r[i]);
+    if (on) {
+      p.setBrush(t.accent);
+      p.drawRect(QRectF(r[i].left(), r[i].top(), 6, r[i].height()));
+    }
+    p.setPen(t.text);
+    p.setFont(monoFont(8));
+    p.drawText(r[i].adjusted(0, 14, 0, 0), Qt::AlignTop | Qt::AlignHCenter, QStringLiteral("%1").arg(i + 1, 2, 10, QLatin1Char('0')));
+    /* the label stands at the foot of its block and reads bottom to top */
+    p.save();
+    p.translate(r[i].center().x(), r[i].bottom() - 16);
+    p.rotate(-90);
+    p.setFont(displayFont(15, QFont::ExtraBold, 125));
+    QFontMetrics fm(p.font());
+    p.drawText(QPointF(0, (fm.ascent() - fm.descent()) / 2.0), items_[i].toUpper());
+    p.restore();
+  }
+}
+
+/* ---------- GroupProgress ---------- */
+
+GroupProgress::GroupProgress(QWidget *parent) : QWidget(parent) {
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Expanding);
+}
+
+void GroupProgress::setContent(const QString &group, const QString &position, int done, int total) {
+  group_ = group;
+  position_ = position;
+  done_ = done;
+  total_ = total;
+  update();
+}
+
+void GroupProgress::paintEvent(QPaintEvent *) {
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing);
+  const Theme &t = theme();
+  p.fillRect(rect(), t.accent);
+  if (height() < 36) return; /* too little room to say anything: a volt band */
+  p.setPen(t.onAccent);
+  QRectF in = QRectF(rect()).adjusted(14, 10, -14, -10);
+  const QString count = QStringLiteral("%1/%2").arg(done_).arg(total_);
+  p.setFont(labelFont(8));
+  if (height() < 96) { /* one line */
+    p.drawText(in, Qt::AlignVCenter | Qt::AlignLeft, group_);
+    p.setFont(displayFont(16, QFont::DemiBold, 50));
+    p.drawText(in, Qt::AlignVCenter | Qt::AlignRight, count);
+    return;
+  }
+  p.drawText(in, Qt::AlignTop | Qt::AlignLeft, group_);
+  p.drawText(in, Qt::AlignTop | Qt::AlignRight, position_);
+  /* the count as large as the free height allows */
+  const QRectF middle = in.adjusted(0, 18, 0, -20);
+  double pt = 120;
+  QFont f = displayFont(pt, QFont::DemiBold, 50);
+  while (pt > 16 && (QFontMetrics(f).capHeight() > middle.height() - 4 || QFontMetrics(f).horizontalAdvance(count) > in.width()))
+    f = displayFont(pt -= 4, QFont::DemiBold, 50);
+  p.setFont(f);
+  p.drawText(middle, Qt::AlignVCenter | Qt::AlignLeft, count);
+  p.setFont(uiFont(9.5, QFont::DemiBold));
+  p.drawText(in, Qt::AlignBottom | Qt::AlignLeft, tr("Measured in your runs"));
+}
+
+/* ---------- RunTicket ---------- */
+
+RunTicket::RunTicket(const QString &date, const QString &kind, const QString &note, QWidget *parent)
+    : QAbstractButton(parent), date_(date), kind_(kind), note_(note) {
+  setCheckable(true);
+  setCursor(Qt::PointingHandCursor);
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+  setFixedHeight(112);
+}
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+void RunTicket::enterEvent(QEnterEvent *) {
+#else
+void RunTicket::enterEvent(QEvent *) {
+#endif
+  hover_ = true;
+  update();
+}
+
+void RunTicket::leaveEvent(QEvent *) {
+  hover_ = false;
+  update();
+}
+
+void RunTicket::paintEvent(QPaintEvent *) {
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing);
+  const Theme &t = theme();
+  QRectF r = rect();
+  bool on = isChecked();
+  QColor fg = on ? t.onAccent : t.text;
+  p.setPen(Qt::NoPen);
+  p.setBrush(on ? t.accent : hover_ ? t.raised : t.card);
+  p.drawRect(r);
+  /* date_ is "YYYY-MM-DD HH:MM" */
+  const QDate d = QDate::fromString(date_.left(10), QStringLiteral("yyyy-MM-dd"));
+  const double stub = 108;
+  p.setPen(fg);
+  p.setFont(displayFont(38, QFont::DemiBold, 50));
+  QFontMetrics fd(p.font());
+  p.drawText(QPointF(14, 12 + fd.ascent() * 0.86), d.isValid() ? d.toString(QStringLiteral("dd")) : QStringLiteral("—"));
+  p.setFont(monoFont(8.5));
+  p.drawText(QPointF(14, r.bottom() - 12),
+             QStringLiteral("%1 %2").arg(QLocale::c().monthName(d.month(), QLocale::ShortFormat).toUpper(), date_.mid(11)));
+  p.setPen(QPen(fg, 2, Qt::DotLine));
+  p.drawLine(QPointF(stub, 0), QPointF(stub, r.bottom()));
+  p.setPen(fg);
+  p.setFont(displayFont(11, QFont::ExtraBold, 125));
+  QFontMetrics fk(p.font());
+  p.drawText(QPointF(stub + 14, 12 + fk.ascent()), kind_.toUpper());
+  p.setFont(uiFont(9.5));
+  p.drawText(QRectF(stub + 14, 40, r.width() - stub - 26, r.height() - 52), Qt::AlignBottom | Qt::AlignLeft | Qt::TextWordWrap, note_);
+}
+
+/* ---------- ScoreTile ---------- */
+
+ScoreTile::ScoreTile(const QString &name, const QString &unit, bool higherBetter, const QString &value, const QString &flag,
+                     QWidget *parent)
+    : QAbstractButton(parent), name_(name), unit_(unit), value_(value), flag_(flag), higher_(higherBetter) {
+  setCursor(Qt::PointingHandCursor);
+  setFixedHeight(150);
+  setSizePolicy(QSizePolicy::Expanding, QSizePolicy::Fixed);
+}
+
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+void ScoreTile::enterEvent(QEnterEvent *) {
+#else
+void ScoreTile::enterEvent(QEvent *) {
+#endif
+  hover_ = true;
+  update();
+}
+
+void ScoreTile::leaveEvent(QEvent *) {
+  hover_ = false;
+  update();
+}
+
+void ScoreTile::paintEvent(QPaintEvent *) {
+  QPainter p(this);
+  p.setRenderHint(QPainter::Antialiasing);
+  const Theme &t = theme();
+  QRectF r = rect();
+  p.setPen(Qt::NoPen);
+  p.setBrush(hover_ ? t.recess : t.raised);
+  p.drawRect(r);
+  QRectF in = r.adjusted(12, 10, -12, -10);
+  p.setPen(t.text);
+  p.setFont(monoFont(8));
+  p.drawText(in, Qt::AlignTop | Qt::AlignLeft, unit_);
+  p.drawText(in, Qt::AlignTop | Qt::AlignRight, higher_ ? QStringLiteral("↑") : QStringLiteral("↓"));
+  /* the number takes the size that fits: scores of any length stay on one line */
+  double pt = 56;
+  QFont f = displayFont(pt, QFont::DemiBold, 50);
+  while (pt > 24 && QFontMetrics(f).horizontalAdvance(value_) > in.width()) f = displayFont(pt -= 4, QFont::DemiBold, 50);
+  p.setFont(f);
+  p.drawText(in.adjusted(0, 12, 0, -20), Qt::AlignVCenter | Qt::AlignLeft, value_);
+  QFont fn = uiFont(9.5, QFont::Bold);
+  p.setFont(fn);
+  QFontMetrics mn(fn);
+  p.drawText(in, Qt::AlignBottom | Qt::AlignLeft, mn.elidedText(name_, Qt::ElideRight, int(in.width())));
+  if (!flag_.isEmpty()) {
+    p.setFont(labelFont(6.5));
+    p.setPen(t.warnText);
+    p.drawText(in.adjusted(0, 14, 0, 0), Qt::AlignTop | Qt::AlignLeft, flag_);
+  }
 }
