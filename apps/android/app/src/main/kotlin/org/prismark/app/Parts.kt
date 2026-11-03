@@ -8,7 +8,6 @@ package org.prismark.app
 
 import android.app.ActivityManager
 import android.content.Context
-import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -65,7 +64,6 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.core.content.FileProvider
 import org.json.JSONObject
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -83,6 +81,13 @@ fun Modifier.tap(enabled: Boolean = true, onClick: () -> Unit): Modifier = click
     enabled = enabled, indication = null, interactionSource = remember { MutableInteractionSource() },
     role = Role.Button, onClick = onClick,
 )
+
+/** Takes only the height of the font's capitals, not its whole line, whose space above and below reads as a gap. */
+fun Modifier.capitalsOnly(size: TextUnit): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+    val capitals = (size.toPx() * 0.688f).roundToInt()
+    layout(placeable.width, capitals) { placeable.place(0, (capitals - placeable.height) / 2) }
+}
 
 /** Text on its side, reading top to bottom, taking the space it covers. */
 fun Modifier.onItsSide(): Modifier = layout { measurable, _ ->
@@ -187,28 +192,10 @@ fun Logo(mark: Dp, name: TextUnit?, modifier: Modifier = Modifier) {
 /** The processor's name: as big as there is room for, its brand small below. */
 @Composable
 fun ChipName(machine: Machine, size: Float) {
-    BasicText(machine.chip, style = Type.saira(chipSize(machine.chip, size, 7).sp, 50, 600, Ink), maxLines = 1, softWrap = false)
-    if (machine.brand.isNotEmpty()) BasicText(machine.brand, style = Type.saira(maxOf(13f, size * 0.125f).sp, 125, 800, OnSignal), maxLines = 1)
-}
-
-/** Hands the result file to the system's share sheet, which also offers saving it to a folder. */
-fun shareResult(context: Context, run: Run) {
-    runCatching {
-        val file = FileProvider.getUriForFile(context, "${context.packageName}.files", run.file)
-        val send = Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, file).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
-        context.startActivity(Intent.createChooser(send, "Share the result file"))
-    }.onFailure { Session.error = "The result file could not be shared: ${it.message}" }
-}
-
-/** The share sign: three dots joined by two lines. */
-@Composable
-fun ShareMark(color: Color) = Canvas(Modifier.size(20.dp)) {
-    val a = Offset(size.width * 0.8f, size.height * 0.16f)
-    val b = Offset(size.width * 0.2f, size.height * 0.5f)
-    val c = Offset(size.width * 0.8f, size.height * 0.84f)
-    drawLine(color, a, b, strokeWidth = 2.dp.toPx())
-    drawLine(color, b, c, strokeWidth = 2.dp.toPx())
-    for (dot in listOf(a, b, c)) drawCircle(color, 3.dp.toPx(), dot)
+    val big = chipSize(machine.chip, size, 7).sp
+    val small = maxOf(13f, size * 0.125f).sp
+    BasicText(machine.chip, style = Type.saira(big, 50, 600, Ink), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 8.dp).capitalsOnly(big))
+    if (machine.brand.isNotEmpty()) BasicText(machine.brand, style = Type.saira(small, 125, 800, OnSignal), maxLines = 1, modifier = Modifier.padding(top = 8.dp).capitalsOnly(small))
 }
 
 /** The pass's printed dots. */

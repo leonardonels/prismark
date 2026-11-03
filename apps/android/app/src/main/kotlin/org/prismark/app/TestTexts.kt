@@ -8,6 +8,30 @@ package org.prismark.app
 data class TestText(val title: String, val about: String, val how: String, val reading: String)
 
 val testTexts = mapOf(
+    "s_st" to TestText(
+        "One core under stress",
+        "How fast one core does vector maths after minutes of full load, and whether it stays correct. A single busy core keeps its highest clock only while the cooling and the power limits allow it.",
+        "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed and clock are recorded every 5 seconds where the system allows it, and every result is checked against the first. The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes keeps its curve but has no score.",
+        "Higher is better, in GFLOP/s in the 10th minute.",
+    ),
+    "s_mc" to TestText(
+        "All cores under stress",
+        "How fast every core together does vector maths after minutes of full load, when the processor is as hot as long use makes it, and whether every result stays correct. Phones slow down here as their power limits and cooling take over.",
+        "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed and clock are recorded every 5 seconds where the system allows it, and every result is checked against the first. The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes keeps its curve but has no score.",
+        "Higher is better, in GFLOP/s in the 10th minute.",
+    ),
+    "s_cc" to TestText(
+        "Each core in turn",
+        "Vector maths on a single core at its highest clock, moving to the next core every 10 seconds and around again, so a single weak core shows up.",
+        "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed and clock are recorded every 5 seconds where the system allows it, and every result is checked against the first. The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes keeps its curve but has no score. The score is the slowest core's speed.",
+        "Higher is better, in GFLOP/s: the slowest core's speed.",
+    ),
+    "s_mem" to TestText(
+        "Memory under stress",
+        "A memory test: every core writes most of the free memory and checks every word on the next pass, over and over, with four patterns in turn. It shows whether any memory comes back wrong when kept busy and warm.",
+        "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed and clock are recorded every 5 seconds where the system allows it, and every result is checked against the first. The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes keeps its curve but has no score. Close other apps first.",
+        "Higher is better, in gigabytes per second (read and written) in the 10th minute. Any wrong word fails the test.",
+    ),
     "mc_k2" to TestText(
         "3D rendering on all cores",
         "How much rendering work the whole processor gets done when every core helps with the same image, as video and 3D rendering software do.",

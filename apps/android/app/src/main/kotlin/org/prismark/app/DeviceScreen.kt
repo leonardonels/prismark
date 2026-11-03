@@ -104,7 +104,7 @@ fun DeviceScreen(tablet: Boolean) {
         ) {
             Mono("This device · ${machine.model}", OnSignal)
             ChipName(machine, if (tablet) 130f else 84f)
-            BasicText("${machine.system} · ${machine.cores}", style = Type.archivo(13.sp, 600, OnSignal))
+            BasicText("${machine.system} · ${machine.cores}", style = Type.archivo(13.sp, 600, OnSignal), modifier = Modifier.padding(top = 6.dp))
         }
         StatusTiles(status, if (tablet) 50.sp else 30.sp)
         CoreMap(machine, Modifier.weight(1f).fillMaxWidth(), if (tablet) 84.sp else 50.sp, if (tablet) 56.sp else 24.sp, if (tablet) 64.dp else 46.dp)
@@ -166,7 +166,8 @@ private fun CoreMap(machine: Machine, modifier: Modifier, fastSize: TextUnit, ot
                     ) {
                         val text = if (first) Ink else p.text
                         BasicText(if (count > 4 && name.length > 4) name.take(3).uppercase() else name.uppercase(), style = Type.mono(10.sp, color = text), maxLines = 1)
-                        BasicText("${core + 1}", style = Type.saira(if (first) fastSize else otherSize, 50, 600, text), maxLines = 1)
+                        val size = if (first) fastSize else otherSize
+                        BasicText("${core + 1}", style = Type.saira(size, 50, 600, text), maxLines = 1, modifier = Modifier.capitalsOnly(size))
                     }
                 }
             }

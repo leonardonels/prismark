@@ -44,13 +44,14 @@ fun RunScreen() {
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         MachinePass(Modifier.weight(1f).fillMaxWidth())
         for (group in groups) GroupRow(group)
+        StressRow()
         RunBar()
     }
 }
 
 @Composable
 fun RunPage(page: Any) {
-    if (page is Group) GroupScreen(page)
+    if (page is Group) { if (page.id == stressGroup.id) StressScreen() else GroupScreen(page) }
 }
 
 /** The blue pass: which processor this is. */
@@ -71,7 +72,7 @@ fun MachinePass(modifier: Modifier = Modifier) {
         Column {
             BasicText("Processor:", style = Type.mono(12.sp, color = OnSignal))
             ChipName(machine, 130f)
-            Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(1.dp).background(SignalLine))
+            Box(Modifier.fillMaxWidth().padding(top = 10.dp).height(1.dp).background(SignalLine))
             BasicText(machine.summary, style = Type.archivo(13.sp, 600, OnSignal), modifier = Modifier.padding(top = 6.dp))
             DeviceInfo.error?.let { BasicText("The core could not describe this device: $it", style = Type.archivo(12.sp, 600, OnSignal)) }
         }
@@ -202,7 +203,7 @@ fun MeasuringScreen() {
         ) {
             Row(Modifier.fillMaxWidth()) {
                 BasicText("RUN / MEASURING", style = Type.mono(12.sp, true, OnSignal), modifier = Modifier.weight(1f))
-                BasicText(if (Session.quick) "QUICK RUN" else "FULL RUN", style = Type.mono(12.sp, true, OnSignal))
+                BasicText(if (Session.stressing) "STRESS TEST" else if (Session.quick) "QUICK RUN" else "FULL RUN", style = Type.mono(12.sp, true, OnSignal))
             }
             Row(Modifier.fillMaxWidth().weight(1f).background(Volt).padding(14.dp), verticalAlignment = Alignment.Top) {
                 // As wide as the capitals alone, not the font's whole line, which would leave the words no room.
@@ -219,15 +220,20 @@ fun MeasuringScreen() {
                     if (Session.parts > 0) BasicText("Step ${Session.part} of ${Session.parts}", style = Type.mono(12.sp, color = Ink))
                 }
             }
-            BasicText("Leave it on a table and do not touch it.", style = Type.archivo(19.sp, 600, OnSignal))
+            BasicText(if (Session.stressing) "It will get warm. That is the test." else "Leave it on a table and do not touch it.", style = Type.archivo(19.sp, 600, OnSignal))
             BasicText(
-                "Tests that measure waking up can take up to half an hour in a full run. The step number moves only between tests, so the screen cannot disturb them. Any touch, even on Cancel run, discards them.",
+                if (Session.stressOpen) "It runs until you stop it, and everything so far is kept. A score needs 10 minutes. It uses a lot of battery; touching the screen does no harm."
+                else if (Session.stressing) "${Session.stressMinutes} minutes at full load. It uses a lot of battery, and the phone slows down if it gets too hot. Touching the screen does no harm."
+                else "Tests that measure waking up can take up to half an hour in a full run. The step number moves only between tests, so the screen cannot disturb them. Any touch, even on Cancel run, discards them.",
                 style = Type.archivo(14.sp, color = OnSignal),
             )
             Box(
-                Modifier.fillMaxWidth().height(60.dp).border(2.dp, OnSignal).tap { asking = true },
+                Modifier.fillMaxWidth().height(60.dp).border(2.dp, OnSignal).tap {
+                    // Stopping is how a stress test without a set length ends, so there is nothing to confirm.
+                    if (Session.stressOpen) Prismark.cancel() else asking = true
+                },
                 contentAlignment = Alignment.Center,
-            ) { BasicText("Cancel run", style = Type.archivo(16.sp, 600, OnSignal)) }
+            ) { BasicText(if (Session.stressOpen) "Stop stress test" else "Cancel run", style = Type.archivo(16.sp, 600, OnSignal)) }
         }
         if (asking) {
             Box(Modifier.fillMaxSize().background(Ink.copy(alpha = 0.78f)).tap { })
