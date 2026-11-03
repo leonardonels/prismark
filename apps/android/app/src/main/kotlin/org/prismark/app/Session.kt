@@ -75,7 +75,7 @@ object Session {
 
     /**
      * Starts a run of the selected tests on a worker thread. The listener is called on that thread between
-     * measurement windows; the screen is updated once per step, and not at all during the quiet phases.
+     * measurement windows; the screen is updated once per step, and in the quiet phases only between tests.
      */
     fun start(context: Context, chosen: List<Test>, quick: Boolean) {
         if (running || chosen.isEmpty()) return
@@ -95,7 +95,7 @@ object Session {
                     val name = phaseNames[ph] ?: ph
                     main.post { phase = name }
                 }
-                1 -> if (ph == "progress" && (lastPhase !in quietPhases || message?.endsWith("quiet") == true)) main.post {
+                1 -> if (ph == "progress") main.post {
                     part = shown
                     parts = total
                 }

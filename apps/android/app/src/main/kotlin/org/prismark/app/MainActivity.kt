@@ -3,8 +3,7 @@
  * column on a phone, and on a tablet the desktop app's tests, explanation and ranking side by side.
  *
  * While a run measures, the screen is static (spec 7.1, docs/design.md "Quiet while measuring"): no animation,
- * no timer, no progress bar; the text changes only between steps, and not at all in the phases that measure
- * waits and wake-ups. A touch during a run is reported to the core, which skips those phases as it does for
+ * no timer, no progress bar; the text changes only between tests, when nothing is being timed. A touch during a run is reported to the core, which skips those phases as it does for
  * keyboard and mouse input on a desktop.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.

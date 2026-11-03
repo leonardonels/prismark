@@ -242,6 +242,9 @@ void ctx_emit(pmk_ctx *c, pmk_event_kind kind, const char *phase, const char *ke
   }
   pmk_event ev = {sizeof ev, kind, phase, kernel, msg, step, steps, temp, left};
   c->cb(&ev, c->user);
+  /* A display may show the new step between the tests of a quiet mode: it has this long to finish before the next
+     test starts, so a repaint never lands on a measurement. */
+  if (advance && c->quiet) pal_sleep_ns(200000000);
 }
 
 pmk_result *ctx_new_result(pmk_ctx *c, const char *kernel, const char *mode, const char *unit) {
