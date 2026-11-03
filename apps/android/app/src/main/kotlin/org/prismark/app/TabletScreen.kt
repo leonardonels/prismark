@@ -167,17 +167,18 @@ private fun GroupCard(group: Group, members: List<Test>, modifier: Modifier) {
     val measured = if (run == null) 0 else members.count { test -> runCatching { test.get(run.doc) }.getOrNull() != null }
 
     BoxWithConstraints(modifier.background(Signal)) {
-        if (maxHeight >= 150.dp) {
+        val tall = maxHeight
+        if (tall >= 150.dp) {
             Column(Modifier.fillMaxSize().padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = bottomInset() + 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth()) {
                     Mono(group.label, OnSignal, Modifier.weight(1f))
                     Mono("${group.number} of 04", OnSignal)
                 }
                 Spacer(Modifier.weight(1f))
-                BasicText("$measured/${members.size}", style = Type.saira(min(maxHeight * 0.34f, 150.dp).value.sp, 50, 600, Ink), maxLines = 1)
+                BasicText("$measured/${members.size}", style = Type.saira(min(tall * 0.34f, 150.dp).value.sp, 50, 600, Ink), maxLines = 1)
                 BasicText(if (run == null) "No run yet" else "Measured in your latest run", style = Type.archivo(13.sp, 600, OnSignal))
                 Tear(OnSignal)
-                Barcode(run?.runId ?: "5a3c91e7b20d48f6a1c7e93b", Ink, Modifier.fillMaxWidth().height(min(maxHeight * 0.16f, 72.dp)))
+                Barcode(run?.runId ?: "5a3c91e7b20d48f6a1c7e93b", Ink, Modifier.fillMaxWidth().height(min(tall * 0.16f, 72.dp)))
             }
         }
     }
