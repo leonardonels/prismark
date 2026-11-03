@@ -19,7 +19,19 @@ ROOT = pathlib.Path(__file__).parent.parent
 RELEASES = "https://api.github.com/repos/leonardonels/prismark/releases"
 
 
-def latest_version():
+# What each download link on the homepage points at: the end of the file's name in a release.
+PACKAGES = {
+    "macos": "-macos-arm64.dmg",
+    "windows": "-windows-x86_64.zip",
+    "deb-x86_64": "_amd64.deb",
+    "deb-arm64": "_arm64.deb",
+    "rpm-x86_64": ".x86_64.rpm",
+    "rpm-arm64": ".aarch64.rpm",
+    "android": "-android-arm64-release.apk",
+}
+
+
+def latest_release():
     request = urllib.request.Request(RELEASES)
     token = os.environ.get("GITHUB_TOKEN")
     if token:
@@ -27,8 +39,19 @@ def latest_version():
     with urllib.request.urlopen(request) as response:
         releases = json.load(response)    
     published = [r for r in releases if not r["draft"]]
-    return published[0]["tag_name"].removeprefix("v")
+    return published[0]
 
+
+def downloads(release):
+    """The address of each package, or the build stops: a link to nothing is worse than no new site."""
+    assets = release["assets"]
+    found = {}
+    for key, ending in PACKAGES.items():
+        urls = [a["browser_download_url"] for a in assets if a["name"].endswith(ending)]
+        if len(urls) != 1:
+            sys.exit(f"site_data: {release['tag_name']} has {len(urls)} files ending in {ending}")
+        found[key] = urls[0]
+    return found
 
 
 def count_tests():
@@ -94,8 +117,10 @@ def references():
 
 check_catalogue()
 
+release = latest_release()
 data = {
-    "version": latest_version(),
+    "version": release["tag_name"].removeprefix("v"),
+    "downloads": downloads(release),
     "tests": count_tests(),
     "measurements": count_measurements(),
 }

@@ -636,6 +636,7 @@ button.tab { border: 0; text-align: left; }
     .ground { --step: clamp(26px, 100svh / 27, 30px); }
     .deck { display: contents; }
     #download { scroll-margin-top: calc(2 * var(--step)); }
+    #platforms { scroll-margin-top: calc(3 * var(--step)); }
     #tests { scroll-margin-top: calc(4 * var(--step)); }
     #method { scroll-margin-top: calc(11 * var(--step)); }
     .deck > .panel {

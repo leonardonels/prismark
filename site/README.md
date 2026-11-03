@@ -40,6 +40,7 @@ pages then have no data.
 | Value | Source |
 | --- | --- |
 | `version` | The newest GitHub release that isn't a draft. Betas count, because `/releases/latest` ignores pre-releases and returns 404 while every release is a beta |
+| `downloads` | The address of each package in that release, matched by the end of its file name (`PACKAGES` in `site_data.py`). The build stops if a file is missing, so **renaming or dropping a package means changing `PACKAGES` too** |
 | `tests` (12) | The different kinds of work in `ITEMS`, `apps/cli/main.c` |
 | `measurements` (23) | The entries in the table in `apps/gui/metrics.cpp` |
 | `references.json` | `references/*.json`, cut down to the fields `compare-data.js` reads |
@@ -49,6 +50,15 @@ tests give more than one result.
 
 The numbers in the HTML are fallbacks, shown if `data.json` fails to load. `site_data.py` stops with an error rather
 than writing an empty value.
+
+## Download links
+
+Every link starts its file straight away, always from the release in `version`. The links in the HTML go to the
+Releases page, and `data.js` replaces them once `data.json` loads, so they still lead somewhere if it doesn't.
+
+GET PRISMARK offers the file for the visitor's system. Linux goes to the list instead, because a browser can't tell
+`.deb` from `.rpm` systems, and so do iPhones and iPads, which have no package. An Intel Mac gets the Apple silicon
+`.dmg`, because browsers can't reliably tell them apart; the macOS row says "Apple silicon" for that reason.
 
 ## Publishing
 
@@ -177,7 +187,6 @@ build/macos-clang/prismark compare intel-i9-14900k apple-m2-macos
 - **No Desktop/Laptop filter:** result files don't record it. The power filter says "Not on battery" because some
   machines don't report their power source.
 - **Power modes** appear as recorded, for example the Italian "Bilanciato".
-- **Download links** go to the Releases page, not straight to each file.
 - **Android** has no compile tests or stress test. The main README says so, the homepage doesn't yet.
 
 ## Still to do
