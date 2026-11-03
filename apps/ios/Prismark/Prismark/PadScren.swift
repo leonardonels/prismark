@@ -8,7 +8,7 @@ struct PadScreen: View {
     @State private var testID = "st_k2"
     @State private var reportID: String?
 
-    private var test: Test { tests.first { $0.id == testID }! }
+    private var test: Test { allTests.first { $0.id == testID }! }
 
     /// The highlighted result, else your latest run, else only what this device is.
     private var report: Doc {
@@ -59,15 +59,15 @@ struct PadScreen: View {
                 }
             }
 
-            ForEach(groups) { item in
+            ForEach(groups + [stressGroup]) { item in
                 Button {
                     group = item.id
-                    testID = tests.first { $0.group == item.id }?.id ?? testID
+                    testID = allTests.first { $0.group == item.id }?.id ?? testID
                 } label: {
                     VStack(alignment: .leading) {
                         Text(item.number).font(.mono(11))
                         Spacer()
-                        Text(compact ? shortLabel(item) : item.label).font(.archivo(wide ? 14 : 13, weight: 700)).lineLimit(1).minimumScaleFactor(0.8)
+                        Text(wide ? item.label : shortLabel(item)).font(.archivo(wide ? 14 : 13, weight: 700)).lineLimit(1).minimumScaleFactor(0.8)
                     }
                     .padding(.horizontal, 10)
                     .padding(.vertical, 9)
@@ -106,13 +106,14 @@ struct PadScreen: View {
         switch group.id {
         case "mem": "Memory"
         case "resp": "Responsive"
+        case "stress": "Stress"
         default: group.label
         }
     }
 
     private func testList(compact: Bool) -> some View {
-        let about = groups.first { $0.id == group }
-        let members = tests.filter { $0.group == group }
+        let about = (groups + [stressGroup]).first { $0.id == group }
+        let members = group == stressGroup.id ? session.stressOffered : tests.filter { $0.group == group }
 
         return GeometryReader { geo in
             ScrollView {
@@ -134,6 +135,9 @@ struct PadScreen: View {
                         }
                     }
 
+                    if group == stressGroup.id {
+                        StressSettings().background(Color.panel, ignoresSafeAreaEdges: [])
+                    }
                     if let about { GroupCard(group: about, members: members) }
                 }
                 .frame(minHeight: geo.size.height)
@@ -157,10 +161,12 @@ struct PadScreen: View {
                 PadSection(title: "How it is measured", text: text?.how ?? "")
                 PadSection(title: "Reading the result", text: text?.reading ?? "")
 
-                Mono(text: "Ranking").padding(.top, 8)
-                HStack(spacing: 6) {
-                    Legend(text: "Your runs", color: .yours, background: .raised)
-                    Legend(text: "Reference", color: .reference, background: .raised)
+                if test.bit == 0 {
+                    Mono(text: "Ranking").padding(.top, 8)
+                    HStack(spacing: 6) {
+                        Legend(text: "Your runs", color: .yours, background: .raised)
+                        Legend(text: "Reference", color: .reference, background: .raised)
+                    }
                 }
             }
             .fixedSize(horizontal: false, vertical: true)
@@ -168,6 +174,21 @@ struct PadScreen: View {
             .padding(.top, 20)
             .padding(.bottom, 8)
             .frame(maxWidth: .infinity, alignment: .leading)
+
+            if let part = test.part {
+                if let run = session.saved.first(where: { stressRow($0.doc, part) != nil }), let row = stressRow(run.doc, part) {
+                    VStack(spacing: 6) {
+                        StressBlock(test: test, row: row)
+                        StressFacts(test: test, run: run, row: row)
+                    }
+                } else {
+                    Text("No result yet. Run it from the list: it takes as long as you set there.")
+                        .font(.archivo(14))
+                        .foregroundStyle(Color.muted)
+                        .padding(.horizontal, 20)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+            }
 
             LazyVStack(spacing: 0) {
                 ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
@@ -224,7 +245,7 @@ struct TestCard: View {
             Button {
                 session.start(only: [test])
             } label: {
-                Text(session.quick ? "RUN\nQUICK" : "RUN\nFULL")
+                Text(test.bit > 0 ? "RUN" : session.quick ? "RUN\nQUICK" : "RUN\nFULL")
                     .font(.saira(compact ? 10 : 12, width: 125, weight: 800))
                     .multilineTextAlignment(.center)
                     .foregroundStyle(current ? Color.volt : Color.text)
@@ -286,7 +307,7 @@ struct PadReport: View {
         let id = doc["run_id"] as? String
         let run = session.saved.first { $0.runID == id }
         let cores = Machine(info: doc).cores
-        let measured = tests.filter { $0.read(doc) != nil }
+        let measured = allTests.filter { $0.read(doc) != nil }
 
         VStack(spacing: inline ? 0 : 6) {
             let tags = HStack(spacing: 4) {
@@ -436,7 +457,7 @@ struct GroupCard: View {
 
     var body: some View {
         let shown = run ?? session.saved.first
-        let measured = shown.map { doc in members.filter { $0.read(doc.doc) != nil }.count } ?? 0
+        let measured = shown.map { doc in members.filter { $0.ran(doc.doc) }.count } ?? 0
 
         GeometryReader { geo in
             if run != nil && geo.size.height < 230 {
@@ -446,7 +467,7 @@ struct GroupCard: View {
                     HStack {
                         Mono(text: group.label)
                         Spacer()
-                        Mono(text: "\(group.number) of 04")
+                        Mono(text: group.id == stressGroup.id ? "Full load" : "\(group.number) of 04")
                     }
                     Spacer(minLength: 0)
                     Text("\(measured)/\(members.count)")
@@ -486,7 +507,7 @@ struct GroupCard: View {
             HStack {
                 Mono(text: group.label)
                 Spacer()
-                Mono(text: "\(group.number) of 04")
+                Mono(text: group.id == stressGroup.id ? "Full load" : "\(group.number) of 04")
             }
             HStack(spacing: 14) {
                 Text("\(measured)/\(members.count)")

@@ -8,6 +8,26 @@ struct TestText {
 }
 
 let testTexts: [String: TestText] = [
+    "s_st": TestText(
+        title: "One core under stress",
+        about: "How fast one core does vector maths after minutes of full load, and whether it stays correct. A single busy core keeps its highest clock only while the cooling and the power limits allow it.",
+        how: "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed and clock are recorded every 5 seconds where the system allows it, and every result is checked against the first. The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes keeps its curve but has no score.",
+        reading: "Higher is better, in GFLOP/s in the 10th minute."),
+    "s_mc": TestText(
+        title: "All cores under stress",
+        about: "How fast every core together does vector maths after minutes of full load, when the processor is as hot as long use makes it, and whether every result stays correct. Phones slow down here as their power limits and cooling take over.",
+        how: "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed and clock are recorded every 5 seconds where the system allows it, and every result is checked against the first. The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes keeps its curve but has no score.",
+        reading: "Higher is better, in GFLOP/s in the 10th minute."),
+    "s_cc": TestText(
+        title: "Each core in turn",
+        about: "Vector maths on a single core at its highest clock, moving to the next core every 10 seconds and around again, so a single weak core shows up.",
+        how: "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed and clock are recorded every 5 seconds where the system allows it, and every result is checked against the first. The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes keeps its curve but has no score. The score is the slowest core's speed.",
+        reading: "Higher is better, in GFLOP/s: the slowest core's speed."),
+    "s_mem": TestText(
+        title: "Memory under stress",
+        about: "A memory test: every core writes most of the memory available and checks every word on the next pass, over and over, with four patterns in turn. It shows whether any memory comes back wrong when kept busy and warm.",
+        how: "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed and clock are recorded every 5 seconds where the system allows it, and every result is checked against the first. The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes keeps its curve but has no score. Close other apps first.",
+        reading: "Higher is better, in gigabytes per second (read and written) in the 10th minute. Any wrong word fails the test."),
     "mc_k2": TestText(
         title: "3D rendering on all cores",
         about: "How much rendering work the whole processor gets done when every core helps with the same image, as video and 3D rendering software do.",

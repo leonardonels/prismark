@@ -18,6 +18,14 @@ struct Run: Identifiable, Hashable {
         guard let load = ((doc["preflight"] as? Doc)?["background_load"] as? NSNumber)?.doubleValue else { return false }
         return load > 0.05
     }
+    /// A run of the stress test, even one whose part could not run.
+    var stressed: Bool {
+        stressTests.contains { $0.ran(doc) } || !stressProblem.isEmpty
+    }
+    /// Why a part of the stress test did not run, if one did not.
+    var stressProblem: String {
+        ((doc["unavailable"] as? [Doc]) ?? []).first { $0["mode"] as? String == "stress" }?["reason"] as? String ?? ""
+    }
     var measured: Int { tests.filter { $0.read(doc) != nil }.count }
     var skipped: Bool { !(doc["skipped_modes"] as? [Any] ?? []).isEmpty }
 }
@@ -31,6 +39,10 @@ struct Run: Identifiable, Hashable {
     var parts = 0
     /// Minutes the run may still take, set at each step of the quiet tests. Nil outside them.
     var quietMinutes: Int?
+    /// The run is a stress test, and if open, one without a set length: stopping it is its normal end.
+    var stressing = false
+    var stressOpen = false
+    var stressMinutes = 0
     var error: String?
     var current: Run?
     var saved: [Run] = []
@@ -39,6 +51,12 @@ struct Run: Identifiable, Hashable {
     init() {
         info = Prismark.info()
         loadSaved()
+    }
+
+    /// Moving from core to core means nothing where the system places the threads, as on iPhone and iPad.
+    var stressOffered: [Test] {
+        let pinned = ((info["machine"] as? Doc)?["capabilities"] as? Doc)?["pinning"] as? Bool == true
+        return stressTests.filter { pinned || $0.part != "each_core" }
     }
 
     private var folder: URL {
@@ -65,9 +83,14 @@ struct Run: Identifiable, Hashable {
     func start(only: [Test]? = nil) {
         let chosen = only ?? tests.filter { picked.contains($0.id) }
         guard !running, !chosen.isEmpty else { return }
+        let defaults = UserDefaults.standard
+        let seconds = (defaults.string(forKey: StressLength.key).flatMap(StressLength.init) ?? .ten).seconds
+        let stopOnError = defaults.object(forKey: StressLength.stopKey) as? Bool ?? true
+        let bits = chosen.reduce(UInt32(0)) { $0 | $1.bit }
+        let stress = bits > 0 ? PrismarkStress(parts: bits, seconds: seconds, stopOnError: stopOnError) : nil
         let modes = chosen.reduce(into: PrismarkModes()) { $0.insert($1.mode) }
         let kernels = Array(Set(chosen.map(\.kernel))).sorted().joined(separator: ",")
-        let quick = quick
+        let quick = quick && stress == nil
         let folder = folder
         running = true
         error = nil
@@ -75,11 +98,14 @@ struct Run: Identifiable, Hashable {
         part = 0
         parts = 0
         quietMinutes = nil
+        stressing = stress != nil
+        stressOpen = stress != nil && seconds == 0
+        stressMinutes = Int(seconds / 60)
 
         let worker = Thread { [self] in
             var last = ""
             do {
-                let json = try Prismark.run(modes: modes, kernels: kernels, quick: quick) { event in
+                let json = try Prismark.run(modes: modes, kernels: stress == nil ? kernels : nil, quick: quick, stress: stress) { event in
                     if event.kind == .phase, let name = event.phase, !(name == last && quietPhases.contains(name)) {
                         last = name
                         DispatchQueue.main.async { self.phase = phaseNames[name] ?? name }

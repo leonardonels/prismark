@@ -29,17 +29,23 @@ struct Test: Identifiable, Hashable {
     let mode: PrismarkModes
     let kernel: String
     let read: (Doc) -> Value?
+    /// A part of the stress test: its name in the result, and its PMK_STRESS_* bit.
+    var part: String? = nil
+    var bit: UInt32 = 0
+
+    /// Whether a run holds this test: a stress test under 10 minutes has a verdict but no score.
+    func ran(_ doc: Doc) -> Bool { read(doc) != nil || part.flatMap { stressRow(doc, $0) } != nil }
 
     static func == (a: Test, b: Test) -> Bool { a.id == b.id }
     func hash(into hasher: inout Hasher) { hasher.combine(id) }
 }
 
 private func series(_ d: Doc) -> [Doc] { (d["analysis"] as? Doc)?["series"] as? [Doc] ?? [] }
-private func num(_ o: Doc?, _ key: String) -> Double { (o?[key] as? NSNumber)?.doubleValue ?? .nan }
+func num(_ o: Doc?, _ key: String) -> Double { (o?[key] as? NSNumber)?.doubleValue ?? .nan }
 private func int(_ o: Doc, _ key: String) -> Int { (o[key] as? NSNumber)?.intValue ?? 0 }
 private func fast(_ r: Doc) -> Bool { r["core_type"] as? String == "P" }
 
-private func ci(_ o: Doc?, _ k: Double = 1) -> Value? {
+func ci(_ o: Doc?, _ k: Double = 1) -> Value? {
     let est = num(o, "est")
     guard est.isFinite else { return nil }
     return Value(v: est * k, lo: num(o, "lo") * k, hi: num(o, "hi") * k)
@@ -119,7 +125,28 @@ let tests = [
     Test(id: "c_k6", group: "resp", name: "Script from rest", sub: "Launch Lua after a pause", unit: "ms", higherBetter: false, mode: .coldBurst, kernel: "K6", read: medianOf("K6", "cold_burst", start: "cold", 1e-6)),
 ]
 
+func stressRow(_ d: Doc, _ part: String) -> Doc? {
+    ((d["analysis"] as? Doc)?["stress"] as? [Doc])?.first { $0["part"] as? String == part }
+}
+
+private func stress(_ part: String) -> (Doc) -> Value? {
+    { ci(stressRow($0, part)?["score"] as? Doc) }
+}
+
+/// Minutes of full load, run on their own: not one more benchmark, so not among the tests above.
+let stressGroup = TestGroup(id: "stress", number: "05", label: "Stress test", about: "Ten minutes or more of full load, as in a long game: how well the speed holds up as the device heats up, and whether every result stays correct. Each part runs on its own.")
+
+let stressTests = [
+    Test(id: "s_st", group: "stress", name: "One core", sub: "One core at full load", unit: "GFLOP/s", higherBetter: true, mode: .stress, kernel: "K12", read: stress("one_core"), part: "one_core", bit: 1 << 0),
+    Test(id: "s_mc", group: "stress", name: "All cores", sub: "Every core at full load", unit: "GFLOP/s", higherBetter: true, mode: .stress, kernel: "K12", read: stress("all_cores"), part: "all_cores", bit: 1 << 1),
+    Test(id: "s_cc", group: "stress", name: "Each core in turn", sub: "One core at a time, every core in turn", unit: "GFLOP/s", higherBetter: true, mode: .stress, kernel: "K12", read: stress("each_core"), part: "each_core", bit: 1 << 3),
+    Test(id: "s_mem", group: "stress", name: "Memory", sub: "Most of the memory the app may use, written and checked", unit: "GB/s", higherBetter: true, mode: .stress, kernel: "K11", read: stress("memory"), part: "memory", bit: 1 << 2),
+]
+
+let allTests = tests + stressTests
+
 let phaseNames = [
+    "stress": "Full load",
     "preflight": "Checking it is idle",
     "st_burst": "One core, short tasks",
     "st_sustained": "One core, after warming up",

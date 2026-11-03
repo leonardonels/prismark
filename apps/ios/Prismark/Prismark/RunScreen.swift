@@ -4,12 +4,16 @@ struct RunScreen: View {
     @Environment(Session.self) private var session
 
     var body: some View {
-        PageStack(destination: { AnyView(GroupScreen(group: $0.base as! TestGroup)) }) {
+        PageStack(destination: { 
+            let group = $0.base as! TestGroup
+            return group.id == stressGroup.id ? AnyView(StressScreen()) : AnyView(GroupScreen(group: group))
+         }) {
             VStack(spacing: 6) {
                 MachinePass()
                 ForEach(groups) { group in
                     GroupRow(group: group)
                 }
+                StressRow()
                 RunBar()
             }
             .background(Color.ground)
@@ -41,7 +45,8 @@ struct MachinePass: View {
             }
             Spacer(minLength: 8)
             Text("Processor:").font(.mono(12))
-            ChipName(machine: machine, size: 176)
+            // A small iPhone needs the room for the rows below.
+            ChipName(machine: machine, size: UIScreen.main.bounds.height < 700 ? 110 : 176)
                 .padding(.top, 6)
                 .padding(.bottom, 10)
             Rectangle().fill(Color.signalLine).frame(height: 1)

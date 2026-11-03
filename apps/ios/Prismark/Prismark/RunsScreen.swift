@@ -60,14 +60,14 @@ struct RunStub: View {
                 HStack {
                     Text(run.started?.formatted(.dateTime.year().hour().minute()) ?? "")
                     Spacer()
-                    Text("\(run.measured) of \(tests.count)")
+                    Text(run.stressed && run.measured == 0 ? "" : "\(run.measured) of \(tests.count)")
                 }
                 .font(.mono(11))
                 Text(run.started?.formatted(.dateTime.day().month(.abbreviated)).uppercased() ?? "—")
                     .font(.saira(62, width: 50, weight: 600))
                     .lineLimit(1)
                 HStack(spacing: 4) {
-                    Tag(text: run.quick ? "QUICK" : "FULL", latest: latest)
+                    Tag(text: run.stressed && run.measured == 0 ? "STRESS" : run.quick ? "QUICK" : "FULL", latest: latest)
                     if !run.complete { Tag(text: "PARTIAL", latest: latest) }
                     if run.busy { Tag(text: "BUSY", latest: latest) }
                     if run.skipped { Tag(text: "SKIPPED", latest: latest) }

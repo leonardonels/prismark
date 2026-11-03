@@ -14,7 +14,7 @@ struct MeasuringScreen: View {
                 HStack {
                     Text("RUN / MEASURING")
                     Spacer()
-                    Text(session.quick ? "QUICK RUN" : "FULL RUN")
+                    Text(session.stressing ? "STRESS TEST" : session.quick ? "QUICK RUN" : "FULL RUN")
                         .padding(.trailing, statusPillHeight() > 0 ? 62 : 0)
                 }
                 .font(.mono(12, semibold: true))
@@ -39,16 +39,22 @@ struct MeasuringScreen: View {
                 .foregroundStyle(Color.ink)
                 .background(Color.volt, ignoresSafeAreaEdges: [])
 
-                Text("Leave it on a table and do not touch it.")
+                Text(session.stressing ? "It will get warm. That is the test." : "Leave it on a table and do not touch it.")
                     .font(.archivo(19, weight: 600))
                 Text(note)
                     .font(.archivo(14))
                     .fixedSize(horizontal: false, vertical: true)
 
                 Button {
-                    asking = true
+                    // Stopping is how a stress test without a set length ends, so there is nothing to confirm.
+                    if session.stressOpen {
+                        session.phase = "Stopping"
+                        Prismark.cancel()
+                    } else {
+                        asking = true
+                    }
                 } label: {
-                    Text("Cancel run")
+                    Text(session.stressOpen ? "Stop stress test" : "Cancel run")
                         .font(.archivo(16, weight: 600))
                         .frame(maxWidth: .infinity)
                         .frame(height: 60)
@@ -75,6 +81,12 @@ struct MeasuringScreen: View {
 
 private extension MeasuringScreen {
     var note: String {
+        if session.stressOpen {
+            return "It runs until you stop it, and everything so far is kept. A score needs 10 minutes. It uses a lot of battery; touching the screen does no harm."
+        }
+        if session.stressing {
+            return "\(session.stressMinutes) minutes at full load. It uses a lot of battery, and the system slows it down if it gets too hot. Touching the screen does no harm."
+        }
         guard let minutes = session.quietMinutes else {
             return "Any touch during the tests that measure waking up discards them, even on Cancel run. The screen stays on."
         }

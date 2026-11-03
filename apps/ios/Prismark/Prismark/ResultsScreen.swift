@@ -11,14 +11,14 @@ struct ResultsScreen: View {
     @State private var group = "st"
 
     var body: some View {
-        let shown = tests.filter { $0.group == group && $0.read(run.doc) != nil }
+        let shown = allTests.filter { $0.group == group && $0.ran(run.doc) }
 
         VStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
                     BackButton(onVolt: true)
                     Spacer()
-                    Mono(text: "\(run.quick ? "Quick" : "Full") · \(run.measured) test\(run.measured == 1 ? "" : "s")")
+                    Mono(text: run.stressed && run.measured == 0 ? "Stress test" : "\(run.quick ? "Quick" : "Full") · \(run.measured) test\(run.measured == 1 ? "" : "s")")
                     ShareFileButton(file: run.file) { busy in
                         Group {
                             if busy {
@@ -45,7 +45,7 @@ struct ResultsScreen: View {
 
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 6) {
-                    ForEach(groups) { item in
+                    ForEach(run.stressed && run.measured == 0 ? [stressGroup] : groups) { item in
                         Button {
                             group = item.id
                         } label: {
@@ -65,14 +65,14 @@ struct ResultsScreen: View {
             .frame(height: 48)
 
             if shown.isEmpty {
-                Text(run.skipped ? "Not measured in this run. A touch during the tests that measure waking up discarded them." : "Not measured in this run: cancelled, or not available here.")
+                Text(group == stressGroup.id && !run.stressProblem.isEmpty ? "Not run: \(run.stressProblem)." : run.skipped ? "Not measured in this run. A touch during the tests that measure waking up discarded them." : "Not measured in this run: cancelled, or not available here.")
                     .font(.archivo(15))
                     .foregroundStyle(Color.muted)
                     .padding(20)
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .background(Color.panel)
             } else {
-                let members = tests.filter { $0.group == group }
+                let members = allTests.filter { $0.group == group && ($0.part != "each_core" || $0.ran(run.doc)) }
                 let rows = stride(from: 0, to: shown.count, by: 2).map { Array(shown[$0..<min($0 + 2, shown.count)]) }
 
                 // The tiles, then a card filling what they leave. On a small phone it all scrolls instead.
@@ -86,14 +86,18 @@ struct ResultsScreen: View {
                                 HStack(spacing: 6) {
                                     ForEach(row) { test in
                                         PageLink(OpenTest(test: test, run: run)) {
-                                            ScoreTile(test: test, value: test.read(run.doc)!)
+                                            if let value = test.read(run.doc) {
+                                                ScoreTile(test: test, value: value)
+                                            } else {
+                                                StressTile(test: test, row: stressRow(run.doc, test.part ?? "") ?? [:])
+                                            }
                                         }
                                         .buttonStyle(.block)
                                     }
                                     if row.count == 1 { MissingTile(count: members.count - shown.count) }
                                 }
                             }
-                            if left >= 100, let about = groups.first(where: { $0.id == group }) {
+                            if left >= 100, let about = (groups + [stressGroup]).first(where: { $0.id == group }) {
                                 GroupCard(group: about, members: members, run: run).frame(height: left)
                             } else {
                                 Color.clear.frame(height: 28)
@@ -106,8 +110,8 @@ struct ResultsScreen: View {
         }
         .background(Color.ground)
         .onAppear {
-            if let first = tests.first(where: { $0.read(run.doc) != nil }), !tests.contains(where: { $0.group == group && $0.read(run.doc) != nil }) {
-                group = first.group
+            if !allTests.contains(where: { $0.group == group && $0.ran(run.doc) }) {
+                group = allTests.first { $0.ran(run.doc) }?.group ?? (run.stressed ? stressGroup.id : group)
             }
         }
     }

@@ -13,7 +13,7 @@ struct TestScreen: View {
                     .font(.saira(28, width: 112))
                     .lineLimit(2)
                     .minimumScaleFactor(0.8)
-                Text(test.sub + ". " + (test.higherBetter ? "Higher is better." : "Lower is better."))
+                Text(test.sub + ". " + (test.bit > 0 ? "A score needs 10 minutes." : test.higherBetter ? "Higher is better." : "Lower is better."))
                     .font(.archivo(14))
                     .foregroundStyle(Color.muted)
                     .fixedSize(horizontal: false, vertical: true)
@@ -24,7 +24,15 @@ struct TestScreen: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(Color.panel)
 
-            TestDetail(test: test, run: run)
+            if let part = test.part, let row = stressRow(run.doc, part) {
+                StressBlock(test: test, row: row)
+                ScrollView {
+                    StressFacts(test: test, run: run, row: row).padding(.bottom, 34)
+                }
+                .background(Color.panel)
+            } else {
+                TestDetail(test: test, run: run)
+            }
         }
         .background(Color.ground)
     }
