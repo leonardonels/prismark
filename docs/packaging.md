@@ -33,8 +33,8 @@ an `.rpm` for Fedora, for x86-64 and ARM64. Install with the system's own tool,
 which also brings in the few libraries every desktop has:
 
 ```sh
-sudo apt install ./prismark_0.5.1_amd64.deb        # Ubuntu 22.04 or later, Debian 12 or later
-sudo dnf install ./prismark-0.5.1-1.x86_64.rpm     # Fedora
+sudo apt install ./prismark_0.5.3_amd64.deb        # Ubuntu 22.04 or later, Debian 12 or later
+sudo dnf install ./prismark-0.5.3-1.x86_64.rpm     # Fedora
 ```
 
 Prismark then appears in the desktop's menu; `prismark` and `prismark-gui`
@@ -104,3 +104,15 @@ GitHub secrets: `ANDROID_KEYSTORE_BASE64`, `ANDROID_KEYSTORE_PASSWORD`,
 fails. Keep a copy of the keystore outside GitHub: Android installs an update
 only if it is signed with the same key, so a lost key means users must
 uninstall the app to get a new version.
+
+## iOS and iPadOS
+
+`tools/package-ios.sh` builds `build/ios-package/prismark-VERSION-ios-arm64-unsigned.ipa`. It runs on a Mac with Xcode 27
+or later, not in CI, because the project is in that version's format, so after CI has made a release's draft the file is
+added by hand:
+
+```sh
+gh release upload vVERSION build/ios-package/prismark-VERSION-ios-arm64-unsigned.ipa
+```
+
+It is unsigned, so an iPhone or iPad won't install it as it is: a sideloading tool signs it with the user's own Apple ID.
