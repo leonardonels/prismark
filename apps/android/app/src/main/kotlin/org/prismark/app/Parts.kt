@@ -248,24 +248,30 @@ class Machine(context: Context, info: JSONObject) {
     private val types = cpu?.optJSONArray("cores").let { a -> if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("type") } }
 
     /** The core clusters, fastest first: how many, and what to call them. */
-    val clusters: List<Pair<String, Int>> = types.distinct().map { (clusterNames[it] ?: it) to types.count { t -> t == it } }
+    val clusters: List<Pair<String, Int>> = types.distinct().sortedBy { clusterNames.keys.indexOf(it) }.map { (clusterNames[it] ?: it) to types.count { t -> t == it } }
     val cores: String = clusters.joinToString(" + ") { "${it.second} ${it.first.lowercase()}" }.ifEmpty { "Unknown" }
 
     val chip: String = (if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.takeIf { it.isNotBlank() && it != Build.UNKNOWN } else null)
         ?: cpu?.optString("model")?.takeIf { it.isNotBlank() } ?: Build.HARDWARE
 
-    val model: String = "${Build.MANUFACTURER.replaceFirstChar { it.uppercase() }} ${Build.MODEL}"
+    // Some makers already start the model with their own name.
+    val model: String = (if (Build.MODEL.startsWith(Build.MANUFACTURER, ignoreCase = true)) Build.MODEL else "${Build.MANUFACTURER} ${Build.MODEL}")
+        .replaceFirstChar { it.uppercase() }
     val system: String = "Android ${Build.VERSION.RELEASE}"
     val cache: String? = cpu?.optDouble("llc_bytes", 0.0)?.takeIf { it > 0 }?.let { "${(it / 1_048_576).roundToInt()} MB" }
     val memory: String = run {
         val out = ActivityManager.MemoryInfo()
         (context.getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).getMemoryInfo(out)
-        "${ceil(out.totalMem / 1_073_741_824.0).toInt()} GB"
+        // The system keeps part of the memory for itself, so the total is short of the size the phone is sold with.
+        val advertised = if (Build.VERSION.SDK_INT >= 34) out.advertisedMem else 0L
+        val gb = (if (advertised > 0) advertised else out.totalMem) / 1_073_741_824.0
+        "${memorySizes.firstOrNull { it >= gb } ?: ceil(gb).toInt()} GB"
     }
     val summary: String = "$cores · $memory · $system"
 
     private companion object {
         val clusterNames = mapOf("P" to "Fast", "M" to "Middle", "E" to "Efficient")
+        val memorySizes = listOf(1, 2, 3, 4, 6, 8, 10, 12, 16, 18, 24, 32, 48, 64)
     }
 }
 

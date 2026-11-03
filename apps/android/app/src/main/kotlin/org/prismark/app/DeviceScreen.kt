@@ -18,6 +18,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -37,6 +38,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
@@ -103,7 +105,7 @@ fun DeviceScreen(tablet: Boolean) {
             BasicText(machine.chip, style = Type.saira(chipSize(machine.chip, if (tablet) 130f else 84f).sp, 50, 600, Ink), maxLines = 1, softWrap = false)
             BasicText("${machine.system} · ${machine.cores}", style = Type.archivo(13.sp, 600, OnSignal))
         }
-        StatusTiles(status, if (tablet) 50.sp else 30.sp, if (tablet) 130.dp else 104.dp)
+        StatusTiles(status, if (tablet) 50.sp else 30.sp)
         CoreMap(machine, Modifier.weight(1f).fillMaxWidth(), if (tablet) 84.sp else 50.sp, if (tablet) 56.sp else 24.sp, if (tablet) 64.dp else 46.dp)
         Column(Modifier.fillMaxWidth().background(LocalPalette.current.raised).padding(horizontal = 16.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(5.dp)) {
             Mono("Not readable", LocalPalette.current.muted)
@@ -126,8 +128,9 @@ fun DeviceScreen(tablet: Boolean) {
 }
 
 @Composable
-private fun StatusTiles(status: DeviceStatus, size: TextUnit, height: Dp) {
-    Row(Modifier.fillMaxWidth().height(height), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+private fun StatusTiles(status: DeviceStatus, size: TextUnit) {
+    // As tall as the tallest tile, so a larger text size on the phone never cuts the words off.
+    Row(Modifier.fillMaxWidth().height(IntrinsicSize.Min), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         Tile("Heat", status.heat, "As Android reports it", status.hot, size, Modifier.weight(1f))
         Tile("Low Power", if (status.lowPower) "On" else "Off", "Slows the CPU when on", status.lowPower, size, Modifier.weight(1f))
         Tile("Battery", status.battery, status.batteryNote, false, size, Modifier.weight(1f))
@@ -137,10 +140,10 @@ private fun StatusTiles(status: DeviceStatus, size: TextUnit, height: Dp) {
 @Composable
 private fun Tile(name: String, value: String, note: String, alert: Boolean, size: TextUnit, modifier: Modifier) {
     val p = LocalPalette.current
-    Column(modifier.fillMaxHeight().background(p.panel).padding(horizontal = 10.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) {
+    Column(modifier.fillMaxHeight().background(p.panel).padding(horizontal = 10.dp, vertical = 9.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Mono(name, p.muted)
         BasicText(value, style = Type.saira(size, 50, 600, if (alert) Fault else p.text), maxLines = 1)
-        BasicText(note, style = Type.archivo(12.sp, color = p.muted), maxLines = 2)
+        BasicText(note, style = Type.archivo(12.sp, color = p.muted), minLines = 2, maxLines = 2, overflow = TextOverflow.Ellipsis)
     }
 }
 
