@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Builds Prismark for Android (apps/android): the core, every kernel and the JNI bridge with the android-arm64
-# CMake preset (NDK Clang), the pinned fonts the app shows (docs/design.md), and the APK with Gradle.
+# CMake preset (NDK Clang), the pinned fonts the app shows, the reference results, and the APK with Gradle.
 #
 #   tools/build-android.sh [debug|release]      (default: debug, installable as is)
 #
@@ -36,18 +36,18 @@ fetch() { # url file sha256
     echo "warning: $2 not fetched; the app uses the system font instead" >&2
   fi
 }
-inter=https://raw.githubusercontent.com/rsms/inter/v3.19/docs/font-files
 gf=https://raw.githubusercontent.com/google/fonts/6157dfaa640ca5738b4d1a7070fe389c3036d7fc/ofl
-fetch $inter/Inter-Regular.otf Inter-Regular.otf a7e791e8f5a0fb02b65663f7fca73e1d1ca9543f772ad480cbd76f4e3fe3f8cc
-fetch $inter/Inter-Medium.otf Inter-Medium.otf 99dab2bdcb613c4c8264000a94351d1227f74dc95a86d1249493aeee0c0179c4
-fetch $inter/Inter-SemiBold.otf Inter-SemiBold.otf 8c1990b6012254ea2b487161697d107357dd0ee55811cfd91c8c11227bbef457
-fetch $inter/Inter-Bold.otf Inter-Bold.otf 1e9dfd6a6e33ac63a8fe3b4ed7ae0df9eac2d0b25e444e8e7daef4ac77943fc1
+fetch "$gf/archivo/Archivo%5Bwdth,wght%5D.ttf" Archivo.ttf 0e094a7d3c7c4c25cf1310c4b30014f1dae9332220b1c2c88f4fa996f0b05053
 fetch "$gf/saira/Saira%5Bwdth,wght%5D.ttf" Saira.ttf 9d050fc5a01c85f74c4257c207d50b55d1e40c37308c642f974a2c5003231dde
 fetch $gf/ibmplexmono/IBMPlexMono-Regular.ttf IBMPlexMono-Regular.ttf 6a3412f058c7d8dfd9170c41e85ade48e5156ecb89356110ca57a0a27734af46
-fetch $gf/ibmplexmono/IBMPlexMono-Medium.ttf IBMPlexMono-Medium.ttf a9b4c49bb299e05b5f6c481e7fb5e78943d2793249a0c8874ab574a2d1ea6755
 fetch $gf/ibmplexmono/IBMPlexMono-SemiBold.ttf IBMPlexMono-SemiBold.ttf d3c38e55c78f5b0f28009fddba4834ec503278936a5986032424c9bd2d23aa46
 
-# 3. The APK. A release build is signed when PRISMARK_ANDROID_KEYSTORE is set (docs/packaging.md), else unsigned;
+# 3. The reference machines the rankings compare with, the same reduced file the website uses.
+mkdir -p "$app/assets" build/android
+python3 tools/site_data.py build/android/data.json
+cp build/android/references.json "$app/assets/references.json"
+
+# 4. The APK. A release build is signed when PRISMARK_ANDROID_KEYSTORE is set (docs/packaging.md), else unsigned;
 #    a debug build is signed with the local debug key, so one built elsewhere must be uninstalled before another installs over it.
 task=assemble${type^}
 (cd apps/android && ./gradlew --no-daemon "$task")

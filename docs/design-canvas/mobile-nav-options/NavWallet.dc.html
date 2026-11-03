@@ -1,0 +1,68 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>D, wallet</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Saira:wdth,wght@50..125,100..900&display=swap">
+<style>
+body{margin:0}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="width: 402px; height: 874px; position: relative; overflow: hidden; background: #0C1430; font-family: Archivo, sans-serif">
+  <!-- the open ticket ends where the closed ones begin -->
+  <sc-if value="{{isRun}}" hint-placeholder-val="{{ true }}">
+    <dc-import name="NavRunBody" w="402" h="764" bottom="26" hint-size="402px,764px"></dc-import>
+  </sc-if>
+  <sc-if value="{{isResults}}" hint-placeholder-val="{{ false }}">
+    <dc-import name="NavResultsBody" w="402" h="764" bottom="20" hint-size="402px,764px"></dc-import>
+  </sc-if>
+  <sc-if value="{{isDevice}}" hint-placeholder-val="{{ false }}">
+    <dc-import name="NavDeviceBody" w="402" h="764" bottom="20" hint-size="402px,764px"></dc-import>
+  </sc-if>
+
+  <!-- the closed tickets: each overlaps the one above; the last one ends in the phone's own corners -->
+  <sc-for list="{{closed}}" as="s" hint-placeholder-count="2">
+    <button onClick="{{s.pick}}" aria-label="{{s.label}}" style="{{s.style}}">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">{{s.num}}</span>
+      <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 125; font-weight: 800; font-size: 18px">{{s.name}}</span>
+      <span style="margin-left: auto; font-family: 'IBM Plex Mono', monospace; font-size: 11px; white-space: nowrap">{{s.note}}</span>
+    </button>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"screen":{"editor":"enum","options":["run","results","device"],"default":"run"},"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const screen = this.state?.screen ?? this.props.screen ?? 'run';
+    const all = [
+      { id: 'run', num: '01', name: 'RUN', note: '16 TESTS PICKED', bg: '#2D5BFF', fg: '#F7F8F9' },
+      { id: 'results', num: '02', name: 'RESULTS', note: 'LATEST 02 NOV', bg: '#D6F53B', fg: '#0C1430' },
+      { id: 'device', num: '03', name: 'DEVICE', note: 'A19 PRO', bg: '#F7F8F9', fg: '#0C1430' }
+    ];
+    const rest = all.filter((s) => s.id !== screen);
+    const closed = rest.map((s, i) => {
+      const top = 738 + i * 58;
+      return {
+        ...s,
+        label: 'Open ' + s.name.toLowerCase(),
+        pick: () => this.setState({ screen: s.id }),
+        style: 'position: absolute; left: 0; right: 0; top: ' + top + 'px; height: ' + (874 - top) + 'px; box-sizing: border-box; border: 0; padding: 0 24px; display: flex; align-items: flex-start; gap: 12px; padding-top: 19px; border-radius: 28px 28px 0 0; outline: 2px solid #0C1430; outline-offset: -2px; background: ' + s.bg + '; color: ' + s.fg + '; text-align: left'
+      };
+    });
+    return {
+      isRun: screen === 'run',
+      isResults: screen === 'results',
+      isDevice: screen === 'device',
+      closed
+    };
+  }
+}
+</script>
+</body>
+</html>

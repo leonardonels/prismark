@@ -3,6 +3,11 @@
 site/data.json
 site/references.json
 
+# iOS app
+apps/ios/Prismark/Prismark/Fonts/
+apps/ios/Prismark/Prismark/references.json
+xcuserdata/
+
 # build trees
 build/
 compile_commands.json

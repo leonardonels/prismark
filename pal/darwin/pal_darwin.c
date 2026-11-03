@@ -55,11 +55,41 @@ static uint64_t sysctl_u64(const char *name, uint64_t def) {
   return v;
 }
 
+#if TARGET_OS_IPHONE
+/* iOS keeps the processor's name from apps and gives only the device's id, so the name comes from this list. A device
+   that is not listed is recorded by its id. */
+static const char *chip_of_device(const char *device) {
+  static const struct {
+    const char *chip, *devices;
+  } chips[] = {
+      {"Apple A12 Bionic", " iPhone11,2 iPhone11,4 iPhone11,6 iPhone11,8 "},
+      {"Apple A13 Bionic", " iPhone12,1 iPhone12,3 iPhone12,5 iPhone12,8 "},
+      {"Apple A14 Bionic", " iPhone13,1 iPhone13,2 iPhone13,3 iPhone13,4 "},
+      {"Apple A15 Bionic", " iPhone14,2 iPhone14,3 iPhone14,4 iPhone14,5 iPhone14,6 iPhone14,7 iPhone14,8 "},
+      {"Apple A16 Bionic", " iPhone15,2 iPhone15,3 iPhone15,4 iPhone15,5 "},
+      {"Apple A17 Pro", " iPhone16,1 iPhone16,2 "},
+      {"Apple A18", " iPhone17,3 iPhone17,4 iPhone17,5 "},
+      {"Apple A18 Pro", " iPhone17,1 iPhone17,2 "},
+      {"Apple A19", " iPhone18,3 "},
+      {"Apple A19 Pro", " iPhone18,1 iPhone18,2 iPhone18,4 "},
+      {"Apple M1", " iPad13,4 iPad13,5 iPad13,6 iPad13,7 iPad13,8 iPad13,9 iPad13,10 iPad13,11 iPad13,16 iPad13,17 "},
+      {"Apple M2", " iPad14,3 iPad14,4 iPad14,5 iPad14,6 iPad14,8 iPad14,9 iPad14,10 iPad14,11 "},
+      {"Apple M3", " iPad15,3 iPad15,4 iPad15,5 iPad15,6 "},
+      {"Apple M4", " iPad16,3 iPad16,4 iPad16,5 iPad16,6 iPad16,9 "},
+  };
+  char key[32];
+  snprintf(key, sizeof key, " %s ", device);
+  for (size_t i = 0; i < sizeof chips / sizeof *chips; i++)
+    if (strstr(chips[i].devices, key)) return chips[i].chip;
+  return device;
+}
+#endif
+
 int pal_init(pmk_machine *m) {
   memset(m, 0, sizeof *m);
   mach_timebase_info(&g_tb);
   snprintf(m->os, sizeof m->os, TARGET_OS_IPHONE ? "ios" : "macos");
-  struct utsname u;
+  struct utsname u = {0};
   if (!uname(&u)) {
     /* iPads report as iPadOS: they offer tests that iPhones do not (the machine id is e.g. "iPad13,4"). */
     if (TARGET_OS_IPHONE && !strncmp(u.machine, "iPad", 4)) snprintf(m->os, sizeof m->os, "ipados");
@@ -71,6 +101,9 @@ int pal_init(pmk_machine *m) {
 #endif
   size_t len = sizeof m->model;
   if (sysctlbyname("machdep.cpu.brand_string", m->model, &len, NULL, 0)) m->model[0] = 0;
+#if TARGET_OS_IPHONE
+  if (!m->model[0]) snprintf(m->model, sizeof m->model, "%s", chip_of_device(u.machine));
+#endif
   len = sizeof m->board;
   if (sysctlbyname("hw.model", m->board, &len, NULL, 0)) m->board[0] = 0;
 

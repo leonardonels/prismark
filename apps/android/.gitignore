@@ -5,3 +5,4 @@ local.properties
 # Produced by tools/build-android.sh: the native library and the pinned fonts.
 app/src/main/jniLibs/
 app/src/main/assets/fonts/
+app/src/main/assets/references.json

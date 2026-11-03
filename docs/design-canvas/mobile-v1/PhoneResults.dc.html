@@ -1,0 +1,122 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prismark, One run</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Saira:wdth,wght@50..125,100..900&amp;display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="width: 402px; height: 874px; box-sizing: border-box; background: {{t.ground}}; display: flex; flex-direction: column; gap: 6px; font-family: Archivo, sans-serif; color: {{t.text}}; overflow: hidden">
+
+  <header style="background: #D6F53B; color: #0C1430; padding: 62px 20px 14px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <a href="PhoneRuns.dc.html" aria-label="Back to your runs" style="width: 44px; height: 44px; margin-left: -4px; background: #0C1430; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="#D6F53B" stroke-width="2" aria-hidden="true"><path d="M11 2 L5 8 L11 14"></path></svg>
+      </a>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em">YOUR RUN · FULL · 16 TESTS</span>
+      <button aria-label="Share the result file" style="width: 44px; height: 44px; margin-right: -4px; border: 0; padding: 0; background: #0C1430; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 20 20" width="18" height="18" fill="none" stroke="#D6F53B" stroke-width="2" aria-hidden="true"><path d="M10 13 V2 M5.5 6 L10 1.5 L14.5 6 M4 10 H2 V18.5 H18 V10 H16"></path></svg>
+      </button>
+    </div>
+    <h1 style="margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 30px; line-height: 1">02 Nov 2026 · 16:40</h1>
+  </header>
+
+  <nav aria-label="Test groups" style="display: flex; gap: 6px; overflow-x: auto; flex: none">
+    <sc-for list="{{tabs}}" as="g" hint-placeholder-count="4">
+      <button aria-pressed="{{g.on}}" onClick="{{g.pick}}" style="{{g.style}}">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px">{{g.num}}</span>
+        <span style="font-family: Archivo, sans-serif; font-weight: 700; font-size: 14px; white-space: nowrap">{{g.name}}</span>
+      </button>
+    </sc-for>
+  </nav>
+
+  <section aria-label="Results" style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 6px">
+    <sc-for list="{{tiles}}" as="x" hint-placeholder-count="6">
+      <a href="PhoneTest.dc.html" style="background: {{t.panel}}; color: {{t.text}}; padding: 12px 14px; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; overflow: hidden">
+        <span style="display: flex; justify-content: space-between; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: {{t.muted}}">
+          <span>{{x.unit}}</span><span aria-label="{{x.dirLabel}}">{{x.dir}}</span>
+        </span>
+        <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 50; font-weight: 600; font-size: 78px; line-height: 0.9; letter-spacing: -0.01em">{{x.score}}</span>
+        <span style="display: flex; flex-direction: column; gap: 2px">
+          <span style="font-weight: 700; font-size: 14px; line-height: 1.15">{{x.name}}</span>
+          <span style="font-size: 12px; line-height: 1.2; color: {{t.muted}}">{{x.note}}</span>
+        </span>
+      </a>
+    </sc-for>
+  </section>
+
+  <nav aria-label="Sections" style="display: flex; gap: 6px; padding-bottom: 28px">
+    <a href="Main.dc.html" style="flex: 1; height: 60px; box-sizing: border-box; padding: 8px 12px; background: {{t.tabIdle}}; color: {{t.tabText}}; display: flex; flex-direction: column; justify-content: space-between">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px">01</span><span style="font-weight: 600; font-size: 14px">Run</span>
+    </a>
+    <a href="PhoneRuns.dc.html" aria-current="page" style="flex: 1; height: 60px; box-sizing: border-box; padding: 8px 12px; background: {{t.panel}}; color: {{t.text}}; border-bottom: 5px solid #D6F53B; display: flex; flex-direction: column; justify-content: space-between">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px">02</span><span style="font-weight: 700; font-size: 14px">Results</span>
+    </a>
+    <a href="PhoneDevice.dc.html" style="flex: 1; height: 60px; box-sizing: border-box; padding: 8px 12px; background: {{t.tabIdle}}; color: {{t.tabText}}; display: flex; flex-direction: column; justify-content: space-between">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px">03</span><span style="font-weight: 600; font-size: 14px">Device</span>
+    </a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"group":{"editor":"enum","options":["mc","st","mem","resp"],"default":"st"},"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = (this.props.theme ?? 'light') === 'dark';
+    const t = dark
+      ? { ground: '#070C1F', panel: '#141D3B', text: '#E8ECEF', muted: '#AEB8D6', tabIdle: '#0F1730', tabText: '#AEB8D6' }
+      : { ground: '#0C1430', panel: '#F7F8F9', text: '#0C1430', muted: '#3B4660', tabIdle: '#1A2547', tabText: '#D5DBEA' };
+    const hi = 'higher is better', lo = 'lower is better';
+    const data = {
+      mc: [
+        { name: '3D rendering', note: 'All cores share one image', score: '19.8', unit: 'M samples/s', up: true },
+        { name: 'Vector maths', note: 'All cores, widest vectors', score: '112', unit: 'GFLOP/s', up: true }
+      ],
+      st: [
+        { name: '3D rendering', note: 'After warming up', score: '3.72', unit: 'M samples/s', up: true },
+        { name: 'Vector maths', note: 'Widest vectors', score: '21.8', unit: 'GFLOP/s', up: true },
+        { name: 'Compression', note: 'A small file', score: '12.6', unit: 'ms' },
+        { name: 'Opening a photo', note: 'Decode and resize', score: '27.2', unit: 'ms' },
+        { name: 'Reading JSON', note: 'Web-style text data', score: '19.3', unit: 'ms' },
+        { name: 'Starting a script', note: 'Launch Lua', score: '10.9', unit: 'ms' }
+      ],
+      mem: [
+        { name: 'Memory delay', note: 'One read from memory', score: '84.1', unit: 'ns' },
+        { name: 'Memory delay, busy', note: 'All cores reading', score: '89.7', unit: 'ns' },
+        { name: 'Timer, idle', note: 'No range: may be noise', score: '448', unit: 'µs' },
+        { name: 'Timer, busy', note: 'No range: may be noise', score: '392', unit: 'µs' }
+      ],
+      resp: [
+        { name: 'Wake-up, 1 ms task', note: 'Started from rest', score: '7.27', unit: '%', up: true },
+        { name: 'Wake-up, 10 ms task', note: 'Started from rest', score: '30.6', unit: '%', up: true },
+        { name: 'Photo from rest', note: 'After a pause', score: '59.7', unit: 'ms' },
+        { name: 'Script from rest', note: 'After a pause', score: '36.2', unit: 'ms' }
+      ]
+    };
+    const names = [['mc', '01', 'All cores'], ['st', '02', 'One core'], ['mem', '03', 'Memory & timing'], ['resp', '04', 'Responsiveness']];
+    const sel = this.state?.group ?? this.props.group ?? 'st';
+    return {
+      t,
+      tabs: names.map(([id, num, name]) => ({
+        num,
+        name,
+        on: id === sel,
+        pick: () => this.setState({ group: id }),
+        style: 'flex: none; height: 56px; box-sizing: border-box; border: 0; padding: 8px 14px; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; ' +
+          (id === sel ? 'background: ' + t.panel + '; color: ' + t.text + '; border-bottom: 5px solid #D6F53B' : 'background: ' + t.tabIdle + '; color: ' + t.tabText)
+      })),
+      tiles: data[sel].map((x) => ({ ...x, dir: x.up ? '↑' : '↓', dirLabel: x.up ? hi : lo }))
+    };
+  }
+}
+</script>
+</body>
+</html>

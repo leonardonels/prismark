@@ -1,0 +1,98 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Results screen, no navigation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Saira:wdth,wght@50..125,100..900&display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="{{rootStyle}}">
+  <header style="flex: none; background: #D6F53B; padding: 62px 20px 14px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; justify-content: space-between; gap: 8px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em">
+      <span>LATEST · FULL · 16 TESTS</span>
+      <a href="PhoneRuns.dc.html" style="font-weight: 600; padding: 12px 0 12px 12px; margin: -12px 0">ALL RUNS →</a>
+    </div>
+    <h1 style="{{titleStyle}}">02 Nov 2026 · 16:40</h1>
+  </header>
+
+  <nav aria-label="Test groups" style="flex: none; display: flex; gap: 6px; overflow-x: auto">
+    <sc-for list="{{tabs}}" as="g" hint-placeholder-count="4">
+      <button aria-pressed="{{g.on}}" onClick="{{g.pick}}" style="{{g.style}}">{{g.name}}</button>
+    </sc-for>
+  </nav>
+
+  <section aria-label="Results" style="flex: 1; min-height: 0; display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); grid-auto-rows: minmax(0, 1fr); gap: 6px">
+    <sc-for list="{{tiles}}" as="x" hint-placeholder-count="6">
+      <a href="PhoneTest.dc.html" style="background: #F7F8F9; padding: 10px 12px; display: flex; flex-direction: column; justify-content: space-between; min-width: 0; overflow: hidden">
+        <span style="display: flex; justify-content: space-between; gap: 6px; font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #3B4660">
+          <span>{{x.unit}}</span><span aria-label="{{x.dirLabel}}">{{x.dir}}</span>
+        </span>
+        <span style="{{scoreStyle}}">{{x.score}}</span>
+        <span style="font-weight: 700; font-size: 14px; line-height: 1.15">{{x.name}}</span>
+      </a>
+    </sc-for>
+  </section>
+
+  <div aria-hidden="true" style="{{footStyle}}"></div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"w":{"editor":"int","default":402},"h":{"editor":"int","default":874},"bottom":{"editor":"int","default":34},"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const w = this.props.w ?? 402, h = this.props.h ?? 874, bottom = this.props.bottom ?? 34;
+    const narrow = w < 380;
+    const data = {
+      mc: [
+        { name: '3D rendering', score: '19.8', unit: 'M samples/s', up: true },
+        { name: 'Vector maths', score: '112', unit: 'GFLOP/s', up: true }
+      ],
+      st: [
+        { name: '3D rendering', score: '3.72', unit: 'M samples/s', up: true },
+        { name: 'Vector maths', score: '21.8', unit: 'GFLOP/s', up: true },
+        { name: 'Compression', score: '12.6', unit: 'ms' },
+        { name: 'Opening a photo', score: '27.2', unit: 'ms' },
+        { name: 'Reading JSON', score: '19.3', unit: 'ms' },
+        { name: 'Starting a script', score: '10.9', unit: 'ms' }
+      ],
+      mem: [
+        { name: 'Memory delay', score: '84.1', unit: 'ns' },
+        { name: 'Memory delay, busy', score: '89.7', unit: 'ns' },
+        { name: 'Timer, idle', score: '448', unit: 'µs' },
+        { name: 'Timer, busy', score: '392', unit: 'µs' }
+      ],
+      resp: [
+        { name: 'Wake-up, 1 ms task', score: '7.27', unit: '%', up: true },
+        { name: 'Wake-up, 10 ms task', score: '30.6', unit: '%', up: true },
+        { name: 'Photo from rest', score: '59.7', unit: 'ms' },
+        { name: 'Script from rest', score: '36.2', unit: 'ms' }
+      ]
+    };
+    const names = [['mc', 'All cores'], ['st', 'One core'], ['mem', 'Memory & timing'], ['resp', 'Responsiveness']];
+    const sel = this.state?.group ?? 'st';
+    return {
+      rootStyle: 'width: ' + w + 'px; height: ' + h + 'px; box-sizing: border-box; background: #0C1430; display: flex; flex-direction: column; gap: 6px; font-family: Archivo, sans-serif; color: #0C1430; overflow: hidden',
+      titleStyle: "margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; line-height: 1; font-size: " + (narrow ? 24 : 30) + 'px',
+      scoreStyle: "font-family: Saira, sans-serif; font-variation-settings: 'wdth' 50; font-weight: 600; line-height: 0.9; letter-spacing: -0.01em; font-size: " + (narrow ? 62 : 72) + 'px',
+      footStyle: 'flex: none; margin-top: -6px; height: ' + bottom + 'px; background: #0C1430',
+      tabs: names.map(([id, name]) => ({
+        name,
+        on: id === sel,
+        pick: () => this.setState({ group: id }),
+        style: 'flex: none; height: 48px; border: 0; padding: 0 14px; white-space: nowrap; font-family: Archivo, sans-serif; font-weight: 700; font-size: 14px; color: #0C1430; background: ' + (id === sel ? '#F7F8F9' : '#C9D0DA') + '; box-sizing: border-box; border-bottom: 5px solid ' + (id === sel ? '#D6F53B' : '#C9D0DA')
+      })),
+      tiles: data[sel].map((x) => ({ ...x, dir: x.up ? '↑' : '↓', dirLabel: x.up ? 'higher is better' : 'lower is better' }))
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -18,7 +18,9 @@ data class Value(val v: Double, val lo: Double = Double.NaN, val hi: Double = Do
     val hasRange get() = lo.isFinite() && hi.isFinite()
 }
 
-data class Group(val id: String, val label: String, val desc: String)
+data class Group(val id: String, val label: String, val desc: String) {
+    val number get() = "%02d".format(groups.indexOf(this) + 1)
+}
 
 data class Test(
     val id: String,

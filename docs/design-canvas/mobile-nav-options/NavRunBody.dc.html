@@ -1,0 +1,121 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Run screen, no navigation</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Saira:wdth,wght@50..125,100..900&display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="{{rootStyle}}">
+  <section style="flex: 1; min-height: 0; position: relative; overflow: hidden; background: #2D5BFF; color: #F7F8F9; padding: 62px 20px 14px; display: flex; flex-direction: column; justify-content: space-between">
+    <div aria-hidden="true" style="position: absolute; inset: 0; background-image: radial-gradient(#5C80FF 1.2px, transparent 1.4px); background-size: 22px 22px"></div>
+    <div style="position: relative; display: flex; justify-content: space-between; align-items: center">
+      <div style="display: flex; align-items: center; gap: 8px; height: 40px; padding: 0 10px; background: #D6F53B; color: #0C1430">
+        <svg viewBox="0 0 64 64" width="24" height="24" aria-hidden="true">
+          <path d="M0 37 L21.5 34" stroke="#0C1430" stroke-width="3" fill="none"></path>
+          <polygon points="12,52 32,12 52,52" fill="#0C1430"></polygon>
+          <rect x="42" y="25" width="22" height="5" fill="#0C1430"></rect>
+          <rect x="46.5" y="34" width="17.5" height="5" fill="#2D5BFF"></rect>
+          <rect x="51" y="43" width="13" height="5" fill="#0C1430"></rect>
+        </svg>
+        <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 125; font-weight: 800; font-size: 14px">PRISMARK</span>
+      </div>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em">REV. 0.4.3</span>
+    </div>
+    <div style="position: relative; display: flex; flex-direction: column; gap: 4px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">Processor:</span>
+      <div style="display: flex; align-items: flex-end; gap: 10px">
+        <h1 style="{{heroStyle}}">A19</h1>
+        <span style="writing-mode: vertical-rl; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 125; font-weight: 800; font-size: 28px; line-height: 1; color: #F7F8F9">PRO</span>
+      </div>
+    </div>
+    <div style="position: relative; padding-top: 10px; border-top: 1px solid #9DB3FF; font-weight: 600; font-size: 13px; line-height: 1.35">2 fast + 4 efficient cores · 12 GB · iOS 27.2</div>
+  </section>
+
+  <section aria-label="Test groups" style="flex: none; display: flex; flex-direction: column; gap: 6px">
+    <sc-for list="{{groups}}" as="g" hint-placeholder-count="4">
+      <div style="{{g.rowStyle}}">
+        <button aria-label="{{g.checkLabel}}" aria-pressed="{{g.on}}" onClick="{{g.toggle}}" style="flex: none; width: 56px; height: 56px; border: 0; padding: 0; background: transparent; display: flex; align-items: center; justify-content: center">
+          <span style="{{g.boxStyle}}"><span style="{{g.dotStyle}}"></span></span>
+        </button>
+        <a href="PhoneGroup.dc.html" style="flex: 1; min-width: 0; height: 56px; display: flex; align-items: center; gap: 10px; padding-right: 14px">
+          <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 1px">
+            <span style="font-weight: 700; font-size: 16px; line-height: 1.15; white-space: nowrap">{{g.name}}</span>
+            <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px">{{g.count}}</span>
+          </span>
+          <svg viewBox="0 0 16 16" width="14" height="14" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 2 L11 8 L5 14"></path></svg>
+        </a>
+      </div>
+    </sc-for>
+  </section>
+
+  <section style="{{runBarStyle}}">
+    <div style="display: flex; gap: 6px">
+      <button aria-pressed="{{quick}}" onClick="{{toggleQuick}}" style="{{quickStyle}}">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em">QUICK</span>
+        <span style="{{switchStyle}}"><span style="{{knobStyle}}"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; font-weight: 600">{{quickWord}}</span></span>
+      </button>
+      <a href="PhoneMeasuring.dc.html" style="{{runStyle}}">
+        <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 125; font-weight: 800; font-size: 16px; white-space: nowrap">{{runLabel}}</span>
+        <svg viewBox="0 0 34 16" width="26" height="12" fill="currentColor" aria-hidden="true"><polygon points="0,0 5,0 12,8 5,16 0,16 7,8"></polygon><polygon points="11,0 16,0 23,8 16,16 11,16 18,8"></polygon><polygon points="22,0 27,0 34,8 27,16 22,16 29,8"></polygon></svg>
+      </a>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"w":{"editor":"int","default":402},"h":{"editor":"int","default":874},"bottom":{"editor":"int","default":34},"radius":{"editor":"int","default":0},"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { off: {}, quick: false };
+  }
+  renderVals() {
+    const w = this.props.w ?? 402, h = this.props.h ?? 874, bottom = this.props.bottom ?? 34, radius = this.props.radius ?? 0;
+    const list = [
+      { id: 'mc', name: 'All cores', n: 2 },
+      { id: 'st', name: 'One core', n: 6 },
+      { id: 'mem', name: 'Memory & timing', n: 4 },
+      { id: 'resp', name: 'Responsiveness', n: 4 }
+    ];
+    const off = this.state.off, quick = this.state.quick;
+    const total = list.reduce((s, g) => s + (off[g.id] ? 0 : g.n), 0);
+    return {
+      rootStyle: 'width: ' + w + 'px; height: ' + h + 'px; box-sizing: border-box; background: #0C1430; display: flex; flex-direction: column; gap: 6px; font-family: Archivo, sans-serif; color: #0C1430; overflow: hidden',
+      heroStyle: "margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 50; font-weight: 600; font-size: " + (w < 380 ? 176 : 196) + 'px; line-height: 0.76; letter-spacing: -0.02em; color: #0C1430',
+      groups: list.map((g) => {
+        const on = !off[g.id];
+        return {
+          ...g,
+          on,
+          count: (on ? g.n : 0) + ' of ' + g.n + ' tests',
+          checkLabel: (on ? 'Leave out ' : 'Include ') + g.name,
+          toggle: () => this.setState({ off: { ...off, [g.id]: on } }),
+          rowStyle: 'display: flex; align-items: center; background: ' + (on ? '#D6F53B' : '#F7F8F9'),
+          boxStyle: 'width: 24px; height: 24px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border: 2px solid ' + (on ? '#0C1430' : '#343E5A') + '; background: ' + (on ? '#0C1430' : 'transparent'),
+          dotStyle: 'width: 10px; height: 10px; background: ' + (on ? '#D6F53B' : 'transparent')
+        };
+      }),
+      quick,
+      toggleQuick: () => this.setState({ quick: !quick }),
+      quickWord: quick ? 'ON' : 'OFF',
+      runBarStyle: 'flex: none; background: #F7F8F9; padding: 6px 6px ' + bottom + 'px',
+      quickStyle: 'flex: none; width: 96px; height: 60px; border: 0; padding: 7px 10px; background: #E8ECEF; color: #0C1430; display: flex; flex-direction: column; justify-content: space-between; align-items: flex-start; border-radius: ' + radius + 'px',
+      switchStyle: 'display: flex; align-items: center; gap: 6px; padding: 3px 5px; color: #0C1430; background: ' + (quick ? '#D6F53B' : '#C9D0DA'),
+      knobStyle: 'width: 12px; height: 12px; background: ' + (quick ? '#0C1430' : '#343E5A'),
+      runLabel: total ? 'RUN ' + total + ' TESTS' : 'PICK A TEST',
+      runStyle: 'flex: 1; min-width: 0; height: 60px; box-sizing: border-box; padding: 0 16px; display: flex; align-items: center; justify-content: space-between; gap: 6px; background: #D6F53B; color: #0C1430; border-radius: ' + radius + 'px'
+    };
+  }
+}
+</script>
+</body>
+</html>

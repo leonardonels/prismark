@@ -1,0 +1,61 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prismark, iPad measuring</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Saira:wdth,wght@50..125,100..900&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1180px; height: 820px; box-sizing: border-box; position: relative; overflow: hidden; background: #2D5BFF; color: #F7F8F9; font-family: Archivo, sans-serif; padding: 44px 40px 36px; display: flex; flex-direction: column; gap: 22px">
+  <div aria-hidden="true" style="position: absolute; inset: 0; background-image: radial-gradient(#5C80FF 1.2px, transparent 1.4px); background-size: 24px 24px"></div>
+
+  <div style="position: relative; display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.06em">
+    <span>RUN / MEASURING</span><span>THIS IPAD · M2</span><span>FULL RUN</span>
+  </div>
+
+  <div style="position: relative; flex: 1; min-height: 0; display: flex; gap: 32px">
+    <!-- the seat tile -->
+    <section style="flex: 1; min-width: 0; background: #D6F53B; color: #0C1430; padding: 20px 28px 22px; display: flex; flex-direction: column; justify-content: space-between; overflow: hidden">
+      <div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 12px"><span>Part:</span><span>NOW</span></div>
+      <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 50; font-weight: 600; font-size: 380px; line-height: 0.78; letter-spacing: -0.015em; white-space: nowrap">07/16</span>
+      <div style="display: flex; flex-direction: column; gap: 6px">
+        <h1 style="margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 34px; line-height: 1.02">One core, after warming up</h1>
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 13px">3D rendering, one core</span>
+      </div>
+    </section>
+
+    <aside style="flex: none; width: 320px; display: flex; flex-direction: column; justify-content: space-between; gap: 24px">
+      <div style="display: flex; flex-direction: column; gap: 12px">
+        <p style="margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 100; font-weight: 700; font-size: 30px; line-height: 1.08">Leave the iPad on a table and do not touch it.</p>
+        <p style="margin: 0; font-size: 16px; line-height: 1.45">A touch, the keyboard or the Pencil skips the tests that measure waking up.</p>
+        <p style="margin: 0; font-size: 16px; line-height: 1.45">The screen stays on and does not change while a test measures.</p>
+      </div>
+      <button style="height: 60px; box-sizing: border-box; border: 2px solid #F7F8F9; background: transparent; color: #F7F8F9; font-family: Archivo, sans-serif; font-weight: 600; font-size: 16px; cursor: pointer">Cancel run</button>
+    </aside>
+  </div>
+
+  <div aria-hidden="true" style="position: relative; display: flex; gap: 4px; height: 16px">
+    <sc-for list="{{parts}}" as="p" hint-placeholder-count="16"><span style="{{p.style}}"></span></sc-for>
+  </div>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1180,"height":820}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const total = 16, current = 6;
+    const parts = Array.from({ length: total }, (_, i) => ({
+      style: 'flex: 1; box-sizing: border-box; ' + (i < current ? 'background: #0C1430;' : i === current ? 'background: #D6F53B;' : 'border: 1.5px solid #9DB3FF;')
+    }));
+    return { parts };
+  }
+}
+</script>
+</body>
+</html>

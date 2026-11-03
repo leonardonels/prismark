@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prismark, Cancel the run</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Saira:wdth,wght@50..125,100..900&amp;display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="width: 402px; height: 874px; position: relative; overflow: hidden; background: #2D5BFF; font-family: Archivo, sans-serif">
+  <dc-import name="PhoneMeasuring" hint-size="402px,874px"></dc-import>
+  <div aria-hidden="true" style="position: absolute; inset: 0; background: rgba(12, 20, 48, 0.78)"></div>
+
+  <!-- the stub, torn off the bottom of the pass -->
+  <section role="dialog" aria-label="Cancel the run?" style="position: absolute; left: 0; right: 0; bottom: 0; background: #F7F8F9; color: #0C1430; display: flex; flex-direction: column">
+    <div style="background: #2D5BFF; color: #F7F8F9; padding: 14px 20px; display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.06em">
+      <span>RUN / CANCEL</span><span>Part 07 of 14</span>
+    </div>
+    <div style="padding: 22px 20px 20px; display: flex; flex-direction: column; gap: 10px">
+      <h2 style="margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 30px; line-height: 1.05">Cancel the run?</h2>
+      <p style="margin: 0; font-size: 15px; line-height: 1.45; color: #3B4660">The tests finished so far are kept as a partial result. It is not ranked.</p>
+      <div aria-hidden="true" style="display: flex; gap: 4px; height: 10px; margin-top: 8px">
+        <span style="flex: 6; background: #0C1430"></span>
+        <span style="flex: 1; background: #D6F53B; outline: 1px solid #0C1430; outline-offset: -1px"></span>
+        <span style="flex: 7; box-sizing: border-box; border: 1.5px solid #9AA5B4"></span>
+      </div>
+    </div>
+    <div style="border-top: 2px dashed #9AA5B4; display: flex; gap: 6px; padding: 14px 20px 34px">
+      <a href="PhoneResults.dc.html" style="flex: 1; height: 56px; box-sizing: border-box; border: 2px solid #0C1430; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 15px">Cancel run</a>
+      <a href="PhoneMeasuring.dc.html" style="flex: 1; height: 56px; background: #D6F53B; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 15px">Keep measuring</a>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  renderVals() {
+    return {};
+  }
+}
+</script>
+</body>
+</html>

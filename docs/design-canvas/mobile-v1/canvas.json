@@ -1,0 +1,199 @@
+{
+  "v": 3,
+  "attachments": {},
+  "boards": {
+    "DarkResults.dc.html": {
+      "h": 874,
+      "radius": 55,
+      "title": "Dark One run",
+      "w": 402,
+      "x": 482,
+      "y": 2790
+    },
+    "DarkRun.dc.html": {
+      "h": 874,
+      "radius": 55,
+      "title": "Dark 01 Run",
+      "w": 402,
+      "x": 0,
+      "y": 2790
+    },
+    "DarkTest.dc.html": {
+      "h": 874,
+      "radius": 55,
+      "title": "Dark One test",
+      "w": 402,
+      "x": 964,
+      "y": 2790
+    },
+    "Main.dc.html": {
+      "h": 874,
+      "is_interactive": true,
+      "radius": 55,
+      "title": "iPhone 01 Run",
+      "w": 402,
+      "x": 0,
+      "y": 0
+    },
+    "PadMeasuring.dc.html": {
+      "h": 820,
+      "radius": 18,
+      "title": "iPad landscape Measuring",
+      "w": 1180,
+      "x": 1260,
+      "y": 1240
+    },
+    "PadResults.dc.html": {
+      "h": 820,
+      "radius": 18,
+      "title": "iPad landscape Results",
+      "w": 1180,
+      "x": 0,
+      "y": 1240
+    },
+    "PadRun.dc.html": {
+      "h": 1180,
+      "radius": 18,
+      "title": "iPad portrait Run",
+      "w": 820,
+      "x": 2520,
+      "y": 1240
+    },
+    "PhoneCancel.dc.html": {
+      "h": 874,
+      "is_interactive": true,
+      "radius": 55,
+      "title": "iPhone Cancel stub",
+      "w": 402,
+      "x": 1446,
+      "y": 0
+    },
+    "PhoneDevice.dc.html": {
+      "h": 874,
+      "is_interactive": true,
+      "radius": 55,
+      "title": "iPhone 03 Device",
+      "w": 402,
+      "x": 3374,
+      "y": 0
+    },
+    "PhoneGroup.dc.html": {
+      "h": 874,
+      "is_interactive": true,
+      "radius": 55,
+      "title": "iPhone Pick the tests",
+      "w": 402,
+      "x": 482,
+      "y": 0
+    },
+    "PhoneMeasuring.dc.html": {
+      "h": 874,
+      "is_interactive": true,
+      "radius": 55,
+      "title": "iPhone Measuring",
+      "w": 402,
+      "x": 964,
+      "y": 0
+    },
+    "PhoneResults.dc.html": {
+      "h": 874,
+      "is_interactive": true,
+      "radius": 55,
+      "title": "iPhone One run",
+      "w": 402,
+      "x": 2410,
+      "y": 0
+    },
+    "PhoneRuns.dc.html": {
+      "h": 874,
+      "is_interactive": true,
+      "radius": 55,
+      "title": "iPhone 02 Your runs",
+      "w": 402,
+      "x": 1928,
+      "y": 0
+    },
+    "PhoneTest.dc.html": {
+      "h": 874,
+      "is_interactive": true,
+      "radius": 55,
+      "title": "iPhone One test",
+      "w": 402,
+      "x": 2892,
+      "y": 0
+    },
+    "System.dc.html": {
+      "h": 1000,
+      "title": "Mobile system",
+      "w": 1640,
+      "x": 1446,
+      "y": 2790
+    }
+  },
+  "createdOnFiles": {
+    "at": "2026-11-02T16:50:00Z",
+    "v": 1
+  },
+  "designSystems": [],
+  "launch": {
+    "view": "canvas"
+  },
+  "noteOrder": [
+    "t_phone",
+    "t_pad",
+    "t_dark",
+    "n_data"
+  ],
+  "notes": {
+    "n_data": {
+      "fill": "orange",
+      "text": "Every score here is a stand-in: Apple M2 numbers from references/apple-m2-macos.json, because nothing has run on an iPhone or iPad yet. The other machines in the ranking are real references.",
+      "w": 340,
+      "x": 3856,
+      "y": 0
+    },
+    "t_dark": {
+      "kind": "title1",
+      "maxW": 3086,
+      "text": "Dark mode and system",
+      "w": 240,
+      "x": 0,
+      "y": 2550
+    },
+    "t_pad": {
+      "kind": "title1",
+      "maxW": 3340,
+      "text": "iPad",
+      "w": 240,
+      "x": 0,
+      "y": 1000
+    },
+    "t_phone": {
+      "kind": "title1",
+      "maxW": 3776,
+      "text": "iPhone",
+      "w": 240,
+      "x": 0,
+      "y": -240
+    }
+  },
+  "order": [
+    "Main.dc.html",
+    "PhoneGroup.dc.html",
+    "PhoneMeasuring.dc.html",
+    "PhoneCancel.dc.html",
+    "PhoneRuns.dc.html",
+    "PhoneResults.dc.html",
+    "PhoneTest.dc.html",
+    "PhoneDevice.dc.html",
+    "PadResults.dc.html",
+    "PadMeasuring.dc.html",
+    "PadRun.dc.html",
+    "DarkRun.dc.html",
+    "DarkResults.dc.html",
+    "DarkTest.dc.html",
+    "System.dc.html"
+  ],
+  "pages": [],
+  "title": "Prismark iOS and iPadOS"
+}
