@@ -1,0 +1,178 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prismark mobile system</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Saira:wdth,wght@50..125,100..900&amp;display=swap">
+<style>
+body{margin:0}
+</style>
+</helmet>
+<div style="width: 1640px; height: 1000px; box-sizing: border-box; background: #0C1430; padding: 8px; display: grid; grid-template-columns: 1fr 1.05fr 1.25fr; grid-template-rows: 560px minmax(0, 1fr); gap: 8px; font-family: Archivo, sans-serif; color: #0C1430">
+
+  <!-- colour -->
+  <section style="background: #F7F8F9; padding: 24px; display: flex; flex-direction: column; gap: 16px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em">COLOUR · FIXED IN BOTH THEMES</span>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px; flex: 1">
+      <div style="background: #D6F53B; padding: 12px; display: flex; flex-direction: column; justify-content: space-between"><strong style="font-size: 16px">Volt</strong><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">#D6F53B · action, yours</span></div>
+      <div style="background: #2D5BFF; color: #F7F8F9; padding: 12px; display: flex; flex-direction: column; justify-content: space-between"><strong style="font-size: 16px">Signal</strong><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">#2D5BFF · machine, run</span></div>
+      <div style="background: #0C1430; color: #F7F8F9; padding: 12px; display: flex; flex-direction: column; justify-content: space-between"><strong style="font-size: 16px">Ink</strong><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">#0C1430 · seams, text</span></div>
+      <div style="background: #FF4F3A; padding: 12px; display: flex; flex-direction: column; justify-content: space-between"><strong style="font-size: 16px">Fault</strong><span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">#FF4F3A · errors only</span></div>
+    </div>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em">PANELS · FOLLOW THE SYSTEM THEME</span>
+    <div style="display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 6px">
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <div style="background: #F7F8F9; outline: 1px solid #C9D0DA; outline-offset: -1px; padding: 8px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">Light panel #F7F8F9</div>
+        <div style="background: #E8ECEF; padding: 8px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">Raised #E8ECEF</div>
+        <div style="background: #0C1430; color: #F7F8F9; padding: 8px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">Ground #0C1430</div>
+      </div>
+      <div style="display: flex; flex-direction: column; gap: 3px">
+        <div style="background: #141D3B; color: #E8ECEF; padding: 8px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">Dark panel #141D3B</div>
+        <div style="background: #1F2B52; color: #E8ECEF; padding: 8px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">Raised #1F2B52</div>
+        <div style="background: #070C1F; color: #E8ECEF; padding: 8px 10px; font-family: 'IBM Plex Mono', monospace; font-size: 11px">Ground #070C1F</div>
+      </div>
+    </div>
+  </section>
+
+  <!-- type -->
+  <section style="background: #E8ECEF; padding: 24px; display: flex; flex-direction: column; justify-content: space-between; gap: 14px; overflow: hidden">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em">TYPE</span>
+    <div style="display: flex; align-items: flex-end; gap: 14px">
+      <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 50; font-weight: 600; font-size: 172px; line-height: 0.76; letter-spacing: -0.02em">3.72</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.4">Saira, width 50<br>Scores, 78–208 pt</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 34px; line-height: 1">Your runs</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">Saira, width 112, bold · headings, 30–38 pt</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 125; font-weight: 800; font-size: 18px">RUN 16 TESTS</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">Saira, width 125, extra bold · main actions</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <span style="font-size: 16px; line-height: 1.35">Leave the iPhone on a table and do not touch it.</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">Archivo · running text, names, 13–19 pt</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 4px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 500; letter-spacing: 0.06em">TESTS · ONE CORE</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px">IBM Plex Mono · labels, units, ranges, 10–12 pt</span>
+    </div>
+  </section>
+
+  <!-- components -->
+  <section style="background: #F7F8F9; padding: 24px; display: flex; flex-direction: column; gap: 18px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em">COMPONENTS · NOTHING UNDER 44 PT</span>
+    <div style="display: flex; gap: 6px; background: #0C1430; padding: 6px">
+      <div style="flex: 1; height: 60px; box-sizing: border-box; padding: 8px 12px; background: #F7F8F9; border-bottom: 5px solid #D6F53B; display: flex; flex-direction: column; justify-content: space-between"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px">01</span><strong style="font-size: 14px">Current tab</strong></div>
+      <div style="flex: 1; height: 60px; box-sizing: border-box; padding: 8px 12px; background: #1A2547; color: #D5DBEA; display: flex; flex-direction: column; justify-content: space-between"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px">02</span><span style="font-weight: 600; font-size: 14px">Other tab</span></div>
+    </div>
+    <div style="display: flex; align-items: center; gap: 12px; flex-wrap: wrap">
+      <span style="display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: #C9D0DA"><span style="width: 18px; height: 18px; background: #343E5A"></span><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600">OFF</span></span>
+      <span style="display: flex; align-items: center; gap: 6px; padding: 4px 6px; background: #D6F53B"><span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 600">ON</span><span style="width: 18px; height: 18px; background: #0C1430"></span></span>
+      <span style="width: 24px; height: 24px; box-sizing: border-box; border: 2px solid #343E5A"></span>
+      <span style="width: 24px; height: 24px; box-sizing: border-box; background: #0C1430; display: flex; align-items: center; justify-content: center"><span style="width: 10px; height: 10px; background: #D6F53B"></span></span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; padding: 3px 7px; background: #E8ECEF">FULL</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; padding: 3px 7px; background: #E8ECEF">QUICK</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; padding: 3px 7px; background: #E8ECEF">PARTIAL</span>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; padding: 3px 7px; background: #E8ECEF">BUSY</span>
+    </div>
+    <div style="display: flex; gap: 6px">
+      <span style="flex: 1; height: 60px; background: #D6F53B; display: flex; align-items: center; justify-content: center; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 125; font-weight: 800; font-size: 15px">MAIN ACTION</span>
+      <span style="flex: 1; height: 60px; background: #1A2547; color: #F7F8F9; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px">Second action</span>
+      <span style="flex: 1; height: 60px; box-sizing: border-box; border: 2px solid #0C1430; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px">Ends something</span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #3B4660">RANKING BAR · REFERENCE, YOURS IN LIGHT, YOURS IN DARK · THIN LINE = 95 % RANGE</span>
+      <span style="position: relative; display: block; height: 8px; width: 84%; background: #2D5BFF"><span style="position: absolute; right: 0; top: 3px; width: 26px; height: 2px; background: #0C1430"></span></span>
+      <span style="position: relative; display: block; height: 8px; width: 78%; background: #0C1430"></span>
+      <span style="display: block; background: #141D3B; padding: 4px 0"><span style="display: block; height: 8px; width: 78%; background: #D6F53B"></span></span>
+    </div>
+    <div style="display: flex; flex-direction: column; gap: 6px; margin-top: auto">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #3B4660">RUN ID BARCODE · DRAWN FROM THE RUN'S REAL ID, NEVER DECORATION</span>
+      <div aria-hidden="true" style="display: flex; align-items: stretch; height: 38px; overflow: hidden">
+        <sc-for list="{{bars}}" as="b" hint-placeholder-count="48"><span style="{{b.style}}"></span></sc-for>
+      </div>
+    </div>
+  </section>
+
+  <!-- stubs -->
+  <section style="grid-column: span 2; background: #1A2547; padding: 24px; display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; align-items: stretch">
+    <div role="dialog" aria-label="Other apps are working" style="background: #F7F8F9; display: flex; flex-direction: column">
+      <div style="background: #D6F53B; padding: 10px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.06em">SYS / BUSY</div>
+      <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 22px; line-height: 1.05">Other apps are working</h2>
+        <p style="margin: 0; font-size: 14px; line-height: 1.4; color: #3B4660">Results may be lower than this iPhone can do. The run will be marked busy.</p>
+      </div>
+      <div style="border-top: 2px dashed #9AA5B4; display: flex; gap: 6px; padding: 12px 16px 14px">
+        <span style="flex: 1; height: 48px; background: #E8ECEF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px">Run anyway</span>
+        <span style="flex: 1; height: 48px; background: #D6F53B; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">Wait</span>
+      </div>
+    </div>
+    <div role="dialog" aria-label="Low Power Mode is on" style="background: #F7F8F9; display: flex; flex-direction: column">
+      <div style="background: #D6F53B; padding: 10px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.06em">SYS / LOW POWER</div>
+      <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 22px; line-height: 1.05">Low Power Mode is on</h2>
+        <p style="margin: 0; font-size: 14px; line-height: 1.4; color: #3B4660">It slows the processor, so this run would not show what it can do. Turn it off in Settings first.</p>
+      </div>
+      <div style="border-top: 2px dashed #9AA5B4; display: flex; gap: 6px; padding: 12px 16px 14px">
+        <span style="flex: 1; height: 48px; background: #E8ECEF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px">Run anyway</span>
+        <span style="flex: 1; height: 48px; background: #D6F53B; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">Back</span>
+      </div>
+    </div>
+    <div role="dialog" aria-label="Could not start the run" style="background: #F7F8F9; display: flex; flex-direction: column">
+      <div style="background: #FF4F3A; padding: 10px 16px; font-family: 'IBM Plex Mono', monospace; font-size: 12px; font-weight: 600; letter-spacing: 0.06em">ERR / RUN</div>
+      <div style="flex: 1; padding: 16px; display: flex; flex-direction: column; gap: 8px">
+        <h2 style="margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 22px; line-height: 1.05">Could not start the run</h2>
+        <p style="margin: 0; font-size: 14px; line-height: 1.4; color: #3B4660">[reason from the system]. Nothing was saved.</p>
+      </div>
+      <div style="border-top: 2px dashed #9AA5B4; display: flex; gap: 6px; padding: 12px 16px 14px">
+        <span style="flex: 1; height: 48px; background: #E8ECEF; display: flex; align-items: center; justify-content: center; font-weight: 600; font-size: 14px">Show details</span>
+        <span style="flex: 1; height: 48px; background: #D6F53B; display: flex; align-items: center; justify-content: center; font-weight: 700; font-size: 14px">OK</span>
+      </div>
+    </div>
+  </section>
+
+  <!-- to Android -->
+  <section style="background: #2D5BFF; color: #F7F8F9; padding: 24px; display: flex; flex-direction: column; gap: 12px">
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; letter-spacing: 0.06em">FROM APPLE TO ANDROID · THE LAYOUT FOLLOWS THE WIDTH</span>
+    <div role="table" style="flex: 1; display: flex; flex-direction: column; font-size: 14px">
+      <sc-for list="{{map}}" as="m" hint-placeholder-count="5">
+        <div role="row" style="flex: 1; display: grid; grid-template-columns: 1fr 1fr 1.1fr; gap: 12px; align-items: center; border-top: 1px solid #9DB3FF">
+          <span role="cell" style="font-weight: 600">{{m.ios}}</span>
+          <span role="cell" style="font-weight: 600">{{m.android}}</span>
+          <span role="cell" style="font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.3">{{m.layout}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":1640,"height":1000}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const id = '7d5ef922b2f85ff6';
+    const bars = [];
+    for (let i = 0; i < id.length * 4; i++) {
+      const c = parseInt(id[i % id.length], 16);
+      bars.push({ style: 'flex: none; background: #0C1430; width: ' + (1 + ((c + i) % 4)) + 'px; margin-right: ' + (1 + ((c * 3 + i) % 3)) + 'px' });
+    }
+    return {
+      bars,
+      map: [
+        { ios: 'iPhone', android: 'Phone, under 600 dp', layout: 'One column, tabs at the foot' },
+        { ios: 'iPad portrait', android: 'Tablet, 600–839 dp', layout: 'Pass on top, tests in a grid' },
+        { ios: 'iPad landscape', android: 'Tablet, 840 dp and up', layout: 'List, test and pass side by side' },
+        { ios: 'Swipe back', android: 'Back gesture', layout: 'Blocked while measuring' },
+        { ios: 'Share sheet', android: 'Android share sheet', layout: 'Sends the result file' }
+      ]
+    };
+  }
+}
+</script>
+</body>
+</html>

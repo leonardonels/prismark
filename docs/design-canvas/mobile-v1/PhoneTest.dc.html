@@ -1,0 +1,108 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prismark, One test</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Saira:wdth,wght@50..125,100..900&amp;display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="width: 402px; height: 874px; box-sizing: border-box; background: {{t.ground}}; display: flex; flex-direction: column; gap: 6px; font-family: Archivo, sans-serif; color: {{t.text}}; overflow: hidden">
+
+  <header style="background: {{t.panel}}; padding: 62px 20px 14px; display: flex; flex-direction: column; gap: 8px">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <a href="PhoneResults.dc.html" aria-label="Back to the run" style="width: 44px; height: 44px; margin-left: -4px; background: {{t.raised}}; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M11 2 L5 8 L11 14"></path></svg>
+      </a>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; color: {{t.muted}}">TESTS · ONE CORE</span>
+    </div>
+    <h1 style="margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 30px; line-height: 1.02">3D rendering, one core</h1>
+    <p style="margin: 0; font-size: 14px; line-height: 1.35; color: {{t.muted}}">What one core can keep up once it has warmed up. Higher is better.</p>
+  </header>
+
+  <!-- your score -->
+  <section style="background: #D6F53B; color: #0C1430; padding: 18px 20px 16px; display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; overflow: hidden">
+    <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 50; font-weight: 600; font-size: 172px; line-height: 0.76; letter-spacing: -0.02em">3.72</span>
+    <span style="display: flex; flex-direction: column; align-items: flex-end; gap: 8px; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 12px; line-height: 1.3">
+      <span style="font-weight: 600">M samples/s</span>
+      <span>95 % range<br>3.64–3.76</span>
+      <span style="padding: 3px 7px; background: #0C1430; color: #D6F53B; font-weight: 500">RANK 07 / 10</span>
+    </span>
+  </section>
+
+  <!-- ranking -->
+  <section aria-label="Ranking" style="flex: 1; min-height: 0; background: {{t.panel}}; padding: 12px 20px 6px; display: flex; flex-direction: column">
+    <div style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em; color: {{t.muted}}; padding-bottom: 6px">
+      <span>RANKING</span><span>VS. YOURS</span>
+    </div>
+    <div role="table" style="flex: 1; min-height: 0; display: flex; flex-direction: column">
+      <sc-for list="{{rows}}" as="r" hint-placeholder-count="6">
+        <div role="row" style="{{r.rowStyle}}">
+          <span role="cell" style="flex: none; width: 22px; font-family: 'IBM Plex Mono', monospace; font-size: 12px">{{r.rank}}</span>
+          <span role="cell" style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 5px">
+            <span style="display: flex; align-items: baseline; gap: 6px; min-width: 0">
+              <span style="{{r.nameStyle}}">{{r.cpu}}</span>
+              <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px; color: {{t.muted}}">{{r.os}}</span>
+            </span>
+            <span aria-hidden="true" style="position: relative; display: block; height: 7px">
+              <span style="{{r.barStyle}}"></span>
+              <span style="{{r.rangeStyle}}"></span>
+            </span>
+          </span>
+          <span role="cell" style="flex: none; width: 42px; text-align: right; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 75; font-weight: 600; font-size: 20px">{{r.score}}</span>
+          <span role="cell" style="flex: none; width: 50px; text-align: right; font-family: 'IBM Plex Mono', monospace; font-size: 11px">{{r.delta}}</span>
+        </div>
+      </sc-for>
+    </div>
+  </section>
+
+  <footer style="display: flex; gap: 6px; padding-bottom: 28px">
+    <button style="flex: 1; height: 60px; border: 0; background: {{t.tabIdle}}; color: {{t.tabText}}; font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px">How it is measured</button>
+    <button style="flex: 1; height: 60px; border: 0; background: {{t.tabIdle}}; color: {{t.tabText}}; font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px">All 10 machines</button>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"theme":{"editor":"enum","options":["light","dark"],"default":"light"},"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const dark = (this.props.theme ?? 'light') === 'dark';
+    const t = dark
+      ? { ground: '#070C1F', panel: '#141D3B', raised: '#1F2B52', text: '#E8ECEF', muted: '#AEB8D6', line: '#2A3760', tabIdle: '#0F1730', tabText: '#AEB8D6', ref: '#5C80FF', you: '#D6F53B' }
+      : { ground: '#0C1430', panel: '#F7F8F9', raised: '#E8ECEF', text: '#0C1430', muted: '#3B4660', line: '#C9D0DA', tabIdle: '#1A2547', tabText: '#D5DBEA', ref: '#2D5BFF', you: '#0C1430' };
+    const top = 4.76;
+    const yours = 3.72;
+    const pct = (v) => (v / top * 100).toFixed(1) + '%';
+    const data = [
+      { rank: '04', cpu: 'Ryzen 5 7500F', os: 'windows', v: 3.98, lo: 3.88, hi: 3.99 },
+      { rank: '05', cpu: 'Ryzen 7 8845HS', os: 'windows', v: 3.93, lo: 3.88, hi: 3.97 },
+      { rank: '06', cpu: 'Ryzen 7 8845HS', os: 'linux', v: 3.75, lo: 3.64, hi: 3.79 },
+      { rank: '07', cpu: 'This iPhone', os: 'ios', v: 3.72, lo: 3.64, hi: 3.76, me: true },
+      { rank: '08', cpu: 'Ryzen 7 8845HS', os: 'battery', v: 3.23, lo: 3.22, hi: 3.34 },
+      { rank: '09', cpu: 'Core i9-10900K', os: 'linux', v: 3.18, lo: 3.16, hi: 3.27 }
+    ];
+    const rows = data.map((r) => {
+      const d = (r.v / yours - 1) * 100;
+      return {
+        ...r,
+        score: r.v.toFixed(2),
+        delta: r.me ? '—' : (d > 0 ? '+' : '−') + Math.abs(d).toFixed(1) + '%',
+        rowStyle: 'flex: 1; min-height: 0; display: flex; align-items: center; gap: 8px; border-top: 1px solid ' + t.line + (r.me ? '; margin: 0 -20px; padding: 0 20px; background: ' + t.raised : ''),
+        nameStyle: 'font-size: 14px; line-height: 1.1; white-space: nowrap; font-weight: ' + (r.me ? 700 : 500),
+        barStyle: 'position: absolute; left: 0; top: 0; height: 7px; width: ' + pct(r.v) + '; background: ' + (r.me ? t.you : t.ref),
+        rangeStyle: 'position: absolute; top: 3px; height: 1px; left: ' + pct(r.lo) + '; width: ' + ((r.hi - r.lo) / top * 100).toFixed(1) + '%; background: ' + t.text
+      };
+    });
+    return { t, rows };
+  }
+}
+</script>
+</body>
+</html>

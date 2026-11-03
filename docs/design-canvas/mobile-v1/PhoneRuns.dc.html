@@ -1,0 +1,90 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prismark, Your runs</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Saira:wdth,wght@50..125,100..900&amp;display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+</style>
+</helmet>
+<div style="width: 402px; height: 874px; box-sizing: border-box; background: #0C1430; display: flex; flex-direction: column; gap: 6px; font-family: Archivo, sans-serif; color: #0C1430; overflow: hidden">
+
+  <header style="background: #F7F8F9; padding: 62px 20px 14px; display: flex; align-items: flex-end; justify-content: space-between">
+    <h1 style="margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 38px; line-height: 1">Your runs</h1>
+    <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; color: #3B4660; padding-bottom: 5px">4 ON THIS IPHONE</span>
+  </header>
+
+  <section aria-label="Saved runs" style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px">
+    <sc-for list="{{runs}}" as="r" hint-placeholder-count="4">
+      <a href="PhoneResults.dc.html" style="{{r.stubStyle}}">
+        <span style="flex: 1; min-width: 0; padding: 14px 16px; display: flex; flex-direction: column; justify-content: space-between">
+          <span style="display: flex; justify-content: space-between; font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.04em">
+            <span>{{r.year}} · {{r.time}}</span><span>{{r.count}}</span>
+          </span>
+          <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 50; font-weight: 600; font-size: 66px; line-height: 0.85; letter-spacing: -0.01em">{{r.day}}</span>
+          <span style="display: flex; gap: 4px">
+            <sc-for list="{{r.tags}}" as="tag" hint-placeholder-count="1">
+              <span style="{{tag.style}}">{{tag.text}}</span>
+            </sc-for>
+          </span>
+        </span>
+        <span aria-hidden="true" style="{{r.barsStyle}}">
+          <sc-for list="{{r.bars}}" as="b" hint-placeholder-count="24"><span style="{{b.style}}"></span></sc-for>
+        </span>
+      </a>
+    </sc-for>
+  </section>
+
+  <nav aria-label="Sections" style="display: flex; gap: 6px; padding-bottom: 28px">
+    <a href="Main.dc.html" style="flex: 1; height: 60px; box-sizing: border-box; padding: 8px 12px; background: #1A2547; color: #D5DBEA; display: flex; flex-direction: column; justify-content: space-between">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px">01</span><span style="font-weight: 600; font-size: 14px">Run</span>
+    </a>
+    <a href="PhoneRuns.dc.html" aria-current="page" style="flex: 1; height: 60px; box-sizing: border-box; padding: 8px 12px; background: #F7F8F9; color: #0C1430; border-bottom: 5px solid #D6F53B; display: flex; flex-direction: column; justify-content: space-between">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px">02</span><span style="font-weight: 700; font-size: 14px">Results</span>
+    </a>
+    <a href="PhoneDevice.dc.html" style="flex: 1; height: 60px; box-sizing: border-box; padding: 8px 12px; background: #1A2547; color: #D5DBEA; display: flex; flex-direction: column; justify-content: space-between">
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px">03</span><span style="font-weight: 600; font-size: 14px">Device</span>
+    </a>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const data = [
+      { day: '02 NOV', year: '2026', time: '16:40', count: '16 of 16 tests', tags: ['FULL'], id: '7d5ef922b2f85ff6', latest: true },
+      { day: '30 OCT', year: '2026', time: '09:12', count: '16 of 16 tests', tags: ['QUICK'], id: 'a19c04e7d13b6682' },
+      { day: '29 OCT', year: '2026', time: '21:43', count: '9 of 16 tests', tags: ['FULL', 'PARTIAL'], id: '3fe8b05c9a7711d4' },
+      { day: '27 OCT', year: '2026', time: '18:05', count: '16 of 16 tests', tags: ['FULL', 'BUSY'], id: 'c62d7f10e4ab9835' }
+    ];
+    const runs = data.map((r) => {
+      const fg = '#0C1430';
+      const bars = [];
+      for (let i = 0; i < 24; i++) {
+        const c = parseInt(r.id[i % r.id.length], 16);
+        bars.push({ style: 'display: block; flex: none; background: ' + fg + '; height: ' + (1 + ((c + i) % 4)) + 'px; margin-bottom: ' + (1 + ((c * 3 + i) % 3)) + 'px' });
+      }
+      return {
+        ...r,
+        stubStyle: 'flex: 1; min-height: 0; display: flex; background: ' + (r.latest ? '#D6F53B' : '#F7F8F9') + '; color: #0C1430',
+        barsStyle: 'flex: none; width: 72px; box-sizing: border-box; padding: 14px 14px; display: flex; flex-direction: column; overflow: hidden; border-left: 2px dashed ' + (r.latest ? '#0C1430' : '#9AA5B4'),
+        bars,
+        tags: r.tags.map((text) => ({
+          text,
+          style: "font-family: 'IBM Plex Mono', monospace; font-size: 11px; font-weight: 500; padding: 3px 7px; background: " + (r.latest ? '#0C1430' : '#E8ECEF') + '; color: ' + (r.latest ? '#D6F53B' : '#0C1430')
+        }))
+      };
+    });
+    return { runs };
+  }
+}
+</script>
+</body>
+</html>

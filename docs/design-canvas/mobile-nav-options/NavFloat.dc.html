@@ -1,0 +1,55 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>A, floating dock</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Saira:wdth,wght@50..125,100..900&display=swap">
+<style>
+body{margin:0}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="width: 402px; height: 874px; position: relative; overflow: hidden; background: #0C1430; font-family: Archivo, sans-serif">
+  <sc-if value="{{isRun}}" hint-placeholder-val="{{ true }}">
+    <dc-import name="NavRunBody" w="402" h="874" bottom="94" radius="30" hint-size="402px,874px"></dc-import>
+  </sc-if>
+  <sc-if value="{{isResults}}" hint-placeholder-val="{{ false }}">
+    <dc-import name="NavResultsBody" w="402" h="874" bottom="94" hint-size="402px,874px"></dc-import>
+  </sc-if>
+  <sc-if value="{{isDevice}}" hint-placeholder-val="{{ false }}">
+    <dc-import name="NavDeviceBody" w="402" h="874" bottom="94" hint-size="402px,874px"></dc-import>
+  </sc-if>
+
+  <!-- floats 12 pt in from the screen, so its corners run parallel to the phone's -->
+  <nav aria-label="Sections" style="position: absolute; left: 12px; right: 12px; bottom: 12px; height: 70px; box-sizing: border-box; padding: 6px; border-radius: 43px; background: #F7F8F9; outline: 2px solid #0C1430; outline-offset: -2px; display: flex; gap: 4px">
+    <sc-for list="{{tabs}}" as="s" hint-placeholder-count="3">
+      <button aria-current="{{s.current}}" onClick="{{s.pick}}" style="{{s.style}}">{{s.name}}</button>
+    </sc-for>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"screen":{"editor":"enum","options":["run","results","device"],"default":"run"},"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const screen = this.state?.screen ?? this.props.screen ?? 'run';
+    return {
+      isRun: screen === 'run',
+      isResults: screen === 'results',
+      isDevice: screen === 'device',
+      tabs: [['run', 'Run'], ['results', 'Results'], ['device', 'Device']].map(([id, name]) => ({
+        name,
+        current: id === screen ? 'page' : undefined,
+        pick: () => this.setState({ screen: id }),
+        style: 'flex: 1; border: 0; border-radius: 37px; font-family: Archivo, sans-serif; font-size: 15px; color: #0C1430; font-weight: ' + (id === screen ? 700 : 600) + '; background: ' + (id === screen ? '#D6F53B' : 'transparent')
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

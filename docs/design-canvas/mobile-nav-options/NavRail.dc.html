@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>B, side column</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600&family=Saira:wdth,wght@50..125,100..900&display=swap">
+<style>
+body{margin:0}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="width: 402px; height: 874px; overflow: hidden; background: #0C1430; font-family: Archivo, sans-serif; display: flex; gap: 6px">
+  <div style="flex: none; width: 330px; height: 874px">
+    <sc-if value="{{isRun}}" hint-placeholder-val="{{ true }}">
+      <dc-import name="NavRunBody" w="330" h="874" bottom="34" hint-size="330px,874px"></dc-import>
+    </sc-if>
+    <sc-if value="{{isResults}}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NavResultsBody" w="330" h="874" bottom="0" hint-size="330px,874px"></dc-import>
+    </sc-if>
+    <sc-if value="{{isDevice}}" hint-placeholder-val="{{ false }}">
+      <dc-import name="NavDeviceBody" w="330" h="874" bottom="34" hint-size="330px,874px"></dc-import>
+    </sc-if>
+  </div>
+
+  <!-- the column runs edge to edge, so the phone's own corners finish it -->
+  <nav aria-label="Sections" style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px">
+    <sc-for list="{{tabs}}" as="s" hint-placeholder-count="3">
+      <button aria-current="{{s.current}}" onClick="{{s.pick}}" style="{{s.style}}">
+        <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; color: #0C1430">{{s.num}}</span>
+        <span style="writing-mode: vertical-rl; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 125; font-weight: 800; font-size: 19px; color: #0C1430">{{s.name}}</span>
+      </button>
+    </sc-for>
+  </nav>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"screen":{"editor":"enum","options":["run","results","device"],"default":"run"},"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  renderVals() {
+    const screen = this.state?.screen ?? this.props.screen ?? 'run';
+    return {
+      isRun: screen === 'run',
+      isResults: screen === 'results',
+      isDevice: screen === 'device',
+      tabs: [['run', '01', 'RUN'], ['results', '02', 'RESULTS'], ['device', '03', 'DEVICE']].map(([id, num, name], i) => ({
+        num,
+        name,
+        current: id === screen ? 'page' : undefined,
+        pick: () => this.setState({ screen: id }),
+        style: 'flex: ' + (i === 0 ? '1.15' : '1') + '; min-height: 0; width: 100%; border: 0; box-sizing: border-box; padding: ' + (i === 0 ? '62px' : '14px') + ' 0 ' + (i === 2 ? '40px' : '14px') + '; display: flex; flex-direction: column; align-items: center; justify-content: space-between; ' +
+          'background: ' + (id === screen ? '#F7F8F9' : '#C9D0DA') + '; border-left: 6px solid ' + (id === screen ? '#D6F53B' : '#C9D0DA')
+      }))
+    };
+  }
+}
+</script>
+</body>
+</html>

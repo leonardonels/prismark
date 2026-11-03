@@ -1,0 +1,89 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Prismark, One core tests</title>
+<script src="./support.js"></script>
+</head>
+<body>
+<x-dc>
+<helmet>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:wght@400;500;600;700&amp;family=IBM+Plex+Mono:wght@400;500;600&amp;family=Saira:wdth,wght@50..125,100..900&amp;display=swap">
+<style>
+body{margin:0}
+a{color:inherit;text-decoration:none}
+button{cursor:pointer}
+</style>
+</helmet>
+<div style="width: 402px; height: 874px; box-sizing: border-box; background: #0C1430; display: flex; flex-direction: column; gap: 6px; font-family: Archivo, sans-serif; color: #0C1430; overflow: hidden">
+
+  <header style="background: #F7F8F9; padding: 62px 20px 16px; display: flex; flex-direction: column; gap: 10px">
+    <div style="display: flex; align-items: center; justify-content: space-between">
+      <a href="Main.dc.html" aria-label="Back to Run" style="width: 44px; height: 44px; margin-left: -4px; background: #E8ECEF; display: flex; align-items: center; justify-content: center">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="none" stroke="#0C1430" stroke-width="2" aria-hidden="true"><path d="M11 2 L5 8 L11 14"></path></svg>
+      </a>
+      <span style="font-family: 'IBM Plex Mono', monospace; font-size: 11px; letter-spacing: 0.06em; color: #3B4660">TESTS · 02 OF 04</span>
+    </div>
+    <h1 style="margin: 0; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 112; font-weight: 700; font-size: 38px; line-height: 1">One core</h1>
+    <p style="margin: 0; font-size: 14px; line-height: 1.35; color: #3B4660">How fast a single core is: short everyday tasks, and long tasks once the core has warmed up.</p>
+  </header>
+
+  <section aria-label="Tests" style="flex: 1; min-height: 0; display: flex; flex-direction: column; gap: 6px">
+    <sc-for list="{{tests}}" as="x" hint-placeholder-count="6">
+      <button aria-pressed="{{x.on}}" onClick="{{x.toggle}}" style="{{x.rowStyle}}">
+        <span style="{{x.boxStyle}}"><span style="{{x.dotStyle}}"></span></span>
+        <span style="flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; text-align: left">
+          <span style="font-family: Archivo, sans-serif; font-weight: 700; font-size: 16px; line-height: 1.15">{{x.name}}</span>
+          <span style="font-family: Archivo, sans-serif; font-size: 13px; line-height: 1.2">{{x.sub}}</span>
+        </span>
+        <span style="display: flex; flex-direction: column; align-items: flex-end; gap: 0">
+          <span style="font-family: Saira, sans-serif; font-variation-settings: 'wdth' 50; font-weight: 600; font-size: 32px; line-height: 0.95">{{x.score}}</span>
+          <span style="font-family: 'IBM Plex Mono', monospace; font-size: 10px">{{x.unit}}</span>
+        </span>
+      </button>
+    </sc-for>
+  </section>
+
+  <footer style="display: flex; gap: 6px; padding-bottom: 28px">
+    <button onClick="{{selectAll}}" style="flex: none; width: 128px; height: 60px; border: 0; background: #1A2547; color: #F7F8F9; font-family: Archivo, sans-serif; font-weight: 600; font-size: 14px">Select all</button>
+    <a href="Main.dc.html" style="flex: 1; height: 60px; background: #D6F53B; color: #0C1430; display: flex; align-items: center; justify-content: center; font-family: Saira, sans-serif; font-variation-settings: 'wdth' 125; font-weight: 800; font-size: 16px">DONE · {{picked}} OF 6</a>
+  </footer>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props='{"$preview":{"width":402,"height":874}}'>
+class Component extends DCLogic {
+  constructor(props) {
+    super(props);
+    this.state = { off: { st_k12: true, b_k6: true } };
+  }
+  renderVals() {
+    const list = [
+      { id: 'st_k2', name: '3D rendering, one core', sub: 'One core, after warming up', score: '3.72', unit: 'M samples/s' },
+      { id: 'st_k12', name: 'Vector maths, one core', sub: 'One core, widest vectors', score: '21.8', unit: 'GFLOP/s' },
+      { id: 'b_k3', name: 'Compression', sub: 'Compress a small file', score: '12.6', unit: 'ms' },
+      { id: 'b_k4', name: 'Opening a photo', sub: 'Decode and resize a JPEG', score: '27.2', unit: 'ms' },
+      { id: 'b_k5', name: 'Reading JSON', sub: 'Parse web-style text data', score: '19.3', unit: 'ms' },
+      { id: 'b_k6', name: 'Starting a script', sub: 'Launch Lua and run a script', score: '—', unit: 'no result yet' }
+    ];
+    const off = this.state.off;
+    const tests = list.map((x) => {
+      const on = !off[x.id];
+      return {
+        ...x,
+        on,
+        toggle: () => this.setState({ off: { ...off, [x.id]: on } }),
+        rowStyle: 'flex: 1; min-height: 0; width: 100%; border: 0; padding: 0 16px; display: flex; align-items: center; gap: 14px; background: ' + (on ? '#D6F53B' : '#F7F8F9') + '; color: #0C1430',
+        boxStyle: 'flex: none; width: 24px; height: 24px; box-sizing: border-box; display: flex; align-items: center; justify-content: center; border: 2px solid ' + (on ? '#0C1430' : '#343E5A') + '; background: ' + (on ? '#0C1430' : 'transparent'),
+        dotStyle: 'width: 10px; height: 10px; background: ' + (on ? '#D6F53B' : 'transparent')
+      };
+    });
+    return {
+      tests,
+      picked: list.filter((x) => !off[x.id]).length,
+      selectAll: () => this.setState({ off: {} })
+    };
+  }
+}
+</script>
+</body>
+</html>
