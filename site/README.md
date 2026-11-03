@@ -14,6 +14,7 @@ included, so nothing private belongs here.
 | `compare.html`, `compare.js` | The ranking: one test at a time |
 | `versus.html`, `versus.js` | Head to head: two processors, every test, no total |
 | `compare-data.js` | Shared by both compare pages: the tests, how each value is read, how two values compare |
+| `wallpapers.html`, `wallpapers/` | The wallpapers and their download page |
 | `data.js` | Fills every `data-fill` element from `data.json` |
 | `styles.css` | All the styles; the compare pages' are at the end |
 | `data.json`, `references.json` | Generated, not in git (see below) |
@@ -59,6 +60,23 @@ Releases page, and `data.js` replaces them once `data.json` loads, so they still
 GET PRISMARK offers the file for the visitor's system. Linux goes to the list instead, because a browser can't tell
 `.deb` from `.rpm` systems, and so do iPhones and iPads, which have no package. An Intel Mac gets the Apple silicon
 `.dmg`, because browsers can't reliably tell them apart; the macOS row says "Apple silicon" for that reason.
+
+## Wallpapers
+
+The full files are in `wallpapers/`, small enough to sit in git (1.6 MB, plus a 690 KB zip of them), and download from the
+site's own address, so one click saves them. The page shows `wallpapers/previews/*.webp`, so a visit doesn't fetch the full
+files. After changing a wallpaper, from `site/wallpapers`, remake its preview (1200 px wide, or 320 for a phone) and the
+zip, then correct the sizes typed in `wallpapers.html`:
+
+```bash
+cwebp -q 82 -resize 1200 0 prismark-desktop-4k-ink.png -o previews/4k-ink.webp
+```
+
+```bash
+rm prismark-wallpapers.zip && zip -qX prismark-wallpapers.zip *.png
+```
+
+The versions with words say "23 measurements out" in the image, so they need redrawing if that count changes.
 
 ## Publishing
 
