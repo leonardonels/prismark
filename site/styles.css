@@ -207,6 +207,7 @@ pre {
     justify-content: space-between;
     gap: 24px;
 }
+.download-note { margin-top: auto; }
 
 .cta {
     font-family: var(--display);
