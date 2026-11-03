@@ -28,6 +28,7 @@ PACKAGES = {
     "rpm-x86_64": ".x86_64.rpm",
     "rpm-arm64": ".aarch64.rpm",
     "android": "-android-arm64-release.apk",
+    "ios": "-ios-arm64-unsigned.ipa",
 }
 
 

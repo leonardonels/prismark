@@ -58,7 +58,7 @@ Every link starts its file straight away, always from the release in `version`. 
 Releases page, and `data.js` replaces them once `data.json` loads, so they still lead somewhere if it doesn't.
 
 GET PRISMARK offers the file for the visitor's system. Linux goes to the list instead, because a browser can't tell
-`.deb` from `.rpm` systems, and so do iPhones and iPads, which have no package. An Intel Mac gets the Apple silicon
+`.deb` from `.rpm` systems, and so do iPhones and iPads, whose `.ipa` is unsigned and needs a sideloading tool. An Intel Mac gets the Apple silicon
 `.dmg`, because browsers can't reliably tell them apart; the macOS row says "Apple silicon" for that reason.
 
 ## Wallpapers
