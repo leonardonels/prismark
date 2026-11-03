@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The volt prism and bars of apps/gui/icons/prismark-app.svg, centred in the adaptive icon's safe zone. -->
+<!-- The ink prism and bars of apps/gui/icons/prismark-app.svg, centred in the adaptive icon's safe zone. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
@@ -11,16 +11,16 @@
         android:scaleX="0.75"
         android:scaleY="0.75">
         <path
-            android:fillColor="#D6F53B"
+            android:fillColor="#0C1430"
             android:pathData="M4,54 L26,10 L48,54 Z" />
         <path
-            android:fillColor="#D6F53B"
+            android:fillColor="#0C1430"
             android:pathData="M35.0,18 L62,18 L62,26 L39.0,26 Z" />
         <path
             android:fillColor="#2D5BFF"
             android:pathData="M41.0,30 L62,30 L62,38 L45.0,38 Z" />
         <path
-            android:fillColor="#D6F53B"
+            android:fillColor="#0C1430"
             android:pathData="M47.0,42 L62,42 L62,54 L53.0,54 Z" />
     </group>
 </vector>
