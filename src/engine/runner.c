@@ -582,6 +582,14 @@ static const struct {
 static int run_mode(pmk_ctx *c, int i) {
   size_t before = c->nres;
   if (MODES[i].quiet) {
+    /* Frontends freeze their display during a quiet mode, so they are told the position once, before it starts. */
+    if (c->cb && c->run_steps > 0) {
+      uint32_t next = c->run_step < c->run_steps ? c->run_step + 1 : c->run_steps;
+      char pos[64];
+      snprintf(pos, sizeof pos, "step %u of %u, quiet", next, c->run_steps);
+      pmk_event p = {sizeof p, PMK_EV_INFO, "progress", NULL, pos, next, c->run_steps, pal_cpu_temp_c(), ctx_remaining_s(c)};
+      c->cb(&p, c->user);
+    }
     atomic_store(&g_input, 0);
     c->quiet = 1;
     c->quiet_since = pal_now_ns();
