@@ -32,6 +32,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -41,6 +42,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.view.WindowCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -52,8 +54,17 @@ class MainActivity : ComponentActivity() {
         // A phone stays upright, as on iPhone; a tablet turns freely.
         if (resources.configuration.smallestScreenWidthDp < 600) requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_PORTRAIT
         enableEdgeToEdge()
+        Appearance.load(this)
         setContent {
-            PrismarkTheme(dark = isSystemInDarkTheme()) { App() }
+            val dark = Appearance.dark ?: isSystemInDarkTheme()
+            // The system's bars follow the app's look, which can differ from the system's.
+            SideEffect {
+                WindowCompat.getInsetsController(window, window.decorView).run {
+                    isAppearanceLightStatusBars = !dark
+                    isAppearanceLightNavigationBars = !dark
+                }
+            }
+            PrismarkTheme(dark = dark) { App() }
         }
     }
 

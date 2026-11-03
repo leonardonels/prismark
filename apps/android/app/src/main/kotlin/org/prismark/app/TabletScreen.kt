@@ -80,11 +80,7 @@ private fun TabletHeader(group: String, wide: Boolean, onPick: (String) -> Unit)
     val p = LocalPalette.current
     val context = LocalContext.current
     Row(Modifier.fillMaxWidth().height(64.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (wide) {
-            Box(Modifier.fillMaxHeight().background(Volt).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                BasicText("PRISMARK", style = Type.saira(16.sp, 125, 800, Ink))
-            }
-        }
+        Logo(30.dp, if (wide) 16.sp else null, Modifier.fillMaxHeight())
         for (item in groups) {
             val on = item.id == group
             Box(Modifier.weight(1f).fillMaxHeight().background(if (on) p.panel else p.steel).tap { onPick(item.id) }) {
@@ -290,12 +286,12 @@ private fun Report(doc: JSONObject, inline: Boolean, modifier: Modifier, onPickT
         }
 
         if (run != null) {
-            val save = rememberSaveFile(run)
+            val context = LocalContext.current
             Column(Modifier.fillMaxWidth().background(Volt).padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = if (inline) 14.dp else bottomInset() + 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BasicText(run.started, style = Type.mono(11.sp, color = Ink))
                 Barcode(run.runId, Ink, Modifier.fillMaxWidth().height(36.dp))
-                Box(Modifier.fillMaxWidth().height(44.dp).background(Ink).tap(onClick = save), contentAlignment = Alignment.Center) {
-                    BasicText("Save result file", style = Type.archivo(14.sp, 700, Volt))
+                Box(Modifier.fillMaxWidth().height(44.dp).background(Ink).tap { shareResult(context, run) }, contentAlignment = Alignment.Center) {
+                    BasicText("Share result file", style = Type.archivo(14.sp, 700, Volt))
                 }
             }
         }

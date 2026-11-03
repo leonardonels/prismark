@@ -5,12 +5,11 @@
  */
 package org.prismark.app
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,9 +38,11 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -120,23 +121,12 @@ private fun Tag(text: String, latest: Boolean) {
     )
 }
 
-/** Saves the result file where the person chooses. Android asks where before anything is written. */
-@Composable
-fun rememberSaveFile(run: Run): () -> Unit {
-    val context = LocalContext.current
-    val launcher = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/json")) { uri ->
-        if (uri != null) runCatching { context.contentResolver.openOutputStream(uri)?.use { it.write(run.json.toByteArray()) } }
-            .onFailure { Session.error = "The result file was not saved: ${it.message}" }
-    }
-    return { launcher.launch(run.file.name) }
-}
-
 /** One run: each test on its own, a group at a time. */
 @Composable
 private fun ResultsScreen(run: Run) {
     val p = LocalPalette.current
     val pages = LocalPages.current
-    val save = rememberSaveFile(run)
+    val context = LocalContext.current
     val values = remember(run) { tests.associateWith { runCatching { it.get(run.doc) }.getOrNull() } }
     var group by remember(run) { mutableStateOf(if (tests.any { it.group == "st" && values[it] != null }) "st" else tests.firstOrNull { values[it] != null }?.group ?: "st") }
     val shown = tests.filter { it.group == group && values[it] != null }
@@ -147,13 +137,13 @@ private fun ResultsScreen(run: Run) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                BackButton()
+                BackButton(onVolt = true)
                 Spacer(Modifier.weight(1f))
-                Mono("${if (run.quick) "Quick" else "Full"} · ${run.measured} tests", Ink, Modifier.padding(end = 8.dp))
+                Mono("${if (run.quick) "Quick" else "Full"} · ${run.measured} test${if (run.measured == 1) "" else "s"}", Ink, Modifier.padding(end = 8.dp))
                 Box(
-                    Modifier.size(44.dp).background(Ink).tap(onClick = save).semantics { contentDescription = "Save the result file" },
+                    Modifier.size(44.dp).background(Ink).tap { shareResult(context, run) }.semantics { contentDescription = "Share the result file" },
                     contentAlignment = Alignment.Center,
-                ) { BasicText("↓", style = Type.archivo(20.sp, 700, Volt)) }
+                ) { ShareMark(Volt) }
             }
             BasicText(run.started, style = Type.saira(24.sp, 112, 700, Ink), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
@@ -179,22 +169,76 @@ private fun ResultsScreen(run: Run) {
                 style = Type.archivo(15.sp, color = p.muted), modifier = Modifier.fillMaxSize().background(p.panel).padding(20.dp),
             )
         } else {
-            LazyVerticalGrid(
-                GridCells.Fixed(2), Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                items(shown, key = { it.id }) { test ->
-                    ScoreTile(test, values[test]!!) { pages.push(OpenTest(test, run)) }
+            // The tiles, then a card filling what they leave. On a small screen or with large text it all scrolls instead.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val rows = shown.chunked(2)
+                val tile = with(LocalDensity.current) { 150.sp.toDp() }
+                val left = maxHeight - (tile + 6.dp) * rows.size
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (row in rows) {
+                        Row(Modifier.fillMaxWidth().height(tile), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for (test in row) ScoreTile(test, values[test]!!, Modifier.weight(1f).fillMaxHeight()) { pages.push(OpenTest(test, run)) }
+                            if (row.size == 1) MissingTile(tests.count { it.group == group } - shown.size, Modifier.weight(1f).fillMaxHeight())
+                        }
+                    }
+                    if (left >= 100.dp) GroupCard(groups.first { it.id == group }, shown.size, run, left) else Spacer(Modifier.height(bottomInset()))
                 }
             }
         }
     }
 }
 
+/** A boarding card under the tiles, as on the tablet's test list: how far this run got in the group. */
 @Composable
-private fun ScoreTile(test: Test, value: Value, onOpen: () -> Unit) {
+private fun GroupCard(group: Group, measured: Int, run: Run, height: Dp) {
+    val members = tests.count { it.group == group.id }
+    // Too short for a whole card: the count and the barcode side by side, as tall as there is room for.
+    if (height < 230.dp) {
+        val bottom = bottomInset() + 14.dp
+        val room = (height - bottom - 44.dp).coerceAtLeast(20.dp)
+        Column(
+            Modifier.fillMaxWidth().height(height).background(Signal).padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = bottom),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(Modifier.fillMaxWidth()) {
+                Mono(group.label, OnSignal, Modifier.weight(1f))
+                Mono("${group.number} of 04", OnSignal)
+            }
+            Row(Modifier.fillMaxWidth().height(room), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                BasicText("$measured/$members", style = Type.saira(with(LocalDensity.current) { (room * 1.2f).toSp() }, 50, 600, Ink), maxLines = 1, softWrap = false)
+                Barcode(run.runId, Ink, Modifier.weight(1f).fillMaxHeight())
+            }
+        }
+        return
+    }
+    Column(
+        Modifier.fillMaxWidth().height(height).background(Signal).padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = bottomInset() + 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth()) {
+            Mono(group.label, OnSignal, Modifier.weight(1f))
+            Mono("${group.number} of 04", OnSignal)
+        }
+        Spacer(Modifier.weight(1f))
+        BasicText("$measured/$members", style = Type.saira((height.value * 0.34f).coerceAtMost(150f).sp, 50, 600, Ink), maxLines = 1, softWrap = false)
+        BasicText("Measured in this run", style = Type.archivo(13.sp, 600, OnSignal))
+        Tear(OnSignal)
+        Barcode(run.runId, Ink, Modifier.fillMaxWidth().height((height * 0.16f).coerceAtMost(72.dp)))
+    }
+}
+
+/** Beside a lone tile, in a run that left tests out. */
+@Composable
+private fun MissingTile(count: Int, modifier: Modifier) {
+    Box(modifier.background(Signal).drawBehind { passDots() }.padding(12.dp), contentAlignment = Alignment.BottomStart) {
+        Mono("$count not measured", OnSignal)
+    }
+}
+
+@Composable
+private fun ScoreTile(test: Test, value: Value, modifier: Modifier, onOpen: () -> Unit) {
     val p = LocalPalette.current
-    Column(Modifier.fillMaxWidth().background(p.panel).tap(onClick = onOpen).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier.background(p.panel).tap(onClick = onOpen).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Row(Modifier.fillMaxWidth()) {
             BasicText(test.unit, style = Type.mono(11.sp, color = p.muted), modifier = Modifier.weight(1f))
             BasicText(if (test.higherBetter) "↑" else "↓", style = Type.mono(11.sp, color = p.muted))

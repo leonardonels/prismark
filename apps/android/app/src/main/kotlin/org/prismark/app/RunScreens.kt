@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.wrapContentSize
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -28,8 +29,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -61,15 +64,13 @@ fun MachinePass(modifier: Modifier = Modifier) {
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            Box(Modifier.height(40.dp).background(Volt).padding(horizontal = 10.dp), contentAlignment = Alignment.Center) {
-                BasicText("PRISMARK", style = Type.saira(14.sp, 125, 800, Ink))
-            }
+            Logo(24.dp, 14.sp, Modifier.height(40.dp))
             Spacer(Modifier.weight(1f))
             BasicText("REV. ${runCatching { Prismark.version }.getOrDefault("?")}", style = Type.mono(11.sp, color = OnSignal))
         }
         Column {
             BasicText("Processor:", style = Type.mono(12.sp, color = OnSignal))
-            BasicText(machine.chip, style = Type.saira(chipSize(machine.chip, 130f).sp, 50, 600, Ink), maxLines = 1, softWrap = false)
+            ChipName(machine, 130f)
             Box(Modifier.fillMaxWidth().padding(top = 6.dp).height(1.dp).background(SignalLine))
             BasicText(machine.summary, style = Type.archivo(13.sp, 600, OnSignal), modifier = Modifier.padding(top = 6.dp))
             DeviceInfo.error?.let { BasicText("The core could not describe this device: $it", style = Type.archivo(12.sp, 600, OnSignal)) }
@@ -142,7 +143,7 @@ private fun RunBar() {
             verticalAlignment = Alignment.CenterVertically,
         ) {
             BasicText(
-                if (ready) "RUN ${chosen.size} TESTS" else "PICK A TEST",
+                if (ready) "RUN ${chosen.size} TEST${if (chosen.size == 1) "" else "S"}" else "PICK A TEST",
                 style = Type.saira(16.sp, 125, 800, if (ready) Ink else p.muted), modifier = Modifier.weight(1f), maxLines = 1,
             )
             if (ready) Chevrons(Ink)
@@ -204,14 +205,18 @@ fun MeasuringScreen() {
                 BasicText(if (Session.quick) "QUICK RUN" else "FULL RUN", style = Type.mono(12.sp, true, OnSignal))
             }
             Row(Modifier.fillMaxWidth().weight(1f).background(Volt).padding(14.dp), verticalAlignment = Alignment.Top) {
-                BasicText(
-                    "%02d".format(Session.part), style = Type.saira(190.sp, 50, 600, Ink), maxLines = 1, softWrap = false,
-                    modifier = Modifier.onItsSide(),
-                )
+                // As wide as the capitals alone, not the font's whole line, which would leave the words no room.
+                val number = 220.dp
+                Box(Modifier.size(width = number * 0.69f, height = number * 0.72f), contentAlignment = Alignment.Center) {
+                    BasicText(
+                        "%02d".format(Session.part), style = Type.saira(with(LocalDensity.current) { number.toSp() }, 50, 600, Ink), maxLines = 1, softWrap = false,
+                        modifier = Modifier.wrapContentSize(unbounded = true).rotate(90f),
+                    )
+                }
                 Column(Modifier.weight(1f).fillMaxHeight().padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     BasicText("NOW", style = Type.mono(11.sp, color = Ink))
                     BasicText(Session.phase, style = Type.saira(25.sp, 100, 700, Ink))
-                    BasicText("Step ${Session.part} of ${Session.parts}", style = Type.mono(12.sp, color = Ink))
+                    if (Session.parts > 0) BasicText("Step ${Session.part} of ${Session.parts}", style = Type.mono(12.sp, color = Ink))
                 }
             }
             BasicText("Leave it on a table and do not touch it.", style = Type.archivo(19.sp, 600, OnSignal))
