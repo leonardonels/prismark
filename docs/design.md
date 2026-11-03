@@ -48,8 +48,8 @@ All three are SIL OFL 1.1, fetched at pinned versions and compiled into the app.
 A prism and the three bars it splits light into, cut along its edge: the separate results
 ([`apps/gui/icons/prismark.svg`](../apps/gui/icons/prismark.svg)). In the app it is ink on a volt tile. The app icon
 is an ink prism on a paper tile, the light look being the default (`prismark-app.svg`); at 32 px and below, the prism and its middle bar only
-(`prismark-app-small.svg`). The macOS icon, the Windows `.ico` and the Linux icon are all drawn from these SVGs. Apple devices add a layered glass icon, a clear prism on volt that turns to ink in dark mode
-(`apps/ios/Prismark/Prismark/AppIcon.icon`, an Icon Composer file used by iOS, iPadOS and macOS 26 and later).
+(`prismark-app-small.svg`). The Windows `.ico` and the Linux icon are drawn from these SVGs. The Android launcher icon is the same ink prism on a volt tile, and a volt prism on an ink tile in dark mode. Apple devices add a layered glass icon, a clear prism on volt that turns to ink in dark mode
+(`apps/ios/Prismark/Prismark/AppIcon.icon`, an Icon Composer file; `apps/gui/icons/mac` holds it compiled for macOS).
 
 ## Components
 
