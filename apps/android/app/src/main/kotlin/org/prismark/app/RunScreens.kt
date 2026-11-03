@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -26,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -55,7 +57,7 @@ fun MachinePass(modifier: Modifier = Modifier) {
     val machine = remember(DeviceInfo.doc) { Machine(context, DeviceInfo.doc) }
 
     Column(
-        modifier.background(Signal).padding(top = topInset() + 12.dp, start = 20.dp, end = 20.dp, bottom = 14.dp),
+        modifier.background(Signal).drawBehind { passDots() }.padding(top = topInset() + 12.dp, start = 20.dp, end = 20.dp, bottom = 14.dp),
         verticalArrangement = Arrangement.SpaceBetween,
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
@@ -201,12 +203,12 @@ fun MeasuringScreen() {
                 BasicText("RUN / MEASURING", style = Type.mono(12.sp, true, OnSignal), modifier = Modifier.weight(1f))
                 BasicText(if (Session.quick) "QUICK RUN" else "FULL RUN", style = Type.mono(12.sp, true, OnSignal))
             }
-            Row(Modifier.fillMaxWidth().weight(1f).background(Volt).padding(14.dp), verticalAlignment = Alignment.CenterVertically) {
+            Row(Modifier.fillMaxWidth().weight(1f).background(Volt).padding(14.dp), verticalAlignment = Alignment.Top) {
                 BasicText(
                     "%02d".format(Session.part), style = Type.saira(190.sp, 50, 600, Ink), maxLines = 1, softWrap = false,
                     modifier = Modifier.onItsSide(),
                 )
-                Column(Modifier.weight(1f).padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                Column(Modifier.weight(1f).fillMaxHeight().padding(start = 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp, Alignment.Bottom)) {
                     BasicText("NOW", style = Type.mono(11.sp, color = Ink))
                     BasicText(Session.phase, style = Type.saira(25.sp, 100, 700, Ink))
                     BasicText("Step ${Session.part} of ${Session.parts}", style = Type.mono(12.sp, color = Ink))

@@ -125,6 +125,20 @@ fun Chevron(color: Color, left: Boolean = false) = Canvas(Modifier.size(width = 
     drawPath(path, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f * density))
 }
 
+/** The pass's printed dots. */
+fun DrawScope.passDots() {
+    val step = 24.dp.toPx()
+    var x = step / 2
+    while (x < size.width) {
+        var y = step / 2
+        while (y < size.height) {
+            drawCircle(Color(0xFF5C80FF), 1.2.dp.toPx(), Offset(x, y))
+            y += step
+        }
+        x += step
+    }
+}
+
 /** The dashed tear of a stub. */
 @Composable
 fun Tear(color: Color, vertical: Boolean = false) = Canvas(
