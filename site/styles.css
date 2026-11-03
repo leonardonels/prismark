@@ -135,7 +135,7 @@ pre {
 .tabs { flex: 3 1 600px; }
 
 .tab {
-    flex: 1 1 120px;
+    flex: 1 1 96px;
     min-height: 64px;
     padding: 10px 16px;
     background: #1A2547;
@@ -149,6 +149,7 @@ pre {
 .tab:hover { background: #26335F; }
 .tab.off { opacity: 0.6; }
 .tab.volt { background: var(--volt); color: var(--ink); }
+.tab.volt > :last-child { white-space: nowrap; }
 
 .heading {
     font-family: var(--display);
@@ -523,6 +524,57 @@ button.tab { border: 0; text-align: left; }
     .pass-card-main { padding: 22px 20px; }
 }
 
+/* The wallpapers page, and the strip that leads to it from the homepage */
+.wall-intro .wall-lede { margin-top: auto; font-size: 17px; line-height: 1.4; }
+.wall-all { justify-content: space-between; }
+.wall-size {
+    font-family: var(--display);
+    font-variation-settings: 'wdth' 50;
+    font-weight: 600;
+    font-size: 96px;
+    line-height: 0.9;
+}
+.wall-all .button { box-sizing: border-box; max-width: 100%; min-width: 0; }
+.wall-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(300px, 100%), 1fr));
+    gap: var(--seam);
+}
+.wall-card { padding: 0; display: flex; flex-direction: column; }
+.wall-card img { display: block; width: 100%; height: auto; }
+.wall-body { flex: 1; padding: 16px 20px 20px; display: flex; flex-direction: column; }
+.wall-body h2 { margin: 0 0 10px; font-size: 18px; }
+.wall-link {
+    min-height: 48px;
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 4px 12px;
+    border-top: 1px solid var(--line, #C9D0DA);
+    text-decoration: none;
+    font-weight: 600;
+}
+.wall-link:hover { background: var(--paper); }
+.wall-phone { flex-direction: row; }
+.wall-phone img { width: 138px; flex: none; }
+.wall-phone .wall-body { min-width: 0; justify-content: space-between; }
+
+.wall-strip { padding: 0; flex: 1 1 100%; display: flex; flex-wrap: wrap; text-decoration: none; }
+.wall-strip-text {
+    flex: 1 1 320px;
+    padding: 24px 28px;
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 24px;
+}
+.wall-strip .heading { font-size: clamp(30px, 3.4vw, 44px); }
+.wall-strip .button { align-self: flex-start; width: auto; max-width: 100%; box-sizing: border-box; min-width: 0; min-height: 48px; }
+.wall-strip-pics { flex: 1 1 480px; min-width: 0; display: flex; gap: var(--seam); height: 236px; }
+.wall-strip-pics img { flex: 2 1 0; min-width: 0; width: 100%; height: 100%; object-fit: cover; object-position: left; }
+.wall-strip-pics img:last-child { flex: 1 1 0; object-position: center; }
+
 /*
  * Dark mode: Royal blue, following the visitor's system setting. Volt and
  * Signal stay; only the neutral surfaces change. --ink stays the ink used on
@@ -608,6 +660,7 @@ button.tab { border: 0; text-align: left; }
     .panel.versus-group { background: var(--paper); }
     .versus-track { background: #141D3B; }
 
+    .wall-link:hover { background: #24359A; }
     .rank-row, .versus-row { border-top-color: #7084D8; }
     .rank-row.picked:not(.mine) { background: #141D3B; }
     .ranking .chip.signal { background: var(--bar); color: var(--ink); }
@@ -638,8 +691,8 @@ button.tab { border: 0; text-align: left; }
     .deck { display: contents; }
     #download { scroll-margin-top: calc(2 * var(--step)); }
     #platforms { scroll-margin-top: calc(3 * var(--step)); }
-    #tests { scroll-margin-top: calc(4 * var(--step)); }
-    #method { scroll-margin-top: calc(11 * var(--step)); }
+    #tests { scroll-margin-top: calc(5 * var(--step)); }
+    #method { scroll-margin-top: calc(12 * var(--step)); }
     .deck > .panel {
         --strip: calc(var(--k, 0) * var(--step));
         position: sticky;
@@ -653,21 +706,33 @@ button.tab { border: 0; text-align: left; }
     .deck > .principle { --k: 1; }
     .deck > .download { --k: 2; justify-content: space-between; }
     .deck > .stub { --k: 3; }
-    .deck > .card:nth-child(1) { --k: 4; }
-    .deck > .card:nth-child(2) { --k: 5; }
-    .deck > .card:nth-child(3) { --k: 6; }
-    .deck > .card:nth-child(4) { --k: 7; }
-    .deck > .pass { --k: 8; }
-    #stress > .stack { --k: 9; }
+    .deck > .wall-strip { --k: 4; flex-direction: column; flex-wrap: nowrap; }
+    .deck > .card:nth-child(1) { --k: 5; }
+    .deck > .card:nth-child(2) { --k: 6; }
+    .deck > .card:nth-child(3) { --k: 7; }
+    .deck > .card:nth-child(4) { --k: 8; }
+    .deck > .pass { --k: 9; }
+    #stress > .stack { --k: 10; }
     /* A set height, because the bars' percentages need one to work from. */
-    #stress > .curve { --k: 10; height: calc(100svh - var(--strip)); }
-    #stress ~ .deck > .paper { --k: 11; }
-    #stress ~ .deck > .dark { --k: 12; }
+    #stress > .curve { --k: 11; height: calc(100svh - var(--strip)); }
+    #stress ~ .deck > .paper { --k: 12; }
+    #stress ~ .deck > .dark { --k: 13; }
 
     /* The stress section below is ticket 05, so the card would repeat its label. */
     .deck > .card.dark { display: none; }
     .deck .principle-label br { display: none; }
     #stress ~ .deck .heading { font-size: 34px; }
+    .deck .wall-strip-text { flex: none; padding: 0 20px 22px; }
+    .deck .wall-strip-pics {
+        flex: 1;
+        min-height: 0;
+        height: auto;
+        padding: 0 20px 22px;
+        display: grid;
+        grid-template: 1fr 1fr / 2fr 1fr;
+    }
+    .deck .wall-strip-pics img { min-height: 0; }
+    .deck .wall-strip-pics img:last-child { grid-area: 1 / 2 / 3 / 3; }
     .deck .stub-body { padding: 0 20px 22px; }
     .deck .pass-main { padding: 0 20px 22px; }
     .deck .tear, .deck .pass-tear { padding-inline: 20px; }
