@@ -8,6 +8,7 @@ package org.prismark.app
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -64,6 +65,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import org.json.JSONObject
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -89,13 +91,13 @@ fun Modifier.capitalsOnly(size: TextUnit): Modifier = layout { measurable, const
     layout(placeable.width, capitals) { placeable.place(0, (capitals - placeable.height) / 2) }
 }
 
-/** Text on its side, reading top to bottom, taking the space it covers. */
+/** Text on its side, reading bottom to top as on iOS, taking the space it covers. */
 fun Modifier.onItsSide(): Modifier = layout { measurable, _ ->
     val placeable = measurable.measure(Constraints())
     layout(placeable.height, placeable.width) {
         placeable.place((placeable.height - placeable.width) / 2, (placeable.width - placeable.height) / 2)
     }
-}.rotate(90f)
+}.rotate(-90f)
 
 @Composable
 fun Mono(text: String, color: Color = LocalPalette.current.text, modifier: Modifier = Modifier) =
@@ -138,20 +140,19 @@ fun Chevron(color: Color, left: Boolean = false) = Canvas(Modifier.size(width = 
     drawPath(path, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f * density))
 }
 
-/** The logo: a beam enters a prism and leaves as three bars. Drawn on a 64 by 64 grid. */
+/** The logo: a prism and the three bars it splits light into, cut along its edge. Drawn on a 64 by 64 grid. */
 @Composable
 fun PrismMark(modifier: Modifier = Modifier) = Canvas(modifier) {
     val unit = size.width / 64
-    drawLine(Ink, Offset(0f, 37 * unit), Offset(21.5f * unit, 34 * unit), strokeWidth = 3 * unit)
-    drawPath(Path().apply {
-        moveTo(12 * unit, 52 * unit)
-        lineTo(32 * unit, 12 * unit)
-        lineTo(52 * unit, 52 * unit)
+    fun shape(color: Color, vararg points: Float) = drawPath(Path().apply {
+        moveTo(points[0] * unit, points[1] * unit)
+        for (i in 2 until points.size step 2) lineTo(points[i] * unit, points[i + 1] * unit)
         close()
-    }, Ink)
-    drawRect(Ink, Offset(42 * unit, 25 * unit), Size(22 * unit, 5 * unit))
-    drawRect(Signal, Offset(46.5f * unit, 34 * unit), Size(17.5f * unit, 5 * unit))
-    drawRect(Ink, Offset(51 * unit, 43 * unit), Size(13 * unit, 5 * unit))
+    }, color)
+    shape(Ink, 4f, 54f, 26f, 10f, 48f, 54f)
+    shape(Ink, 35f, 18f, 62f, 18f, 62f, 26f, 39f, 26f)
+    shape(Signal, 41f, 30f, 62f, 30f, 62f, 38f, 45f, 38f)
+    shape(Ink, 47f, 42f, 62f, 42f, 62f, 54f, 53f, 54f)
 }
 
 /** The look someone picked over the system's, kept between launches. Null follows the system. */
@@ -196,6 +197,26 @@ fun ChipName(machine: Machine, size: Float) {
     val small = maxOf(13f, size * 0.125f).sp
     BasicText(machine.chip, style = Type.saira(big, 50, 600, Ink), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 8.dp).capitalsOnly(big))
     if (machine.brand.isNotEmpty()) BasicText(machine.brand, style = Type.saira(small, 125, 800, OnSignal), maxLines = 1, modifier = Modifier.padding(top = 8.dp).capitalsOnly(small))
+}
+
+/** Hands the result file to the system's share sheet. */
+fun shareResult(context: Context, run: Run) {
+    runCatching {
+        val file = FileProvider.getUriForFile(context, "${context.packageName}.files", run.file)
+        val send = Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, file).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(Intent.createChooser(send, "Share the result file"))
+    }.onFailure { Session.error = "The result file could not be shared: ${it.message}" }
+}
+
+/** The share sign: three dots joined by two lines. */
+@Composable
+fun ShareMark(color: Color) = Canvas(Modifier.size(20.dp)) {
+    val a = Offset(size.width * 0.8f, size.height * 0.16f)
+    val b = Offset(size.width * 0.2f, size.height * 0.5f)
+    val c = Offset(size.width * 0.8f, size.height * 0.84f)
+    drawLine(color, a, b, strokeWidth = 2.dp.toPx())
+    drawLine(color, b, c, strokeWidth = 2.dp.toPx())
+    for (dot in listOf(a, b, c)) drawCircle(color, 3.dp.toPx(), dot)
 }
 
 /** The pass's printed dots. */

@@ -302,11 +302,17 @@ private fun Report(doc: JSONObject, inline: Boolean, modifier: Modifier, onPickT
 
         if (run != null) {
             val save = rememberSaveFile(run)
+            val context = LocalContext.current
             Column(Modifier.fillMaxWidth().background(Volt).padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = if (inline) 14.dp else bottomInset() + 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BasicText(run.started, style = Type.mono(11.sp, color = Ink))
                 Barcode(run.runId, Ink, Modifier.fillMaxWidth().height(36.dp))
-                Box(Modifier.fillMaxWidth().height(44.dp).background(Ink).tap(onClick = save), contentAlignment = Alignment.Center) {
-                    BasicText("Save result file", style = Type.archivo(14.sp, 700, Volt))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.weight(1f).height(44.dp).background(Ink).tap(onClick = save), contentAlignment = Alignment.Center) {
+                        BasicText("Save", style = Type.archivo(14.sp, 700, Volt))
+                    }
+                    Box(Modifier.weight(1f).height(44.dp).background(Ink).tap { shareResult(context, run) }, contentAlignment = Alignment.Center) {
+                        BasicText("Share", style = Type.archivo(14.sp, 700, Volt))
+                    }
                 }
             }
         }

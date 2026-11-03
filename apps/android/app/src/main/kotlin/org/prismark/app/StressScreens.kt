@@ -31,6 +31,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -60,14 +62,32 @@ fun StressRow() {
     val p = LocalPalette.current
     val pages = LocalPages.current
     Row(
-        Modifier.fillMaxWidth().height(56.dp).background(p.panel).tap { pages.push(stressGroup) }.padding(start = 56.dp, end = 14.dp),
+        Modifier.fillMaxWidth().height(56.dp).background(p.panel).tap { pages.push(stressGroup) }.padding(end = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        Box(Modifier.size(56.dp), contentAlignment = Alignment.Center) { ChevronStack(p.text, p.reference) }
         Column(Modifier.weight(1f)) {
             BasicText(stressGroup.label, style = Type.archivo(16.sp, 700))
             BasicText("Runs on its own, 10 min or more", style = Type.mono(11.sp))
         }
         Chevron(p.text)
+    }
+}
+
+/** The stress test's mark: the Run button's chevrons, stacked and pushing upward. Drawn on a 24 by 24 grid. */
+@Composable
+private fun ChevronStack(color: Color, top: Color) = Canvas(Modifier.size(24.dp)) {
+    val u = size.width / 24
+    listOf(2f, 7.5f, 13f).forEachIndexed { index, y ->
+        drawPath(Path().apply {
+            moveTo(2 * u, (y + 6) * u)
+            lineTo(12 * u, y * u)
+            lineTo(22 * u, (y + 6) * u)
+            lineTo(22 * u, (y + 9.5f) * u)
+            lineTo(12 * u, (y + 3.5f) * u)
+            lineTo(2 * u, (y + 9.5f) * u)
+            close()
+        }, if (index == 0) top else color)
     }
 }
 

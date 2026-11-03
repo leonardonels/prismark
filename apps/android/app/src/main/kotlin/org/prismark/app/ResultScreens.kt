@@ -143,6 +143,7 @@ fun rememberSaveFile(run: Run): () -> Unit {
 private fun ResultsScreen(run: Run) {
     val p = LocalPalette.current
     val pages = LocalPages.current
+    val context = LocalContext.current
     val save = rememberSaveFile(run)
     val values = remember(run) { allTests.associateWith { runCatching { it.get(run.doc) }.getOrNull() } }
     var group by remember(run) {
@@ -156,13 +157,17 @@ private fun ResultsScreen(run: Run) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                BackButton(onVolt = true)
-                Spacer(Modifier.weight(1f))
-                Mono(if (run.stressed && run.measured == 0) "Stress test" else "${if (run.quick) "Quick" else "Full"} · ${run.measured} test${if (run.measured == 1) "" else "s"}", Ink, Modifier.padding(end = 8.dp))
+                // The system's back gesture goes back, so this corner saves: the share button stays where iOS has it.
                 Box(
                     Modifier.size(44.dp).background(Ink).tap(onClick = save).semantics { contentDescription = "Save the result file" },
                     contentAlignment = Alignment.Center,
                 ) { BasicText("↓", style = Type.archivo(20.sp, 700, Volt)) }
+                Spacer(Modifier.weight(1f))
+                Mono(if (run.stressed && run.measured == 0) "Stress test" else "${if (run.quick) "Quick" else "Full"} · ${run.measured} test${if (run.measured == 1) "" else "s"}", Ink, Modifier.padding(end = 8.dp))
+                Box(
+                    Modifier.size(44.dp).background(Ink).tap { shareResult(context, run) }.semantics { contentDescription = "Share the result file" },
+                    contentAlignment = Alignment.Center,
+                ) { ShareMark(Volt) }
             }
             BasicText(run.started, style = Type.saira(24.sp, 112, 700, Ink), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
