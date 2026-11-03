@@ -4,4 +4,8 @@
     <color name="bg">#DDE2E8</color>
     <color name="ink">#0C1430</color>
     <color name="volt">#D6F53B</color>
+    <!-- The launcher icon: ink on volt, and volt on ink in dark mode, like the Apple glass icon. -->
+    <color name="icon_tile">#D6F53B</color>
+    <color name="icon_mark">#0C1430</color>
+    <color name="icon_bar">#2D5BFF</color>
 </resources>
