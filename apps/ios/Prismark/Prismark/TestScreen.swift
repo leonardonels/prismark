@@ -69,7 +69,8 @@ struct TestDetail: View {
             .background(Color.volt)
 
             ScrollView {
-                LazyVStack(spacing: 0) {
+                // Not lazy, so the rows slide in with the screen.
+                VStack(spacing: 0) {
                     ForEach(Array(rows.enumerated()), id: \.element.id) { index, row in
                         RankRow(number: index + 1, row: row, top: top, yours: value?.v)
                     }

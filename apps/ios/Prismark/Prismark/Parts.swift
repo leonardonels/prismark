@@ -169,18 +169,42 @@ struct PassDots: View {
     }
 }
 
-/// The back button, a square 44 points wide.
+/// The back button, a square 44 points wide. On a volt header it is ink, like the share button beside it.
 struct BackButton: View {
     @Environment(Pages.self) private var pages
+    var onVolt = false
+
     var body: some View {
         Button { pages.pop() } label: {
             Image(systemName: "chevron.left")
                 .font(.system(size: 16, weight: .bold))
                 .frame(width: 44, height: 44)
-                .background(Color.raised, ignoresSafeAreaEdges: [])
+                .foregroundStyle(onVolt ? Color.volt : Color.text)
+                .background(onVolt ? Color.ink : Color.raised, ignoresSafeAreaEdges: [])
         }
         .buttonStyle(.block)
         .accessibilityLabel("Back")
+    }
+}
+
+/// A hidden touch: tapping the logo swaps dark and light, whatever the system is set to. Coming back to the system's
+/// own look follows the system again.
+struct LogoButton<Label: View>: View {
+    @Environment(\.colorScheme) private var scheme
+    @AppStorage("appearance") private var appearance = ""
+    @ViewBuilder let label: Label
+
+    var body: some View {
+        Button {
+            let scene = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }.first
+            let system = scene?.screen.traitCollection.userInterfaceStyle == .dark ? "dark" : "light"
+            let swapped = scheme == .dark ? "light" : "dark"
+            appearance = swapped == system ? "" : swapped
+        } label: {
+            label
+        }
+        .buttonStyle(.block)
+        .accessibilityLabel("Prismark. Swap dark and light")
     }
 }
 

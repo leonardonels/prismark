@@ -26,14 +26,16 @@ struct MachinePass: View {
 
         VStack(alignment: .leading) {
             HStack {
-                HStack(spacing: 8) {
-                    PrismMark().frame(width: 24, height: 24)
-                    Text("PRISMARK").font(.saira(14, width: 125, weight: 800))
+                LogoButton {
+                    HStack(spacing: 8) {
+                        PrismMark().frame(width: 24, height: 24)
+                        Text("PRISMARK").font(.saira(14, width: 125, weight: 800))
+                    }
+                    .foregroundStyle(Color.ink)
+                    .padding(.horizontal, 10)
+                    .frame(height: 40)
+                    .background(Color.volt, ignoresSafeAreaEdges: [])
                 }
-                .foregroundStyle(Color.ink)
-                .padding(.horizontal, 10)
-                .frame(height: 40)
-                .background(Color.volt, ignoresSafeAreaEdges: [])
                 Spacer()
                 Text("REV. \(Prismark.version)").font(.mono(11))
             }
@@ -139,7 +141,7 @@ struct RunBar: View {
                 session.start()
             } label: {
                 HStack {
-                    Text(count == 0 ? "PICK A TEST" : "RUN \(count) TESTS")
+                    Text(count == 0 ? "PICK A TEST" : "RUN \(count) TEST\(count == 1 ? "" : "S")")
                         .font(.saira(16, width: 125, weight: 800))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)

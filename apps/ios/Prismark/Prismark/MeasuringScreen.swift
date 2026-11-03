@@ -30,7 +30,7 @@ struct MeasuringScreen: View {
                         Spacer()
                         Text("NOW").font(.mono(11))
                         Text(session.phase).font(.saira(25, width: 100)).lineLimit(4).minimumScaleFactor(0.7)
-                        Text("Step \(session.part) of \(session.parts)").font(.mono(12))
+                        if session.parts > 0 { Text("Step \(session.part) of \(session.parts)").font(.mono(12)) }
                     }
                     .padding(.vertical, 18)
                     .padding(.trailing, 14)

@@ -47,14 +47,16 @@ struct PadScreen: View {
     private func header(wide: Bool, compact: Bool) -> some View {
         HStack(spacing: 6) {
             if !compact {
-                HStack(spacing: 8) {
-                    PrismMark().frame(width: 30, height: 30)
-                    if wide { Text("PRISMARK").font(.saira(16, width: 125, weight: 800)).fixedSize() }
+                LogoButton {
+                    HStack(spacing: 8) {
+                        PrismMark().frame(width: 30, height: 30)
+                        if wide { Text("PRISMARK").font(.saira(16, width: 125, weight: 800)).fixedSize() }
+                    }
+                    .foregroundStyle(Color.ink)
+                    .padding(.horizontal, 12)
+                    .frame(height: 64)
+                    .background(Color.volt, ignoresSafeAreaEdges: [])
                 }
-                .foregroundStyle(Color.ink)
-                .padding(.horizontal, 12)
-                .frame(height: 64)
-                .background(Color.volt, ignoresSafeAreaEdges: [])
             }
 
             ForEach(groups) { item in
@@ -429,13 +431,17 @@ struct GroupCard: View {
     @Environment(Session.self) private var session
     let group: TestGroup
     let members: [Test]
+    /// The run being read; without one, the latest.
+    var run: Run? = nil
 
     var body: some View {
-        let run = session.saved.first
-        let measured = run.map { doc in members.filter { $0.read(doc.doc) != nil }.count } ?? 0
+        let shown = run ?? session.saved.first
+        let measured = shown.map { doc in members.filter { $0.read(doc.doc) != nil }.count } ?? 0
 
         GeometryReader { geo in
-            if geo.size.height >= 150 {
+            if run != nil && geo.size.height < 230 {
+                compact(height: geo.size.height, measured: measured, id: shown?.runID)
+            } else if geo.size.height >= 150 {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
                         Mono(text: group.label)
@@ -448,7 +454,7 @@ struct GroupCard: View {
                         .foregroundStyle(Color.ink)
                         .lineLimit(1)
                         .minimumScaleFactor(0.5)
-                    Text(run == nil ? "No run yet" : "Measured in your latest run")
+                    Text(shown == nil ? "No run yet" : run != nil ? "Measured in this run" : "Measured in your latest run")
                         .font(.archivo(13, weight: 600))
                     Rectangle()
                         .stroke(style: StrokeStyle(lineWidth: 2, dash: [6, 5]))
@@ -457,18 +463,48 @@ struct GroupCard: View {
                     Color.clear
                         .frame(height: min(geo.size.height * 0.16, 72))
                         .overlay(alignment: .leading) {
-                            Barcode(id: String(repeating: run?.runID ?? "5a3c91e7b20d48f6a1c7e93b", count: 3), bars: 64)
+                            Barcode(id: String(repeating: shown?.runID ?? "5a3c91e7b20d48f6a1c7e93b", count: 3), bars: 64)
                                 .foregroundStyle(Color.ink)
                         }
                         .clipped()
                 }
                 .padding(.horizontal, 14)
                 .padding(.top, 14)
-                .padding(.bottom, 24)
+                .padding(.bottom, run == nil ? 24 : 34)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .foregroundStyle(Color.onSignal)
         .background(Color.signal, ignoresSafeAreaEdges: [])
+    }
+
+    /// Too short for a whole card: the count and the barcode side by side, as tall as there is room for.
+    private func compact(height: CGFloat, measured: Int, id: String?) -> some View {
+        let room = max(20, height - 66)
+
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack {
+                Mono(text: group.label)
+                Spacer()
+                Mono(text: "\(group.number) of 04")
+            }
+            HStack(spacing: 14) {
+                Text("\(measured)/\(members.count)")
+                    .font(.saira(room * 1.2, width: 50, weight: 600))
+                    .foregroundStyle(Color.ink)
+                    .fixedSize()
+                    .frame(height: room)
+                Color.clear
+                    .frame(height: room)
+                    .overlay(alignment: .leading) {
+                        Barcode(id: String(repeating: id ?? "", count: 3), bars: 64)
+                            .foregroundStyle(Color.ink)
+                    }
+                    .clipped()
+            }
+        }
+        .padding(.horizontal, 14)
+        .padding(.top, 12)
+        .padding(.bottom, 34)
     }
 }

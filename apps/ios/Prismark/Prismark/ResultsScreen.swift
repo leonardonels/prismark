@@ -16,9 +16,9 @@ struct ResultsScreen: View {
         VStack(spacing: 6) {
             VStack(alignment: .leading, spacing: 8) {
                 HStack {
-                    BackButton()
+                    BackButton(onVolt: true)
                     Spacer()
-                    Mono(text: "\(run.quick ? "Quick" : "Full") · \(run.measured) tests")
+                    Mono(text: "\(run.quick ? "Quick" : "Full") · \(run.measured) test\(run.measured == 1 ? "" : "s")")
                     ShareFileButton(file: run.file) { busy in
                         Group {
                             if busy {
@@ -72,15 +72,36 @@ struct ResultsScreen: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                     .background(Color.panel)
             } else {
-                LazyVGrid(columns: [GridItem(.flexible(), spacing: 6), GridItem(.flexible())], spacing: 6) {
-                    ForEach(shown) { test in
-                        PageLink(OpenTest(test: test, run: run)) {
-                            ScoreTile(test: test, value: test.read(run.doc)!)
+                let members = tests.filter { $0.group == group }
+                let rows = stride(from: 0, to: shown.count, by: 2).map { Array(shown[$0..<min($0 + 2, shown.count)]) }
+
+                // The tiles, then a card filling what they leave. On a small phone it all scrolls instead.
+                GeometryReader { geo in
+                    let left = geo.size.height - (ScoreTile.height + 6) * CGFloat(rows.count)
+
+                    ScrollView {
+                        // Not lazy: a lazy grid builds its tiles only after the slide has started, so they would not slide with the rest.
+                        VStack(spacing: 6) {
+                            ForEach(rows, id: \.first?.id) { row in
+                                HStack(spacing: 6) {
+                                    ForEach(row) { test in
+                                        PageLink(OpenTest(test: test, run: run)) {
+                                            ScoreTile(test: test, value: test.read(run.doc)!)
+                                        }
+                                        .buttonStyle(.block)
+                                    }
+                                    if row.count == 1 { MissingTile(count: members.count - shown.count) }
+                                }
+                            }
+                            if left >= 100, let about = groups.first(where: { $0.id == group }) {
+                                GroupCard(group: about, members: members, run: run).frame(height: left)
+                            } else {
+                                Color.clear.frame(height: 28)
+                            }
                         }
-                        .buttonStyle(.block)
                     }
+                    .scrollBounceBehavior(.basedOnSize)
                 }
-                Spacer(minLength: 0)
             }
         }
         .background(Color.ground)
@@ -92,7 +113,25 @@ struct ResultsScreen: View {
     }
 }
 
+/// Beside a lone tile, in a run that left tests out.
+struct MissingTile: View {
+    let count: Int
+
+    var body: some View {
+        PassDots()
+            .overlay(alignment: .bottomLeading) {
+                Mono(text: "\(count) not measured")
+                    .foregroundStyle(Color.onSignal)
+                    .padding(12)
+            }
+            .frame(maxWidth: .infinity)
+            .frame(height: ScoreTile.height)
+    }
+}
+
 struct ScoreTile: View {
+    static let height: CGFloat = 158
+
     let test: Test
     let value: Value
 
@@ -110,6 +149,7 @@ struct ScoreTile: View {
                 .font(.saira(66, width: 50, weight: 600))
                 .lineLimit(1)
                 .minimumScaleFactor(0.6)
+                .frame(height: 72)
             Text(test.name)
                 .font(.archivo(14, weight: 700))
                 .lineLimit(2)
@@ -118,6 +158,7 @@ struct ScoreTile: View {
         }
         .padding(12)
         .frame(maxWidth: .infinity, alignment: .leading)
+        .frame(height: Self.height)
         .background(Color.panel)
     }
 }
