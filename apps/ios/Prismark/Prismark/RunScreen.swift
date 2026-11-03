@@ -4,12 +4,16 @@ struct RunScreen: View {
     @Environment(Session.self) private var session
 
     var body: some View {
-        PageStack(destination: { AnyView(GroupScreen(group: $0.base as! TestGroup)) }) {
+        PageStack(destination: { 
+            let group = $0.base as! TestGroup
+            return group.id == stressGroup.id ? AnyView(StressScreen()) : AnyView(GroupScreen(group: group))
+         }) {
             VStack(spacing: 6) {
                 MachinePass()
                 ForEach(groups) { group in
                     GroupRow(group: group)
                 }
+                StressRow()
                 RunBar()
             }
             .background(Color.ground)
@@ -26,20 +30,23 @@ struct MachinePass: View {
 
         VStack(alignment: .leading) {
             HStack {
-                HStack(spacing: 8) {
-                    PrismMark().frame(width: 24, height: 24)
-                    Text("PRISMARK").font(.saira(14, width: 125, weight: 800))
+                LogoButton {
+                    HStack(spacing: 8) {
+                        PrismMark().frame(width: 24, height: 24)
+                        Text("PRISMARK").font(.saira(14, width: 125, weight: 800))
+                    }
+                    .foregroundStyle(Color.ink)
+                    .padding(.horizontal, 10)
+                    .frame(height: 40)
+                    .background(Color.volt, ignoresSafeAreaEdges: [])
                 }
-                .foregroundStyle(Color.ink)
-                .padding(.horizontal, 10)
-                .frame(height: 40)
-                .background(Color.volt, ignoresSafeAreaEdges: [])
                 Spacer()
                 Text("REV. \(Prismark.version)").font(.mono(11))
             }
             Spacer(minLength: 8)
             Text("Processor:").font(.mono(12))
-            ChipName(machine: machine, size: 176)
+            // A small iPhone needs the room for the rows below.
+            ChipName(machine: machine, size: UIScreen.main.bounds.height < 700 ? 110 : 176)
                 .padding(.top, 6)
                 .padding(.bottom, 10)
             Rectangle().fill(Color.signalLine).frame(height: 1)
@@ -139,7 +146,7 @@ struct RunBar: View {
                 session.start()
             } label: {
                 HStack {
-                    Text(count == 0 ? "PICK A TEST" : "RUN \(count) TESTS")
+                    Text(count == 0 ? "PICK A TEST" : "RUN \(count) TEST\(count == 1 ? "" : "S")")
                         .font(.saira(16, width: 125, weight: 800))
                         .lineLimit(1)
                         .minimumScaleFactor(0.7)

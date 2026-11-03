@@ -29,7 +29,20 @@ public struct PrismarkModes: OptionSet, Sendable {
     public static let stSustained = PrismarkModes(rawValue: 1 << 3)
     public static let mcThreaded = PrismarkModes(rawValue: 1 << 4)
     public static let mcInstances = PrismarkModes(rawValue: 1 << 5)
+    public static let stress = PrismarkModes(rawValue: 1 << 6)
     public static let all: PrismarkModes = [.coldBurst, .periodic, .stBurst, .stSustained, .mcThreaded, .mcInstances]
+}
+
+/// One stress test: which parts (PMK_STRESS_* bits), seconds per part (0 runs until cancel() ends it normally).
+public struct PrismarkStress: Sendable {
+    public let parts: UInt32
+    public let seconds: Double
+    public let stopOnError: Bool
+    public init(parts: UInt32, seconds: Double, stopOnError: Bool) {
+        self.parts = parts
+        self.seconds = seconds
+        self.stopOnError = stopOnError
+    }
 }
 
 public enum PrismarkError: Error {
@@ -46,7 +59,7 @@ public enum Prismark {
     }
 
     /// Blocking. Returns the result document (JSON); a cancelled run still returns its partial result.
-    public static func run(modes: PrismarkModes = .all, kernels: String? = nil, quick: Bool = false,
+    public static func run(modes: PrismarkModes = .all, kernels: String? = nil, quick: Bool = false, stress: PrismarkStress? = nil,
                            onEvent: @escaping (PrismarkEvent) -> Void = { _ in }) throws -> String {
         var cfg = pmk_config()
         pmk_config_init(&cfg)
@@ -62,6 +75,11 @@ public enum Prismark {
             cfg.k1x_reps = 1
             cfg.cooldown = 0
             cfg.quick_inputs = 1
+        }
+        if let stress {
+            cfg.stress_parts = stress.parts
+            cfg.stress_s = stress.seconds
+            cfg.stress_stop_on_error = stress.stopOnError ? 1 : 0
         }
         let box = Unmanaged.passRetained(Box(onEvent))
         defer { box.release() }

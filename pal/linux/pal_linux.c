@@ -17,6 +17,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#ifdef __ANDROID__
+#include <strings.h>
+#include <sys/system_properties.h>
+#endif
 #include <sys/prctl.h>
 #include <sys/random.h>
 #include <sys/syscall.h>
@@ -234,6 +238,40 @@ void pal_cycles_close(int fd) {
 
 /* ---------- machine description ---------- */
 
+#ifdef __ANDROID__
+/*
+ * The name the chip is sold under, from the model Android reports (Build.SOC_MODEL, from Android 12). Some models
+ * carry a variant after a dash, so an entry matches the start. A chip not listed keeps the model as it is.
+ */
+static void android_chip(pmk_machine *m) {
+  static const struct {
+    const char *model, *name;
+  } chips[] = {
+      {"SM8850", "Snapdragon 8 Elite Gen 5"}, {"SM8845", "Snapdragon 8 Gen 5"},  {"SM8750", "Snapdragon 8 Elite"},
+      {"SM8735", "Snapdragon 8s Gen 4"},      {"SM8650", "Snapdragon 8 Gen 3"},  {"SM8635", "Snapdragon 8s Gen 3"},
+      {"SM8550", "Snapdragon 8 Gen 2"},       {"SM8475", "Snapdragon 8+ Gen 1"}, {"SM8450", "Snapdragon 8 Gen 1"},
+      {"SM8350", "Snapdragon 888"},           {"SM8250", "Snapdragon 865"},      {"SM8150", "Snapdragon 855"},
+      {"SM7675", "Snapdragon 7+ Gen 3"},      {"SM7635", "Snapdragon 7s Gen 3"}, {"SM7550", "Snapdragon 7 Gen 3"},
+      {"SM7475", "Snapdragon 7+ Gen 2"},      {"SM7450", "Snapdragon 7 Gen 1"},  {"SM7435", "Snapdragon 7s Gen 2"},
+      {"SM7325", "Snapdragon 778G"},          {"SM6450", "Snapdragon 6 Gen 1"},  {"SM6375", "Snapdragon 695"},
+      {"SM4450", "Snapdragon 4 Gen 2"},       {"SM4375", "Snapdragon 4 Gen 1"},  {"MT6993", "Dimensity 9500"},
+      {"MT6991", "Dimensity 9400"},           {"MT6989", "Dimensity 9300"},      {"MT6985", "Dimensity 9200"},
+      {"MT6983", "Dimensity 9000"},           {"MT6897", "Dimensity 8300"},      {"MT6896", "Dimensity 8200"},
+      {"MT6895", "Dimensity 8100"},           {"s5e9955", "Exynos 2500"},        {"s5e9945", "Exynos 2400"},
+      {"s5e9925", "Exynos 2200"},             {"s5e8835", "Exynos 1380"},        {"GS101", "Tensor"},
+      {"GS201", "Tensor G2"},
+  };
+  char soc[PROP_VALUE_MAX];
+  if (__system_property_get("ro.soc.model", soc) <= 0) return;
+  for (size_t i = 0; i < sizeof chips / sizeof *chips; i++)
+    if (!strncasecmp(soc, chips[i].model, strlen(chips[i].model))) {
+      snprintf(m->model, sizeof m->model, "%s", chips[i].name);
+      return;
+    }
+  snprintf(m->model, sizeof m->model, "%s", soc);
+}
+#endif
+
 static void read_model(pmk_machine *m) {
   FILE *f = fopen("/proc/cpuinfo", "r");
   char line[512], impl[32] = "", part[32] = "";
@@ -251,6 +289,9 @@ static void read_model(pmk_machine *m) {
     }
     fclose(f);
   }
+#ifdef __ANDROID__
+  if (!m->model[0]) android_chip(m);
+#endif
   if (!m->model[0] && impl[0])
     snprintf(m->model, sizeof m->model, "arm implementer %s part %s", impl, part);
   if (sysfs_read("/proc/device-tree/model", m->board, sizeof m->board)) m->board[0] = 0;

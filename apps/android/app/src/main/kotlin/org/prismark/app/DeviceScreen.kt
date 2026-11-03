@@ -36,6 +36,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -99,11 +100,11 @@ fun DeviceScreen(tablet: Boolean) {
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Column(
-            Modifier.fillMaxWidth().background(Signal).padding(top = topInset() + 12.dp, start = 20.dp, end = 20.dp, bottom = 10.dp),
+            Modifier.fillMaxWidth().background(Signal).drawBehind { passDots() }.padding(top = topInset() + 12.dp, start = 20.dp, end = 20.dp, bottom = 10.dp),
         ) {
             Mono("This device · ${machine.model}", OnSignal)
-            BasicText(machine.chip, style = Type.saira(chipSize(machine.chip, if (tablet) 130f else 84f).sp, 50, 600, Ink), maxLines = 1, softWrap = false)
-            BasicText("${machine.system} · ${machine.cores}", style = Type.archivo(13.sp, 600, OnSignal))
+            ChipName(machine, if (tablet) 130f else 84f)
+            BasicText("${machine.system} · ${machine.cores}", style = Type.archivo(13.sp, 600, OnSignal), modifier = Modifier.padding(top = 6.dp))
         }
         StatusTiles(status, if (tablet) 50.sp else 30.sp)
         CoreMap(machine, Modifier.weight(1f).fillMaxWidth(), if (tablet) 84.sp else 50.sp, if (tablet) 56.sp else 24.sp, if (tablet) 64.dp else 46.dp)
@@ -164,8 +165,9 @@ private fun CoreMap(machine: Machine, modifier: Modifier, fastSize: TextUnit, ot
                         verticalArrangement = Arrangement.SpaceBetween,
                     ) {
                         val text = if (first) Ink else p.text
-                        BasicText(if (count > 4) name.take(3).uppercase() else name.uppercase(), style = Type.mono(10.sp, color = text), maxLines = 1)
-                        BasicText("${core + 1}", style = Type.saira(if (first) fastSize else otherSize, 50, 600, text), maxLines = 1)
+                        BasicText(if (count > 4 && name.length > 4) name.take(3).uppercase() else name.uppercase(), style = Type.mono(10.sp, color = text), maxLines = 1)
+                        val size = if (first) fastSize else otherSize
+                        BasicText("${core + 1}", style = Type.saira(size, 50, 600, text), maxLines = 1, modifier = Modifier.capitalsOnly(size))
                     }
                 }
             }

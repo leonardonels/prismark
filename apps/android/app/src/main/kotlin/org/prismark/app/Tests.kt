@@ -2,7 +2,7 @@
  * The tests the app offers, and the reduction of a result document to them: each test is one kernel in one
  * mode, its value read from the statistics the C core computed (the document's "analysis" section), never
  * recomputed. The same definitions as the desktop app (apps/gui/metrics.cpp), without the tests phones do not
- * run: compiling code (K1, K1x) and the stress test.
+ * run: compiling code (K1, K1x).
  *
  * There is no overall score: every test stands on its own.
  *
@@ -19,7 +19,7 @@ data class Value(val v: Double, val lo: Double = Double.NaN, val hi: Double = Do
 }
 
 data class Group(val id: String, val label: String, val desc: String) {
-    val number get() = "%02d".format(groups.indexOf(this) + 1)
+    val number get() = "%02d".format(if (id == "stress") 5 else groups.indexOf(this) + 1)
 }
 
 data class Test(
@@ -32,7 +32,13 @@ data class Test(
     val mode: Int,
     val kernel: String,
     val get: (JSONObject) -> Value?,
-)
+    /** A part of the stress test: its name in the result, and its PMK_STRESS_* bit. */
+    val part: String? = null,
+    val bit: Int = 0,
+) {
+    /** Whether a run holds this test: a stress test under 10 minutes has a verdict but no score. */
+    fun ran(doc: JSONObject): Boolean = runCatching { get(doc) }.getOrNull() != null || part?.let { stressRow(doc, it) } != null
+}
 
 val groups = listOf(
     Group("mc", "All cores", "Heavy jobs that use every core at once."),
@@ -132,12 +138,30 @@ val tests = listOf(
         Prismark.COLD_BURST, "K6", medianOf("K6", "cold_burst", "cold", 1e-6)),
 )
 
+fun stressRow(d: JSONObject, part: String): JSONObject? =
+    d.optJSONObject("analysis")?.optJSONArray("stress").objects().firstOrNull { it.optString("part") == part }
+
+private fun stress(part: String): (JSONObject) -> Value? = { d -> ci(stressRow(d, part)?.optJSONObject("score")) }
+
+/** Minutes of full load, run on their own: not one more benchmark, so not among the tests above. */
+val stressGroup = Group("stress", "Stress test", "Ten minutes or more of full load, as in a long game: how well the speed holds up as the device heats up, and whether every result stays correct. Each part runs on its own.")
+
+val stressTests = listOf(
+    Test("s_st", "stress", "One core", "One core at full load", "GFLOP/s", true, Prismark.STRESS, "K12", stress("one_core"), "one_core", 1),
+    Test("s_mc", "stress", "All cores", "Every core at full load", "GFLOP/s", true, Prismark.STRESS, "K12", stress("all_cores"), "all_cores", 2),
+    Test("s_cc", "stress", "Each core in turn", "One core at a time, every core in turn", "GFLOP/s", true, Prismark.STRESS, "K12", stress("each_core"), "each_core", 8),
+    Test("s_mem", "stress", "Memory", "Most of the free memory, written and checked", "GB/s", true, Prismark.STRESS, "K11", stress("memory"), "memory", 4),
+)
+
+val allTests = tests + stressTests
+
 /** What one run of the selected tests asks the core for: the union of their modes and kernels. */
 fun runRequest(selected: Collection<Test>): Pair<Int, String> =
     selected.fold(0) { m, t -> m or t.mode } to selected.map { it.kernel }.distinct().joinToString(",")
 
 /** The phase names the core reports, as the desktop app shows them. */
 val phaseNames = mapOf(
+    "stress" to "Full load",
     "preflight" to "Checking the phone is idle",
     "st_burst" to "One core, short tasks",
     "st_sustained" to "One core, after warming up",

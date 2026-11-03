@@ -30,6 +30,12 @@ class Run(val file: File, val json: String) {
     val time: String get() = startedAt?.format(DateTimeFormatter.ofPattern("yyyy, HH:mm")).orEmpty()
     val runId: String get() = doc.optString("run_id", "0000")
     val skipped: Boolean get() = (doc.optJSONArray("skipped_modes")?.length() ?: 0) > 0
+    /** Why a part of the stress test did not run, if one did not. */
+    val stressProblem: String get() = doc.optJSONArray("unavailable")?.let { a ->
+        (0 until a.length()).mapNotNull { a.optJSONObject(it) }.firstOrNull { it.optString("mode") == "stress" }?.optString("reason")
+    }.orEmpty()
+    /** A run of the stress test, even one whose part could not run. */
+    val stressed: Boolean get() = stressTests.any { it.ran(doc) } || stressProblem.isNotEmpty()
     val measured: Int get() = tests.count { runCatching { it.get(doc) }.getOrNull() != null }
     val quick: Boolean get() = doc.optJSONObject("config")?.optBoolean("quick") == true
     val complete: Boolean get() = doc.optBoolean("complete", false)
@@ -51,6 +57,13 @@ object Session {
     var part by mutableStateOf(0)
         private set
     var parts by mutableStateOf(0)
+        private set
+    /** The run is a stress test, and if open, one without a set length: stopping it is its normal end. */
+    var stressing by mutableStateOf(false)
+        private set
+    var stressOpen by mutableStateOf(false)
+        private set
+    var stressMinutes by mutableStateOf(0)
         private set
     var current by mutableStateOf<Run?>(null)
     var error by mutableStateOf<String?>(null)
@@ -80,6 +93,8 @@ object Session {
     fun start(context: Context, chosen: List<Test>, quick: Boolean) {
         if (running || chosen.isEmpty()) return
         val (modes, kernels) = runRequest(chosen)
+        val bits = chosen.fold(0) { all, test -> all or test.bit }
+        val settings = StressChoice.read(context)
         val dir = resultsDir(context.applicationContext)
         running = true
         error = null
@@ -87,6 +102,9 @@ object Session {
         phase = "Starting"
         part = 0
         parts = 0
+        stressing = bits != 0
+        stressOpen = bits != 0 && settings.seconds == 0.0
+        stressMinutes = (settings.seconds / 60).toInt()
         var lastPhase = ""
         val listener = Prismark.Listener { kind, ph, _, message, shown, total, _ ->
             when (kind) {
@@ -103,7 +121,10 @@ object Session {
             }
         }
         Thread({
-            val result = runCatching { Prismark.run(modes, kernels, quick, listener) }
+            val result = runCatching {
+                if (bits != 0) Prismark.runStress(bits, settings.seconds, settings.stopOnError, settings.maxTempC, listener)
+                else Prismark.run(modes, kernels, quick, listener)
+            }
             main.post {
                 result.onSuccess { json ->
                     val id = runCatching { JSONObject(json).optString("run_id") }.getOrNull().orEmpty().ifEmpty { "run" }

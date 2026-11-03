@@ -63,7 +63,9 @@ JNIEXPORT jstring JNICALL Java_org_prismark_Prismark_nativeInfo(JNIEnv *env, jcl
 
 /* Returns the result document (also for partial runs), or throws with the error. */
 JNIEXPORT jstring JNICALL Java_org_prismark_Prismark_nativeRun(JNIEnv *env, jclass cls, jint modes, jstring kernels,
-                                                               jboolean quick, jobject listener_obj) {
+                                                               jboolean quick, jint stress_parts, jdouble stress_s,
+                                                               jboolean stress_stop, jdouble stress_max_temp,
+                                                               jobject listener_obj) {
   (void)cls;
   pmk_config cfg;
   pmk_config_init(&cfg); /* library defaults, including max_background_load: a busy device warns, never stops */
@@ -84,6 +86,12 @@ JNIEXPORT jstring JNICALL Java_org_prismark_Prismark_nativeRun(JNIEnv *env, jcla
     cfg.k1x_reps = 1;
     cfg.cooldown = 0;
     cfg.quick_inputs = 1;
+  }
+  if (stress_parts) {
+    cfg.stress_parts = (uint32_t)stress_parts;
+    cfg.stress_s = stress_s;
+    cfg.stress_stop_on_error = stress_stop ? 1 : 0;
+    cfg.stress_max_temp_c = stress_max_temp;
   }
   listener l = {env, listener_obj, NULL, pthread_self()};
   if (listener_obj) {

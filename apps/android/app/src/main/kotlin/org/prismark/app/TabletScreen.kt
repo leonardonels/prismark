@@ -45,7 +45,7 @@ fun TabletTests() {
     var group by rememberSaveable { mutableStateOf("st") }
     var testId by rememberSaveable { mutableStateOf("st_k2") }
     var reportId by remember { mutableStateOf<String?>(null) }
-    val test = tests.first { it.id == testId }
+    val test = allTests.first { it.id == testId }
     val latest = Session.runs.firstOrNull()
     val report: JSONObject = reportId?.let { id ->
         Session.runs.firstOrNull { it.runId == id }?.doc ?: References.all(context).firstOrNull { it.optString("run_id") == id }
@@ -56,18 +56,18 @@ fun TabletTests() {
         Column(Modifier.fillMaxSize().padding(top = topInset() + 6.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
             TabletHeader(group, wide) { id ->
                 group = id
-                testId = tests.first { it.group == id }.id
+                testId = allTests.first { it.group == id }.id
             }
             Row(Modifier.weight(1f).fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 TestList(group, testId, Modifier.width(if (wide) 300.dp else 270.dp).fillMaxHeight()) { testId = it }
                 TestPage(test, report, reportId, showReport = !wide, Modifier.weight(1f).fillMaxHeight(), onPickRow = { reportId = it }, onPickTest = { id ->
                     testId = id
-                    group = tests.first { it.id == id }.group
+                    group = allTests.first { it.id == id }.group
                 })
                 if (wide) {
                     Report(report, inline = false, Modifier.width(300.dp).fillMaxHeight()) { id ->
                         testId = id
-                        group = tests.first { it.id == id }.group
+                        group = allTests.first { it.id == id }.group
                     }
                 }
             }
@@ -80,12 +80,8 @@ private fun TabletHeader(group: String, wide: Boolean, onPick: (String) -> Unit)
     val p = LocalPalette.current
     val context = LocalContext.current
     Row(Modifier.fillMaxWidth().height(64.dp), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-        if (wide) {
-            Box(Modifier.fillMaxHeight().background(Volt).padding(horizontal = 12.dp), contentAlignment = Alignment.Center) {
-                BasicText("PRISMARK", style = Type.saira(16.sp, 125, 800, Ink))
-            }
-        }
-        for (item in groups) {
+        Logo(30.dp, if (wide) 16.sp else null, Modifier.fillMaxHeight())
+        for (item in groups + stressGroup) {
             val on = item.id == group
             Box(Modifier.weight(1f).fillMaxHeight().background(if (on) p.panel else p.steel).tap { onPick(item.id) }) {
                 Column(Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 9.dp), verticalArrangement = Arrangement.SpaceBetween) {
@@ -109,8 +105,8 @@ private fun TabletHeader(group: String, wide: Boolean, onPick: (String) -> Unit)
 @Composable
 private fun TestList(group: String, testId: String, modifier: Modifier, onPick: (String) -> Unit) {
     val p = LocalPalette.current
-    val about = groups.first { it.id == group }
-    val members = tests.filter { it.group == group }
+    val about = (groups + stressGroup).first { it.id == group }
+    val members = if (group == stressGroup.id) stressOffered() else tests.filter { it.group == group }
 
     BoxWithConstraints(modifier) {
         val full = maxHeight
@@ -121,6 +117,7 @@ private fun TestList(group: String, testId: String, modifier: Modifier, onPick: 
                     BasicText(about.desc, style = Type.archivo(13.sp, color = p.muted))
                 }
                 for (test in members) TestCard(test, test.id == testId) { onPick(test.id) }
+                if (group == stressGroup.id) StressSettings(Modifier.fillMaxWidth().background(p.panel))
                 GroupCard(about, members, Modifier.weight(1f).fillMaxWidth())
             }
         }
@@ -155,7 +152,7 @@ private fun TestCard(test: Test, current: Boolean, onOpen: () -> Unit) {
                 .tap { Session.start(context, listOf(test), Session.quick) },
             contentAlignment = Alignment.Center,
         ) {
-            BasicText(if (Session.quick) "RUN\nQUICK" else "RUN\nFULL", style = Type.saira(12.sp, 125, 800, if (current) Volt else p.text))
+            BasicText(if (test.bit > 0) "RUN" else if (Session.quick) "RUN\nQUICK" else "RUN\nFULL", style = Type.saira(12.sp, 125, 800, if (current) Volt else p.text))
         }
     }
 }
@@ -164,7 +161,7 @@ private fun TestCard(test: Test, current: Boolean, onOpen: () -> Unit) {
 @Composable
 private fun GroupCard(group: Group, members: List<Test>, modifier: Modifier) {
     val run = Session.runs.firstOrNull()
-    val measured = if (run == null) 0 else members.count { test -> runCatching { test.get(run.doc) }.getOrNull() != null }
+    val measured = if (run == null) 0 else members.count { it.ran(run.doc) }
 
     BoxWithConstraints(modifier.background(Signal)) {
         val tall = maxHeight
@@ -172,10 +169,11 @@ private fun GroupCard(group: Group, members: List<Test>, modifier: Modifier) {
             Column(Modifier.fillMaxSize().padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = bottomInset() + 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Row(Modifier.fillMaxWidth()) {
                     Mono(group.label, OnSignal, Modifier.weight(1f))
-                    Mono("${group.number} of 04", OnSignal)
+                    Mono(if (group.id == stressGroup.id) "Full load" else "${group.number} of 04", OnSignal)
                 }
                 Spacer(Modifier.weight(1f))
-                BasicText("$measured/${members.size}", style = Type.saira(min(tall * 0.34f, 150.dp).value.sp, 50, 600, Ink), maxLines = 1)
+                val big = min(tall * 0.34f, 150.dp).value.sp
+                BasicText("$measured/${members.size}", style = Type.saira(big, 50, 600, Ink), maxLines = 1, modifier = Modifier.capitalsOnly(big))
                 BasicText(if (run == null) "No run yet" else "Measured in your latest run", style = Type.archivo(13.sp, 600, OnSignal))
                 Tear(OnSignal)
                 Barcode(run?.runId ?: "5a3c91e7b20d48f6a1c7e93b", Ink, Modifier.fillMaxWidth().height(min(tall * 0.16f, 72.dp)))
@@ -199,10 +197,22 @@ private fun TestPage(test: Test, report: JSONObject, reportId: String?, showRepo
             BasicText(text?.about.orEmpty(), style = Type.archivo(15.sp))
             Section("How it is measured", text?.how.orEmpty())
             Section("Reading the result", text?.reading.orEmpty())
-            Mono("Ranking", modifier = Modifier.padding(top = 8.dp))
-            Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                Legend("Your runs", p.yours)
-                Legend("Reference", p.reference)
+            if (test.bit == 0) {
+                Mono("Ranking", modifier = Modifier.padding(top = 8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Legend("Your runs", p.yours)
+                    Legend("Reference", p.reference)
+                }
+            }
+        }
+        test.part?.let { part ->
+            val run = Session.runs.firstOrNull { stressRow(it.doc, part) != null }
+            val row = run?.let { stressRow(it.doc, part) }
+            if (run != null && row != null) {
+                StressBlock(test, row)
+                StressFacts(test, run, row)
+            } else {
+                BasicText("No result yet. Run it from the list: it takes as long as you set there.", style = Type.archivo(14.sp, color = p.muted), modifier = Modifier.padding(horizontal = 20.dp))
             }
         }
         rows.forEachIndexed { index, row ->
@@ -240,7 +250,7 @@ private fun Report(doc: JSONObject, inline: Boolean, modifier: Modifier, onPickT
     val model = shortName(cpu?.optString("model").orEmpty())
     val id = doc.optString("run_id").takeIf { it.isNotEmpty() }
     val run = Session.runs.firstOrNull { it.runId == id }
-    val measured = tests.filter { runCatching { it.get(doc) }.getOrNull() != null }
+    val measured = allTests.filter { runCatching { it.get(doc) }.getOrNull() != null }
     val quick = doc.optJSONObject("config")?.optBoolean("quick") == true
 
     Column(modifier, verticalArrangement = Arrangement.spacedBy(if (inline) 0.dp else 6.dp)) {
@@ -260,7 +270,8 @@ private fun Report(doc: JSONObject, inline: Boolean, modifier: Modifier, onPickT
                     BasicText("Processor:", style = Type.mono(12.sp, color = OnSignal), modifier = Modifier.weight(1f))
                     Tags(tag, run != null, quick)
                 }
-                BasicText(model, style = Type.saira(chipSize(model, 92f, 6).sp, 50, 600, Ink), maxLines = 1, softWrap = false)
+                val big = chipSize(model, 92f, 6).sp
+                BasicText(model, style = Type.saira(big, 50, 600, Ink), maxLines = 1, softWrap = false, modifier = Modifier.capitalsOnly(big))
             }
         }
 
@@ -291,11 +302,17 @@ private fun Report(doc: JSONObject, inline: Boolean, modifier: Modifier, onPickT
 
         if (run != null) {
             val save = rememberSaveFile(run)
+            val context = LocalContext.current
             Column(Modifier.fillMaxWidth().background(Volt).padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = if (inline) 14.dp else bottomInset() + 14.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 BasicText(run.started, style = Type.mono(11.sp, color = Ink))
                 Barcode(run.runId, Ink, Modifier.fillMaxWidth().height(36.dp))
-                Box(Modifier.fillMaxWidth().height(44.dp).background(Ink).tap(onClick = save), contentAlignment = Alignment.Center) {
-                    BasicText("Save result file", style = Type.archivo(14.sp, 700, Volt))
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Box(Modifier.weight(1f).height(44.dp).background(Ink).tap(onClick = save), contentAlignment = Alignment.Center) {
+                        BasicText("Save", style = Type.archivo(14.sp, 700, Volt))
+                    }
+                    Box(Modifier.weight(1f).height(44.dp).background(Ink).tap { shareResult(context, run) }, contentAlignment = Alignment.Center) {
+                        BasicText("Share", style = Type.archivo(14.sp, 700, Volt))
+                    }
                 }
             }
         }

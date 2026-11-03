@@ -1,14 +1,13 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!--
-  Prismark logo: one beam enters a prism and leaves as three bars of different lengths, the separate
-  results. Ink on volt (the app draws the volt tile behind it). prismark-app.svg is the app icon, a volt
-  prism on an ink tile; prismark-app-small.svg keeps only the prism and the middle bar, for 32 px and below.
+  Prismark logo: a prism and the three bars it splits light into, cut along its edge: the separate results.
+  Ink on volt (the app draws the volt tile behind it). prismark-app.svg is the app icon, an ink prism on a paper
+  tile; prismark-app-small.svg keeps only the prism and the middle bar, for 32 px and below.
   Copyright 2026 The Prismark Authors. Apache-2.0.
 -->
 <svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="512" height="512" viewBox="0 0 64 64">
-  <path d="M0,37 L21.5,34" stroke="#0c1430" stroke-width="2.8" fill="none"/>
-  <path d="M12,52 L32,12 L52,52 Z" fill="#0c1430"/>
-  <rect x="42" y="25" width="22" height="5" fill="#0c1430"/>
-  <rect x="46.5" y="34" width="17.5" height="5" fill="#2d5bff"/>
-  <rect x="51" y="43" width="13" height="5" fill="#0c1430"/>
+  <polygon points="4,54 26,10 48,54" fill="#0c1430"/>
+  <polygon points="35.0,18 62,18 62,26 39.0,26" fill="#0c1430"/>
+  <polygon points="41.0,30 62,30 62,38 45.0,38" fill="#2d5bff"/>
+  <polygon points="47.0,42 62,42 62,54 53.0,54" fill="#0c1430"/>
 </svg>

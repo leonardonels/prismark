@@ -2,5 +2,6 @@
 <resources>
     <color name="bg">#070C1F</color>
     <color name="ink">#0C1430</color>
+    <color name="paper">#F7F8F9</color>
     <color name="volt">#D6F53B</color>
 </resources>

@@ -33,7 +33,7 @@ jobs:
 
       - name: Install pinned Clang and Ninja
         run: |
-          wget -q https://apt.llvm.org/llvm.sh
+          curl -sSfL --retry 8 --retry-delay 20 --retry-all-errors -o llvm.sh https://apt.llvm.org/llvm.sh
           sudo bash llvm.sh "$CLANG_VERSION"
           sudo apt-get install -y ninja-build
           cmake --version
@@ -87,7 +87,7 @@ jobs:
         run: |
           sudo apt-get install -y ninja-build zip
           curl -sSfL "https://github.com/mstorsjo/llvm-mingw/releases/download/20250114/$LLVM_MINGW.tar.xz" | tar xJ
-          wget -q https://apt.llvm.org/llvm.sh
+          curl -sSfL --retry 8 --retry-delay 20 --retry-all-errors -o llvm.sh https://apt.llvm.org/llvm.sh
           sudo bash llvm.sh "$CLANG_VERSION"
           pipx install aqtinstall
 
@@ -179,7 +179,7 @@ jobs:
             libxcb-keysyms1 libxcb-render-util0 libxcb-xinerama0 libxcb-xkb1 libxcb-randr0 libxcb-shape0 \
             libxcb-sync1 libxcb-xfixes0 libxcb-xinput0 libxcb-glx0 libxcb-shm0 libwayland-client0 \
             libwayland-cursor0 libwayland-egl1 rpm
-          wget -q https://apt.llvm.org/llvm.sh
+          curl -sSfL --retry 8 --retry-delay 20 --retry-all-errors -o llvm.sh https://apt.llvm.org/llvm.sh
           bash llvm.sh "$CLANG_VERSION"
           apt-get install -y --no-install-recommends "libclang-$CLANG_VERSION-dev" "llvm-$CLANG_VERSION-dev"
           # 22.04 ships CMake 3.22; the build needs 3.25 or later.

@@ -19,6 +19,9 @@
 #include <mach/mach_time.h>
 #include <math.h>
 #include <notify.h>
+#if TARGET_OS_IOS
+#include <os/proc.h>
+#endif
 #include <pthread.h>
 #include <pthread/qos.h>
 #include <stdio.h>
@@ -188,7 +191,13 @@ int pal_current_cpu(void) {
 int pal_set_timer_slack_min(void) { return -1; }
 
 /* Not measured on Apple platforms yet: 0 means unknown, so no test is limited by it. */
-uint64_t pal_mem_available(void) { return 0; }
+uint64_t pal_mem_available(void) {
+#if TARGET_OS_IOS
+  return os_proc_available_memory(); /* what this app may still use before iOS ends it, not what the device has free */
+#else
+  return 0;
+#endif
+}
 /* The average clock of the CPU's core type since the previous reading (sensors.c): threads are steered to a
    core type, not pinned, so the core a thread ran on is not known, only its type. */
 int pal_cpu_cur_khz(int cpu) { return dsens_cpu_khz(cpu >= g_nperf); }

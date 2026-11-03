@@ -63,6 +63,21 @@ PLIST=$APP/Contents/Info.plist
 plist() { /usr/libexec/PlistBuddy -c "Delete :$1" "$PLIST" 2>/dev/null || true; /usr/libexec/PlistBuddy -c "Add :$1 $2 $3" "$PLIST"; }
 plist CFBundleDisplayName string Prismark
 plist NSHighResolutionCapable bool true
+# The layered glass icon of macOS 26 and later, the same file as the iOS app's. An Xcode too old to read it leaves
+# the flat icon gui.cmake drew.
+# The newest Xcode on the machine does this one step: the build itself stays on the default one.
+for xcode in $(ls -d /Applications/Xcode*.app 2> /dev/null | sort -rV) ""; do
+  env ${xcode:+DEVELOPER_DIR="$xcode"/Contents/Developer} xcrun actool "$SRC"/apps/ios/Prismark/Prismark/AppIcon.icon \
+    --compile "$RES" --platform macosx --minimum-deployment-target 13.0 --app-icon AppIcon \
+    --output-format human-readable-text --output-partial-info-plist "$OUT/icon.plist" > /dev/null 2>&1 &&
+    [ -f "$RES/Assets.car" ] && break
+done
+if [ -f "$RES/Assets.car" ]; then
+  plist CFBundleIconFile string AppIcon
+  plist CFBundleIconName string AppIcon
+else
+  echo "Note: this Xcode cannot compile the glass icon; the app keeps the flat one."
+fi
 
 # Qt's frameworks and plugins, and every library the runner needs, into Contents/Frameworks.
 "$QT"/bin/macdeployqt "$APP" -executable="$APP"/Contents/MacOS/prismark -always-overwrite

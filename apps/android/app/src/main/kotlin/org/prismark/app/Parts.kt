@@ -8,6 +8,7 @@ package org.prismark.app
 
 import android.app.ActivityManager
 import android.content.Context
+import android.content.Intent
 import android.os.Build
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedContent
@@ -19,6 +20,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -37,6 +39,9 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.text.BasicText
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.compositionLocalOf
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.remember
@@ -51,13 +56,16 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.Constraints
 import androidx.compose.ui.unit.Dp
+import androidx.compose.ui.unit.TextUnit
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.core.content.FileProvider
 import org.json.JSONObject
 import kotlin.math.ceil
 import kotlin.math.roundToInt
@@ -76,13 +84,20 @@ fun Modifier.tap(enabled: Boolean = true, onClick: () -> Unit): Modifier = click
     role = Role.Button, onClick = onClick,
 )
 
-/** Text on its side, reading top to bottom, taking the space it covers. */
+/** Takes only the height of the font's capitals, not its whole line, whose space above and below reads as a gap. */
+fun Modifier.capitalsOnly(size: TextUnit): Modifier = layout { measurable, constraints ->
+    val placeable = measurable.measure(constraints.copy(minHeight = 0, maxHeight = Constraints.Infinity))
+    val capitals = (size.toPx() * 0.688f).roundToInt()
+    layout(placeable.width, capitals) { placeable.place(0, (capitals - placeable.height) / 2) }
+}
+
+/** Text on its side, reading bottom to top as on iOS, taking the space it covers. */
 fun Modifier.onItsSide(): Modifier = layout { measurable, _ ->
     val placeable = measurable.measure(Constraints())
     layout(placeable.height, placeable.width) {
         placeable.place((placeable.height - placeable.width) / 2, (placeable.width - placeable.height) / 2)
     }
-}.rotate(90f)
+}.rotate(-90f)
 
 @Composable
 fun Mono(text: String, color: Color = LocalPalette.current.text, modifier: Modifier = Modifier) =
@@ -123,6 +138,85 @@ fun Chevron(color: Color, left: Boolean = false) = Canvas(Modifier.size(width = 
         lineTo(if (left) size.width else 0f, size.height)
     }
     drawPath(path, color, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.5f * density))
+}
+
+/** The logo: a prism and the three bars it splits light into, cut along its edge. Drawn on a 64 by 64 grid. */
+@Composable
+fun PrismMark(modifier: Modifier = Modifier) = Canvas(modifier) {
+    val unit = size.width / 64
+    fun shape(color: Color, vararg points: Float) = drawPath(Path().apply {
+        moveTo(points[0] * unit, points[1] * unit)
+        for (i in 2 until points.size step 2) lineTo(points[i] * unit, points[i + 1] * unit)
+        close()
+    }, color)
+    shape(Ink, 4f, 54f, 26f, 10f, 48f, 54f)
+    shape(Ink, 35f, 18f, 62f, 18f, 62f, 26f, 39f, 26f)
+    shape(Signal, 41f, 30f, 62f, 30f, 62f, 38f, 45f, 38f)
+    shape(Ink, 47f, 42f, 62f, 42f, 62f, 54f, 53f, 54f)
+}
+
+/** The look someone picked over the system's, kept between launches. Null follows the system. */
+object Appearance {
+    var dark by mutableStateOf<Boolean?>(null)
+        private set
+
+    fun load(context: Context) {
+        val saved = context.getSharedPreferences("prismark", Context.MODE_PRIVATE).getString("appearance", null)
+        dark = saved?.let { it == "dark" }
+    }
+
+    /** Coming back to the system's own look follows the system again. */
+    fun swap(context: Context, systemDark: Boolean) {
+        val next = !(dark ?: systemDark)
+        dark = next.takeIf { it != systemDark }
+        context.getSharedPreferences("prismark", Context.MODE_PRIVATE).edit()
+            .putString("appearance", dark?.let { if (it) "dark" else "light" }).apply()
+    }
+}
+
+/** The logo on its volt block. A hidden touch: tapping it swaps dark and light, whatever the system is set to. */
+@Composable
+fun Logo(mark: Dp, name: TextUnit?, modifier: Modifier = Modifier) {
+    val context = LocalContext.current
+    val systemDark = isSystemInDarkTheme()
+    Row(
+        modifier.background(Volt).tap { Appearance.swap(context, systemDark) }.semantics { contentDescription = "Prismark. Swap dark and light" }
+            .padding(horizontal = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        PrismMark(Modifier.size(mark))
+        if (name != null) BasicText("PRISMARK", style = Type.saira(name, 125, 800, Ink))
+    }
+}
+
+/** The processor's name: as big as there is room for, its brand small below. */
+@Composable
+fun ChipName(machine: Machine, size: Float) {
+    val big = chipSize(machine.chip, size, 7).sp
+    val small = maxOf(13f, size * 0.125f).sp
+    BasicText(machine.chip, style = Type.saira(big, 50, 600, Ink), maxLines = 1, softWrap = false, modifier = Modifier.padding(top = 8.dp).capitalsOnly(big))
+    if (machine.brand.isNotEmpty()) BasicText(machine.brand, style = Type.saira(small, 125, 800, OnSignal), maxLines = 1, modifier = Modifier.padding(top = 8.dp).capitalsOnly(small))
+}
+
+/** Hands the result file to the system's share sheet. */
+fun shareResult(context: Context, run: Run) {
+    runCatching {
+        val file = FileProvider.getUriForFile(context, "${context.packageName}.files", run.file)
+        val send = Intent(Intent.ACTION_SEND).setType("application/json").putExtra(Intent.EXTRA_STREAM, file).addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+        context.startActivity(Intent.createChooser(send, "Share the result file"))
+    }.onFailure { Session.error = "The result file could not be shared: ${it.message}" }
+}
+
+/** The share sign: three dots joined by two lines. */
+@Composable
+fun ShareMark(color: Color) = Canvas(Modifier.size(20.dp)) {
+    val a = Offset(size.width * 0.8f, size.height * 0.16f)
+    val b = Offset(size.width * 0.2f, size.height * 0.5f)
+    val c = Offset(size.width * 0.8f, size.height * 0.84f)
+    drawLine(color, a, b, strokeWidth = 2.dp.toPx())
+    drawLine(color, b, c, strokeWidth = 2.dp.toPx())
+    for (dot in listOf(a, b, c)) drawCircle(color, 3.dp.toPx(), dot)
 }
 
 /** The pass's printed dots. */
@@ -230,14 +324,14 @@ fun PageStack(destination: @Composable (Any) -> Unit, root: @Composable () -> Un
     }
 }
 
-/** The back button, a square 44 points wide. */
+/** The back button, a square 44 points wide. On a volt header it is ink, like the share button beside it. */
 @Composable
-fun BackButton() {
+fun BackButton(onVolt: Boolean = false) {
     val pages = LocalPages.current
     Box(
-        Modifier.size(44.dp).background(LocalPalette.current.raised).tap { pages.pop() }.semantics { contentDescription = "Back" },
+        Modifier.size(44.dp).background(if (onVolt) Ink else LocalPalette.current.raised).tap { pages.pop() }.semantics { contentDescription = "Back" },
         contentAlignment = Alignment.Center,
-    ) { Chevron(LocalPalette.current.text, left = true) }
+    ) { Chevron(if (onVolt) Volt else LocalPalette.current.text, left = true) }
 }
 
 /* ---------- this device ---------- */
@@ -245,14 +339,29 @@ fun BackButton() {
 /** What the core and the system say about this device. */
 class Machine(context: Context, info: JSONObject) {
     private val cpu = info.optJSONObject("machine")?.optJSONObject("cpu")
-    private val types = cpu?.optJSONArray("cores").let { a -> if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it)?.optString("type") } }
+    private val list = cpu?.optJSONArray("cores").let { a -> if (a == null) emptyList() else (0 until a.length()).mapNotNull { a.optJSONObject(it) } }
+    private val types = list.map { it.optString("type") }
 
-    /** The core clusters, fastest first: how many, and what to call them. */
-    val clusters: List<Pair<String, Int>> = types.distinct().sortedBy { clusterNames.keys.indexOf(it) }.map { (clusterNames[it] ?: it) to types.count { t -> t == it } }
-    val cores: String = clusters.joinToString(" + ") { "${it.second} ${it.first.lowercase()}" }.ifEmpty { "Unknown" }
+    /** The core clusters, fastest first: how many, and what to call them. The core ranks up to four by their speed. */
+    val clusters: List<Pair<String, Int>> = types.distinct().sortedBy { clusterOrder.indexOf(it) }.let { ranked ->
+        val slowest = list.filter { it.optString("type") == ranked.lastOrNull() }.maxOfOrNull { it.optInt("max_mhz") } ?: 0
+        val names = when (ranked.size) {
+            1 -> listOf("Core")
+            // Small cores have never come near this clock. A slower cluster this fast is big too, just not the biggest.
+            2 -> if (slowest >= BIG_CORE_MHZ) listOf("Prime", "Fast") else listOf("Fast", "Efficient")
+            3 -> listOf("Prime", "Fast", "Efficient")
+            else -> listOf("Prime", "Fast", "Middle", "Efficient")
+        }
+        ranked.mapIndexed { index, type -> names[index] to types.count { it == type } }
+    }
+    val cores: String = if (clusters.size == 1) "${types.size} cores" else clusters.joinToString(" + ") { "${it.second} ${it.first.lowercase()}" }.ifEmpty { "Unknown" }
 
-    val chip: String = (if (Build.VERSION.SDK_INT >= 31) Build.SOC_MODEL.takeIf { it.isNotBlank() && it != Build.UNKNOWN } else null)
-        ?: cpu?.optString("model")?.takeIf { it.isNotBlank() } ?: Build.HARDWARE
+    // Older Android has no chip name, and the core then only knows an ARM part number.
+    private val name: String = cpu?.optString("model")?.takeIf { it.isNotBlank() && !it.startsWith("arm implementer") } ?: Build.HARDWARE
+
+    /** "Snapdragon 8 Gen 5" is drawn as a big 8 Gen 5, and SNAPDRAGON small below, as iPhones draw BIONIC. */
+    val chip: String = name.substringAfter(' ', name)
+    val brand: String = name.substringBefore(' ', "").uppercase()
 
     // Some makers already start the model with their own name.
     val model: String = (if (Build.MODEL.startsWith(Build.MANUFACTURER, ignoreCase = true)) Build.MODEL else "${Build.MANUFACTURER} ${Build.MODEL}")
@@ -270,7 +379,8 @@ class Machine(context: Context, info: JSONObject) {
     val summary: String = "$cores · $memory · $system"
 
     private companion object {
-        val clusterNames = mapOf("P" to "Fast", "M" to "Middle", "E" to "Efficient")
+        val clusterOrder = listOf("P", "M", "M1", "M2", "E")
+        const val BIG_CORE_MHZ = 2800
         val memorySizes = listOf(1, 2, 3, 4, 6, 8, 10, 12, 16, 18, 24, 32, 48, 64)
     }
 }

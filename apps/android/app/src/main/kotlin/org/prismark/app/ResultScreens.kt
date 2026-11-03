@@ -11,6 +11,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -39,13 +40,19 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import org.json.JSONObject
 
 private class OpenTest(val test: Test, val run: Run)
+
+/** A group's tests in this run. Each core in turn counts only where it ran: not every phone offers it. */
+private fun membersOf(group: String, run: Run) = allTests.filter { it.group == group && (it.part != "each_core" || it.ran(run.doc)) }
 
 @Composable
 fun ResultPage(page: Any) {
@@ -96,11 +103,11 @@ private fun RunStub(run: Run, latest: Boolean, onOpen: () -> Unit) {
         Column(Modifier.weight(1f).fillMaxHeight().padding(14.dp), verticalArrangement = Arrangement.SpaceBetween) {
             Row(Modifier.fillMaxWidth()) {
                 BasicText(run.time, style = Type.mono(11.sp, color = text), modifier = Modifier.weight(1f))
-                BasicText("${run.measured} of ${tests.size}", style = Type.mono(11.sp, color = text))
+                BasicText(if (run.stressed && run.measured == 0) "" else "${run.measured} of ${tests.size}", style = Type.mono(11.sp, color = text))
             }
             BasicText(run.shortDate, style = Type.saira(62.sp, 50, 600, text), maxLines = 1)
             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                Tag(if (run.quick) "QUICK" else "FULL", latest)
+                Tag(if (run.stressed && run.measured == 0) "STRESS" else if (run.quick) "QUICK" else "FULL", latest)
                 if (!run.complete) Tag("PARTIAL", latest)
                 if (run.busy) Tag("BUSY", latest)
                 if (run.skipped) Tag("SKIPPED", latest)
@@ -136,10 +143,13 @@ fun rememberSaveFile(run: Run): () -> Unit {
 private fun ResultsScreen(run: Run) {
     val p = LocalPalette.current
     val pages = LocalPages.current
+    val context = LocalContext.current
     val save = rememberSaveFile(run)
-    val values = remember(run) { tests.associateWith { runCatching { it.get(run.doc) }.getOrNull() } }
-    var group by remember(run) { mutableStateOf(if (tests.any { it.group == "st" && values[it] != null }) "st" else tests.firstOrNull { values[it] != null }?.group ?: "st") }
-    val shown = tests.filter { it.group == group && values[it] != null }
+    val values = remember(run) { allTests.associateWith { runCatching { it.get(run.doc) }.getOrNull() } }
+    var group by remember(run) {
+        mutableStateOf(if (tests.any { it.group == "st" && it.ran(run.doc) }) "st" else allTests.firstOrNull { it.ran(run.doc) }?.group ?: if (run.stressed) stressGroup.id else "st")
+    }
+    val shown = allTests.filter { it.group == group && it.ran(run.doc) }
 
     Column(Modifier.fillMaxSize(), verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Column(
@@ -147,18 +157,22 @@ private fun ResultsScreen(run: Run) {
             verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                BackButton()
-                Spacer(Modifier.weight(1f))
-                Mono("${if (run.quick) "Quick" else "Full"} · ${run.measured} tests", Ink, Modifier.padding(end = 8.dp))
+                // The system's back gesture goes back, so this corner saves: the share button stays where iOS has it.
                 Box(
                     Modifier.size(44.dp).background(Ink).tap(onClick = save).semantics { contentDescription = "Save the result file" },
                     contentAlignment = Alignment.Center,
                 ) { BasicText("↓", style = Type.archivo(20.sp, 700, Volt)) }
+                Spacer(Modifier.weight(1f))
+                Mono(if (run.stressed && run.measured == 0) "Stress test" else "${if (run.quick) "Quick" else "Full"} · ${run.measured} test${if (run.measured == 1) "" else "s"}", Ink, Modifier.padding(end = 8.dp))
+                Box(
+                    Modifier.size(44.dp).background(Ink).tap { shareResult(context, run) }.semantics { contentDescription = "Share the result file" },
+                    contentAlignment = Alignment.Center,
+                ) { ShareMark(Volt) }
             }
             BasicText(run.started, style = Type.saira(24.sp, 112, 700, Ink), maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            for (item in groups) {
+            for (item in if (run.stressed && run.measured == 0) listOf(stressGroup) else groups) {
                 val on = item.id == group
                 Box(
                     Modifier.height(48.dp).background(if (on) p.panel else p.steel)
@@ -175,31 +189,91 @@ private fun ResultsScreen(run: Run) {
         }
         if (shown.isEmpty()) {
             BasicText(
-                if (run.skipped) "Not measured in this run. A touch during the tests that measure waking up discarded them." else "Not measured in this run: cancelled, or not available here.",
+                if (group == stressGroup.id && run.stressProblem.isNotEmpty()) "Not run: ${run.stressProblem}." else if (run.skipped) "Not measured in this run. A touch during the tests that measure waking up discarded them." else "Not measured in this run: cancelled, or not available here.",
                 style = Type.archivo(15.sp, color = p.muted), modifier = Modifier.fillMaxSize().background(p.panel).padding(20.dp),
             )
         } else {
-            LazyVerticalGrid(
-                GridCells.Fixed(2), Modifier.fillMaxSize(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp), verticalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                items(shown, key = { it.id }) { test ->
-                    ScoreTile(test, values[test]!!) { pages.push(OpenTest(test, run)) }
+            // The tiles, then a card filling what they leave. On a small screen or with large text it all scrolls instead.
+            BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
+                val rows = shown.chunked(2)
+                val tile = with(LocalDensity.current) { 150.sp.toDp() }
+                val left = maxHeight - (tile + 6.dp) * rows.size
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    for (row in rows) {
+                        Row(Modifier.fillMaxWidth().height(tile), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            for (test in row) {
+                                val value = values[test]
+                                val open = { pages.push(OpenTest(test, run)) }
+                                if (value != null) ScoreTile(test, value, Modifier.weight(1f).fillMaxHeight(), open)
+                                else StressTile(test, stressRow(run.doc, test.part.orEmpty()) ?: JSONObject(), Modifier.weight(1f).fillMaxHeight(), open)
+                            }
+                            if (row.size == 1) MissingTile(membersOf(group, run).size - shown.size, Modifier.weight(1f).fillMaxHeight())
+                        }
+                    }
+                    if (left >= 100.dp) GroupCard((groups + stressGroup).first { it.id == group }, shown.size, membersOf(group, run).size, run, left) else Spacer(Modifier.height(bottomInset()))
                 }
             }
         }
     }
 }
 
+/** A boarding card under the tiles, as on the tablet's test list: how far this run got in the group. */
 @Composable
-private fun ScoreTile(test: Test, value: Value, onOpen: () -> Unit) {
+private fun GroupCard(group: Group, measured: Int, members: Int, run: Run, height: Dp) {
+    val place = if (group.id == stressGroup.id) "Full load" else "${group.number} of 04"
+    // Too short for a whole card: the count and the barcode side by side, as tall as there is room for.
+    if (height < 230.dp) {
+        val bottom = bottomInset() + 14.dp
+        val room = (height - bottom - 44.dp).coerceAtLeast(20.dp)
+        Column(
+            Modifier.fillMaxWidth().height(height).background(Signal).padding(start = 14.dp, end = 14.dp, top = 12.dp, bottom = bottom),
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            Row(Modifier.fillMaxWidth()) {
+                Mono(group.label, OnSignal, Modifier.weight(1f))
+                Mono(place, OnSignal)
+            }
+            Row(Modifier.fillMaxWidth().height(room), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
+                BasicText("$measured/$members", style = Type.saira(with(LocalDensity.current) { (room * 1.2f).toSp() }, 50, 600, Ink), maxLines = 1, softWrap = false)
+                Barcode(run.runId, Ink, Modifier.weight(1f).fillMaxHeight())
+            }
+        }
+        return
+    }
+    Column(
+        Modifier.fillMaxWidth().height(height).background(Signal).padding(start = 14.dp, end = 14.dp, top = 14.dp, bottom = bottomInset() + 14.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(Modifier.fillMaxWidth()) {
+            Mono(group.label, OnSignal, Modifier.weight(1f))
+            Mono(place, OnSignal)
+        }
+        Spacer(Modifier.weight(1f))
+        val big = (height.value * 0.34f).coerceAtMost(150f).sp
+        BasicText("$measured/$members", style = Type.saira(big, 50, 600, Ink), maxLines = 1, softWrap = false, modifier = Modifier.capitalsOnly(big))
+        BasicText("Measured in this run", style = Type.archivo(13.sp, 600, OnSignal))
+        Tear(OnSignal)
+        Barcode(run.runId, Ink, Modifier.fillMaxWidth().height((height * 0.16f).coerceAtMost(72.dp)))
+    }
+}
+
+/** Beside a lone tile, in a run that left tests out. */
+@Composable
+private fun MissingTile(count: Int, modifier: Modifier) {
+    Box(modifier.background(Signal).drawBehind { passDots() }.padding(12.dp), contentAlignment = Alignment.BottomStart) {
+        Mono("$count not measured", OnSignal)
+    }
+}
+
+@Composable
+private fun ScoreTile(test: Test, value: Value, modifier: Modifier, onOpen: () -> Unit) {
     val p = LocalPalette.current
-    Column(Modifier.fillMaxWidth().background(p.panel).tap(onClick = onOpen).padding(12.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
+    Column(modifier.background(p.panel).tap(onClick = onOpen).padding(12.dp), verticalArrangement = Arrangement.SpaceBetween) {
         Row(Modifier.fillMaxWidth()) {
             BasicText(test.unit, style = Type.mono(11.sp, color = p.muted), modifier = Modifier.weight(1f))
             BasicText(if (test.higherBetter) "↑" else "↓", style = Type.mono(11.sp, color = p.muted))
         }
-        BasicText(format(value.v), style = Type.saira(58.sp, 50, 600), maxLines = 1)
+        BasicText(format(value.v), style = Type.saira(66.sp, 50, 600), maxLines = 1, modifier = Modifier.capitalsOnly(66.sp))
         BasicText(test.name, style = Type.archivo(14.sp, 700), maxLines = 2, modifier = Modifier.height(38.dp))
     }
 }
@@ -220,31 +294,39 @@ private fun TestScreen(test: Test, run: Run) {
         ) {
             BackButton()
             BasicText(test.name, style = Type.saira(28.sp, 112, 700), maxLines = 2)
-            BasicText("${test.sub}. ${if (test.higherBetter) "Higher" else "Lower"} is better.", style = Type.archivo(14.sp, color = p.muted))
+            BasicText(if (test.bit > 0) "${test.sub}. A score needs 10 minutes." else "${test.sub}. ${if (test.higherBetter) "Higher" else "Lower"} is better.", style = Type.archivo(14.sp, color = p.muted))
         }
-        Row(Modifier.fillMaxWidth().background(Volt).padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.Bottom) {
-            BasicText(value?.let { format(it.v) } ?: "—", style = Type.saira(96.sp, 50, 600, Ink), maxLines = 1, modifier = Modifier.weight(1f))
-            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                BasicText(test.unit, style = Type.mono(12.sp, true, Ink))
-                BasicText(
-                    when {
-                        value == null -> "Not measured"
-                        value.hasRange -> "95 % range\n${format(value.lo)}–${format(value.hi)}"
-                        else -> "No range:\nmay be noise"
-                    },
-                    style = Type.mono(12.sp, color = Ink),
-                )
-                if (value != null && !run.quick && run.complete) {
+        val row = test.part?.let { stressRow(run.doc, it) }
+        if (row != null) {
+            StressBlock(test, row)
+            Column(Modifier.fillMaxSize().background(p.panel).verticalScroll(rememberScrollState()).padding(bottom = bottomInset() + 8.dp)) {
+                StressFacts(test, run, row)
+            }
+        } else {
+            Row(Modifier.fillMaxWidth().background(Volt).padding(horizontal = 20.dp, vertical = 16.dp), verticalAlignment = Alignment.Bottom) {
+                BasicText(value?.let { format(it.v) } ?: "—", style = Type.saira(96.sp, 50, 600, Ink), maxLines = 1, modifier = Modifier.weight(1f).capitalsOnly(96.sp))
+                Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    BasicText(test.unit, style = Type.mono(12.sp, true, Ink))
                     BasicText(
-                        "RANK %02d / %d".format(rank, rows.size), style = Type.mono(12.sp, color = Volt),
-                        modifier = Modifier.background(Ink).padding(horizontal = 7.dp, vertical = 3.dp),
+                        when {
+                            value == null -> "Not measured"
+                            value.hasRange -> "95 % range\n${format(value.lo)}–${format(value.hi)}"
+                            else -> "No range:\nmay be noise"
+                        },
+                        style = Type.mono(12.sp, color = Ink),
                     )
+                    if (value != null && !run.quick && run.complete) {
+                        BasicText(
+                            "RANK %02d / %d".format(rank, rows.size), style = Type.mono(12.sp, color = Volt),
+                            modifier = Modifier.background(Ink).padding(horizontal = 7.dp, vertical = 3.dp),
+                        )
+                    }
                 }
             }
-        }
-        Column(Modifier.fillMaxSize().background(p.panel).verticalScroll(rememberScrollState()).padding(bottom = bottomInset() + 8.dp)) {
-            val top = rows.maxOfOrNull { it.value.v } ?: 1.0
-            rows.forEachIndexed { index, row -> RankRow(index + 1, row, top, value?.v, highlighted = false, onTap = null) }
+            Column(Modifier.fillMaxSize().background(p.panel).verticalScroll(rememberScrollState()).padding(bottom = bottomInset() + 8.dp)) {
+                val top = rows.maxOfOrNull { it.value.v } ?: 1.0
+                rows.forEachIndexed { index, row -> RankRow(index + 1, row, top, value?.v, highlighted = false, onTap = null) }
+            }
         }
     }
 }

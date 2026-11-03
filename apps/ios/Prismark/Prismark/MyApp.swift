@@ -14,6 +14,7 @@ let largeSide: CGFloat = 600
 @main struct MyApp: App {
     @UIApplicationDelegateAdaptor(AppDelegate.self) private var delegate
     @State private var session = Session()
+    @AppStorage("appearance") private var appearance = ""
 
     init() {
         Fonts.register()
@@ -23,6 +24,7 @@ let largeSide: CGFloat = 600
         WindowGroup {
             ContentView()
                 .environment(session)
+                .preferredColorScheme(appearance == "dark" ? .dark : appearance == "light" ? .light : nil)
         }
     }
 }

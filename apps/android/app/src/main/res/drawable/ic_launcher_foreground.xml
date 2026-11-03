@@ -1,30 +1,26 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- The volt prism of apps/gui/icons/prismark-app.svg, centred in the adaptive icon's safe zone. -->
+<!-- The ink prism and bars of apps/gui/icons/prismark-app.svg, centred in the adaptive icon's safe zone. -->
 <vector xmlns:android="http://schemas.android.com/apk/res/android"
     android:width="108dp"
     android:height="108dp"
     android:viewportWidth="108"
     android:viewportHeight="108">
     <group
-        android:translateX="24"
-        android:translateY="24"
-        android:scaleX="0.9375"
-        android:scaleY="0.9375">
+        android:translateX="29.25"
+        android:translateY="30"
+        android:scaleX="0.75"
+        android:scaleY="0.75">
         <path
-            android:pathData="M0,37 L21.5,34"
-            android:strokeColor="#D6F53B"
-            android:strokeWidth="2.8" />
+            android:fillColor="#0C1430"
+            android:pathData="M4,54 L26,10 L48,54 Z" />
         <path
-            android:fillColor="#D6F53B"
-            android:pathData="M12,52 L32,12 L52,52 Z" />
-        <path
-            android:fillColor="#D6F53B"
-            android:pathData="M42,25 h22 v5 h-22 Z" />
+            android:fillColor="#0C1430"
+            android:pathData="M35.0,18 L62,18 L62,26 L39.0,26 Z" />
         <path
             android:fillColor="#2D5BFF"
-            android:pathData="M46.5,34 h17.5 v5 h-17.5 Z" />
+            android:pathData="M41.0,30 L62,30 L62,38 L45.0,38 Z" />
         <path
-            android:fillColor="#D6F53B"
-            android:pathData="M51,43 h13 v5 h-13 Z" />
+            android:fillColor="#0C1430"
+            android:pathData="M47.0,42 L62,42 L62,54 L53.0,54 Z" />
     </group>
 </vector>

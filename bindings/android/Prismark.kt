@@ -22,6 +22,7 @@ object Prismark {
     const val ST_SUSTAINED = 1 shl 3
     const val MC_THREADED = 1 shl 4
     const val MC_INSTANCES = 1 shl 5
+    const val STRESS = 1 shl 6
     const val ALL = COLD_BURST or PERIODIC or ST_BURST or ST_SUSTAINED or MC_THREADED or MC_INSTANCES
 
     /** PMK_BUSY_LOAD (ABI 9): background load above this fraction of all CPUs marks a result as busy. */
@@ -39,7 +40,14 @@ object Prismark {
 
     /** Blocking; returns the result document (JSON), also for a cancelled run. */
     fun run(modes: Int = ALL, kernels: String? = null, quick: Boolean = false, listener: Listener? = null): String =
-        nativeRun(modes, kernels, quick, listener)
+        nativeRun(modes, kernels, quick, 0, 0.0, true, 0.0, listener)
+
+    /**
+     * Blocking: one stress test. parts holds PMK_STRESS_* bits; seconds is per part, and 0 runs until cancel(), which
+     * then ends it normally. maxTempC 0 sets no limit.
+     */
+    fun runStress(parts: Int, seconds: Double, stopOnError: Boolean, maxTempC: Double, listener: Listener? = null): String =
+        nativeRun(STRESS, null, false, parts, seconds, stopOnError, maxTempC, listener)
 
     fun cancel() = nativeCancel()
 
@@ -55,7 +63,10 @@ object Prismark {
     @JvmStatic private external fun nativeVersion(): String
     @JvmStatic private external fun nativeInfo(): String
     @JvmStatic private external fun nativeNotifyInput()
-    @JvmStatic private external fun nativeRun(modes: Int, kernels: String?, quick: Boolean, listener: Listener?): String
+    @JvmStatic private external fun nativeRun(
+        modes: Int, kernels: String?, quick: Boolean, stressParts: Int, stressSeconds: Double, stressStopOnError: Boolean,
+        stressMaxTempC: Double, listener: Listener?,
+    ): String
     @JvmStatic private external fun nativeCancel()
     @JvmStatic private external fun nativeCompare(a: String, b: String, profiles: String?): String
 }
