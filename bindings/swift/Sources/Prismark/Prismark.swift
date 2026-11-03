@@ -17,6 +17,7 @@ public struct PrismarkEvent: Sendable {
     public let step: Int
     public let steps: Int
     public let temperatureC: Double?
+    public let remainingSeconds: Double?
 }
 
 public struct PrismarkModes: OptionSet, Sendable {
@@ -55,8 +56,12 @@ public enum Prismark {
             cfg.cold_max_reps = 20
             cfg.periodic_seconds = 10
             cfg.window_ms = 250
-            cfg.sustained_min_s = 3
-            cfg.sustained_max_s = 6
+            cfg.warmup_s = 0
+            cfg.settle_s = 0
+            cfg.measure_s = 3
+            cfg.k1x_reps = 1
+            cfg.cooldown = 0
+            cfg.quick_inputs = 1
         }
         let box = Unmanaged.passRetained(Box(onEvent))
         defer { box.release() }
@@ -76,7 +81,8 @@ public enum Prismark {
                             kernel: ev.kernel.map { String(cString: $0) },
                             message: ev.message.map { String(cString: $0) } ?? "",
                             step: Int(ev.step), steps: Int(ev.steps),
-                            temperatureC: ev.temp_c.isFinite ? ev.temp_c : nil))
+                            temperatureC: ev.temp_c.isFinite ? ev.temp_c : nil,
+                            remainingSeconds: ev.remaining_s.isFinite ? ev.remaining_s : nil))
                     }, box.toOpaque(), &json, nil)
                 }
                 if let kernels { return kernels.withCString { call($0) } }
@@ -89,6 +95,19 @@ public enum Prismark {
     }
 
     public static func cancel() { pmk_cancel() }
+
+
+    /// Tells the core about a touch. Input during the quiet tests skips them. Safe to call at any moment.
+    public static func notifyInput() { pmk_notify_input() }
+
+    /// What this build can run on this device, as a parsed JSON object. Do not call it during a run.
+    public static func info() -> [String: Any] {
+        var json: UnsafeMutablePointer<CChar>? = nil
+        guard pmk_info(&json) == 0, let json else { return [:] }
+        defer { pmk_free(json) }
+        let data = Data(bytes: json, count: strlen(json))
+        return (try? JSONSerialization.jsonObject(with: data) as? [String: Any]) ?? [:]
+    }
 
     /// Compares two result documents (A against B) and computes the profiles.
     public static func compare(_ a: String, _ b: String, profiles: String? = nil) throws -> String {

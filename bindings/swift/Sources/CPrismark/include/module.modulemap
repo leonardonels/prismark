@@ -1,0 +1,4 @@
+module CPrismark {
+    header "CPrismark.h"
+    export *
+}
