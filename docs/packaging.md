@@ -108,8 +108,8 @@ uninstall the app to get a new version.
 ## iOS and iPadOS
 
 `tools/package-ios.sh` builds `build/ios-package/prismark-VERSION-ios-arm64-unsigned.ipa`. It runs on a Mac with Xcode 27
-or later, not in CI, because the project is in that version's format, so after CI has made a release's draft the file is
-added by hand:
+or later, not in CI, because the project is in that version's format, so the file is added to a release's draft by hand.
+Add it before publishing: the site's build stops if the newest release has no `.ipa` (`PACKAGES` in `tools/site_data.py`).
 
 ```sh
 gh release upload vVERSION build/ios-package/prismark-VERSION-ios-arm64-unsigned.ipa
