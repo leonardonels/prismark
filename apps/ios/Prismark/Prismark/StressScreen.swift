@@ -24,6 +24,25 @@ enum StressLength: String, CaseIterable {
     }
 }
 
+/// The stress test's mark: the Run button's chevrons, stacked and pushing upward. Drawn on a 24 by 24 grid.
+struct ChevronStack: View {
+    var body: some View {
+        Canvas { context, size in
+            context.scaleBy(x: size.width / 24, y: size.height / 24)
+            for (index, y) in [CGFloat(2), 7.5, 13].enumerated() {
+                var chevron = Path()
+                chevron.addLines([
+                    CGPoint(x: 2, y: y + 6), CGPoint(x: 12, y: y), CGPoint(x: 22, y: y + 6),
+                    CGPoint(x: 22, y: y + 9.5), CGPoint(x: 12, y: y + 3.5), CGPoint(x: 2, y: y + 9.5),
+                ])
+                chevron.closeSubpath()
+                context.fill(chevron, with: .color(index == 0 ? .reference : .text))
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
 /// The row under the tests. Not picked with them: it runs on its own.
 struct StressRow: View {
     var body: some View {
@@ -42,10 +61,7 @@ struct StressRow: View {
             .foregroundStyle(Color.text)
             .background(Color.panel)
             .overlay(alignment: .leading) {
-                Image(systemName: "flame.fill")
-                    .font(.system(size: 18))
-                    .foregroundStyle(Color.text)
-                    .frame(width: 56)
+                ChevronStack().frame(width: 24, height: 24).frame(width: 56)
             }
             .contentShape(Rectangle())
         }

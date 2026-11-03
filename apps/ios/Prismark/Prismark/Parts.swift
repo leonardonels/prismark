@@ -208,21 +208,23 @@ struct LogoButton<Label: View>: View {
     }
 }
 
-/// The logo: a beam enters a prism and leaves as three bars. Drawn on a 64 by 64 grid.
+/// The logo: a prism and the three bars it splits light into, cut along its edge. Drawn on a 64 by 64 grid.
 struct PrismMark: View {
     var body: some View {
         Canvas { context, size in
             context.scaleBy(x: size.width / 64, y: size.height / 64)
-            var beam = Path()
-            beam.move(to: CGPoint(x: 0, y: 37))
-            beam.addLine(to: CGPoint(x: 21.5, y: 34))
-            context.stroke(beam, with: .color(.ink), lineWidth: 3)
-            var prism = Path()
-            prism.addLines([CGPoint(x: 12, y: 52), CGPoint(x: 32, y: 12), CGPoint(x: 52, y: 52)])
-            context.fill(prism, with: .color(.ink))
-            context.fill(Path(CGRect(x: 42, y: 25, width: 22, height: 5)), with: .color(.ink))
-            context.fill(Path(CGRect(x: 46.5, y: 34, width: 17.5, height: 5)), with: .color(.signal))
-            context.fill(Path(CGRect(x: 51, y: 43, width: 13, height: 5)), with: .color(.ink))
+            let shapes: [([(CGFloat, CGFloat)], Color)] = [
+                ([(4, 54), (26, 10), (48, 54)], .ink),
+                ([(35, 18), (62, 18), (62, 26), (39, 26)], .ink),
+                ([(41, 30), (62, 30), (62, 38), (45, 38)], .signal),
+                ([(47, 42), (62, 42), (62, 54), (53, 54)], .ink),
+            ]
+            for (points, color) in shapes {
+                var shape = Path()
+                shape.addLines(points.map { CGPoint(x: $0.0, y: $0.1) })
+                shape.closeSubpath()
+                context.fill(shape, with: .color(color))
+            }
         }
         .accessibilityHidden(true)
     }
