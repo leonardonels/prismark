@@ -75,7 +75,7 @@ static const char *chip_of_device(const char *device) {
       {"Apple A18 Pro", " iPhone17,1 iPhone17,2 "},
       {"Apple A19", " iPhone18,3 "},
       {"Apple A19 Pro", " iPhone18,1 iPhone18,2 iPhone18,4 "},
-      {"Apple A20 Pro", " iPhone19,4 "},
+      {"Apple A20 Pro", " iPhone19,2 iPhone19,3 iPhone19,4 "},
       {"Apple M1", " iPad13,4 iPad13,5 iPad13,6 iPad13,7 iPad13,8 iPad13,9 iPad13,10 iPad13,11 iPad13,16 iPad13,17 "},
       {"Apple M2", " iPad14,3 iPad14,4 iPad14,5 iPad14,6 iPad14,8 iPad14,9 iPad14,10 iPad14,11 "},
       {"Apple M3", " iPad15,3 iPad15,4 iPad15,5 iPad15,6 "},
