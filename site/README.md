@@ -15,6 +15,7 @@ included, so nothing private belongs here.
 | `versus.html`, `versus.js` | Head to head: two processors, every test, no total |
 | `compare-data.js` | Shared by both compare pages: the tests, how each value is read, how two values compare |
 | `wallpapers.html`, `wallpapers/` | The wallpapers and their download page |
+| `favicon.svg`, `favicon.ico`, `apple-touch-icon.png` | The tab and home-screen icon, the Cut prism on a paper tile, from `apps/gui/icons` |
 | `data.js` | Fills every `data-fill` element from `data.json` |
 | `styles.css` | All the styles; the compare pages' are at the end |
 | `data.json`, `references.json` | Generated, not in git (see below) |

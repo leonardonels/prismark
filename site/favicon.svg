@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Prismark app icon for 32 px and below: the prism and the middle bar only, larger. Copyright 2026 The Prismark Authors. Apache-2.0. -->
+<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="512" height="512" viewBox="0 0 512 512">
+  <rect width="512" height="512" rx="96" ry="96" fill="#f7f8f9"/>
+  <g transform="translate(51 51) scale(6.4)">
+    <polygon points="4,54 26,10 48,54" fill="#0c1430"/>
+    <polygon points="39.0,26 64,26 64,40 46.0,40" fill="#2d5bff"/>
+  </g>
+</svg>
