@@ -491,7 +491,7 @@ button.tab { border: 0; text-align: left; }
 .versus-group { display: flex; flex-direction: column; gap: 10px; padding-bottom: 8px; }
 .versus-row {
     display: grid;
-    grid-template-columns: minmax(200px, 1fr) minmax(320px, 2fr) minmax(170px, auto);
+    grid-template-columns: minmax(200px, 1fr) minmax(320px, 2fr) 240px; /* the same in every row, so the bars line up */
     gap: 10px 24px;
     align-items: center;
     padding: 14px 0;
@@ -499,7 +499,29 @@ button.tab { border: 0; text-align: left; }
 }
 .versus-name { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
 .versus-name b { font-size: 16px; }
-.versus-bars { display: grid; grid-template-columns: 72px minmax(0, 1fr) minmax(0, 1fr) 72px; gap: 8px; align-items: center; min-width: 0; }
+.versus-bars { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 4px; }
+/* One side of a test. The winner's whole half is lit, score and bar together: Same stays neutral, and wrong results red. */
+.versus-half {
+    --score: 72px;
+    display: grid;
+    grid-template-columns: var(--score) minmax(0, 1fr);
+    gap: 8px;
+    align-items: center;
+    min-height: 40px;
+    padding: 0 8px;
+}
+.versus-half.right { grid-template-columns: minmax(0, 1fr) var(--score); }
+.versus-half.right .versus-score { order: 1; }
+.versus-half.left .versus-score { text-align: right; }
+.versus-half .fill { background: #A9B3C4; }
+.versus-half.won { background: var(--volt); color: var(--ink); }
+.versus-half.close { background: #EFFAA6; color: var(--ink); }
+.versus-half.failed { background: var(--fault); color: var(--ink); }
+.versus-half.won .versus-score, .versus-half.close .versus-score, .versus-half.failed .versus-score { font-weight: 800; }
+.versus-half.won .versus-track, .versus-half.close .versus-track, .versus-half.failed .versus-track { background: transparent; }
+.versus-half.won .fill, .versus-half.failed .fill { background: var(--ink); }
+.versus-half.close .fill { box-sizing: border-box; background: transparent; border: 2px dashed currentColor; }
+.chip.same { background: var(--paper); }
 .versus-score {
     font-family: var(--display);
     font-variation-settings: 'wdth' 75;
@@ -507,7 +529,7 @@ button.tab { border: 0; text-align: left; }
     font-size: 26px;
 }
 .versus-track { display: flex; height: 18px; background: var(--paper); }
-.versus-track.left { justify-content: flex-end; }
+.versus-half.left .versus-track { justify-content: flex-end; }
 .versus-track .fill { height: 100%; }
 .versus-verdict .chip { display: inline-block; }
 
@@ -518,7 +540,7 @@ button.tab { border: 0; text-align: left; }
     .rank-bar { grid-column: 3 / -1; }
     .rank-against { grid-column: 3 / -1; text-align: left; }
     .versus-row { grid-template-columns: minmax(0, 1fr); }
-    .versus-bars { grid-template-columns: 58px minmax(0, 1fr) minmax(0, 1fr) 58px; }
+    .versus-half { --score: 52px; }
     .versus-score { font-size: 21px; }
     .yours-actions, .pass-card-stub { padding-inline: 20px; }
     .pass-card-main { padding: 22px 20px; }
@@ -659,6 +681,11 @@ button.tab { border: 0; text-align: left; }
     .rows-empty { background: #141D3B; }
     .panel.versus-group { background: var(--paper); }
     .versus-track { background: #141D3B; }
+    .versus-half .fill { background: #7084D8; }
+    .versus-half.won .fill, .versus-half.failed .fill { background: var(--ink); }
+    .versus-half.close { background: #5B6B3A; color: var(--text); }
+    .versus-half.close .fill { background: transparent; }
+    .chip.same { background: #141D3B; }
 
     .wall-link:hover { background: #24359A; }
     .rank-row, .versus-row { border-top-color: #7084D8; }
