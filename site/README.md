@@ -100,7 +100,8 @@ Cmd+Shift+R, or Cmd+Option+R in Safari, where Cmd+Shift+R opens Reader instead.
 
 ## Rules
 
-- **No overall score.** Each test stands alone. No page adds tests up or counts wins.
+- **No overall score.** Each test stands alone. No page adds tests up or counts wins. The head to head page lights each
+  test's winner, and volt means that and nothing else there, so a visitor's own pass isn't volt on that page.
 - **No K IDs** (K1, K2…) in anything a visitor reads. Plain test names only.
 - **No invented data.** Example values are labelled as examples, like the homepage's stress curve.
 - **A visitor's result stays in their browser.** It is read locally and only its summary is kept, in `localStorage`,

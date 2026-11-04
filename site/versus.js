@@ -13,6 +13,14 @@ function keepInAddress() {
     $('back').href = `compare.html?${new URLSearchParams({ test: test ? test.id : 'mc_k2', pick: picks })}`;
 }
 
+/* What a row calls a side: its processor without the maker, or its letter when both are the same processor. */
+function sideNames(a, b) {
+    const short = (name) => name.replace(/^(AMD|Intel|Apple)\s+/, '');
+    const nameA = short(a.name);
+    const nameB = short(b.name);
+    return nameA === nameB ? { a: 'A', b: 'B' } : { a: nameA, b: nameB };
+}
+
 function cacheName(bytes) {
     return bytes ? `${Math.round(bytes / (1 << 20))} MB` : 'Not reported';
 }
@@ -37,7 +45,8 @@ function renderPass(side, id) {
         selected: other.id === id,
     }, `${other.name}, ${osName(other)}${other.ac === false ? ', on battery' : ''}${other.source === 'yours' ? ' (yours)' : ''}`)));
 
-    return el('div', { class: `panel pass-card span-6${isMine ? ' volt' : ' dark'}` },
+    /* Volt marks each test's winner on this page, so no pass is volt: "yours" is said in words. */
+    return el('div', { class: 'panel pass-card span-6 dark' },
         el('div', { class: 'pass-card-main' },
             el('div', { class: 'meta label' },
                 el('span', {}, `${side} · ${isMine ? 'yours' : 'reference'}`),
@@ -54,32 +63,43 @@ function renderPass(side, id) {
             : `Measured with Prismark ${current.version ?? ''}`));
 }
 
-function renderRow(metric, a, b) {
+function renderRow(metric, a, b, names) {
     const valueA = a.metrics[metric.id];
     const valueB = b.metrics[metric.id];
     const both = valueA && valueB;
     const speed = (value) => (metric.higher ? value.v : 1 / value.v);
     const top = both ? Math.max(speed(valueA), speed(valueB)) : 1;
-    const bar = (value, side, mine) => el('span', { class: `versus-track ${side}` }, both ? el('span', {
-        class: mine ? 'fill mine' : 'fill',
-        style: `width: ${(speed(value) / top) * 100}%`,
-    }) : null);
 
     let verdict;
+    const lit = { a: '', b: '' }; /* how each side's half of the row is marked */
     if (valueA?.failed || valueB?.failed) {
-        verdict = el('span', { class: 'chip fault label' }, `${valueA?.failed ? 'A' : 'B'} failed: wrong results`);
+        const failed = [valueA?.failed && names.a, valueB?.failed && names.b].filter(Boolean).join(' and ');
+        verdict = el('span', { class: 'chip fault label' }, `${failed} failed: wrong results`);
+        if (valueA?.failed) lit.a = 'failed';
+        if (valueB?.failed) lit.b = 'failed';
     } else if (both) {
         const result = compareValues(metric, valueA, valueB);
-        verdict = el('span', { class: 'chip ink label' }, result.winner
-            ? `${result.winner.toUpperCase()} ${result.size} better${result.noise ? ', may be noise' : ''}`
-            : 'Same');
+        if (result.winner) {
+            lit[result.winner] = result.noise ? 'close' : 'won';
+            verdict = el('span', { class: result.noise ? 'chip dashed label' : 'chip volt label' },
+                `${names[result.winner]} ${result.size} better${result.noise ? ', may be noise' : ''}`);
+        } else {
+            verdict = el('span', { class: 'chip same label' }, 'The same');
+        }
     } else if (valueA || valueB) {
-        verdict = el('span', { class: 'chip dashed label' }, `Only ${valueA ? 'A' : 'B'} has run it`);
+        verdict = el('span', { class: 'chip dashed label' }, `Only ${valueA ? names.a : names.b} has run it`);
     } else {
         verdict = el('span', { class: 'chip dashed label' }, 'Not measured');
     }
 
-    const tags = [valueA && valueTags(valueA).map((tag) => `A ${tag}`), valueB && valueTags(valueB).map((tag) => `B ${tag}`)]
+    const half = (value, side) => el('div', { class: `versus-half ${side === 'a' ? 'left' : 'right'} ${lit[side]}` },
+        el('span', { class: 'versus-score' }, formatValue(value?.v)),
+        el('span', { class: 'versus-track' }, both ? el('span', {
+            class: 'fill',
+            style: `width: ${(speed(value) / top) * 100}%`,
+        }) : null));
+
+    const tags = [valueA && valueTags(valueA).map((tag) => `${names.a} ${tag}`), valueB && valueTags(valueB).map((tag) => `${names.b} ${tag}`)]
         .filter(Boolean).flat();
 
     return el('div', { class: 'versus-row' },
@@ -87,11 +107,7 @@ function renderRow(metric, a, b) {
             el('b', {}, metric.title),
             el('span', { class: 'muted' }, `${metric.unit} · ${metric.higher ? 'higher' : 'lower'} is better`),
             tags.length ? el('span', { class: 'label muted' }, tags.join(' · ')) : null),
-        el('div', { class: 'versus-bars' },
-            el('span', { class: 'versus-score right' }, formatValue(valueA?.v)),
-            bar(valueA, 'left', a.source === 'yours'),
-            bar(valueB, 'right', b.source === 'yours'),
-            el('span', { class: 'versus-score' }, formatValue(valueB?.v))),
+        el('div', { class: 'versus-bars' }, half(valueA, 'a'), half(valueB, 'b')),
         el('span', { class: 'versus-verdict' }, verdict));
 }
 
@@ -99,6 +115,7 @@ function render() {
     const a = run(state.a);
     const b = run(state.b);
     keepInAddress();
+    const names = sideNames(a, b);
     $('passes').replaceChildren(renderPass('A', state.a), renderPass('B', state.b));
     /* A group neither side has run says nothing: the stress test is the usual one. */
     const groups = GROUPS.map((group, i) => ({ group, i, metrics: METRICS.filter((m) => m.group === group.id) }))
@@ -106,8 +123,8 @@ function render() {
     $('groups').replaceChildren(...groups.map(({ group, i, metrics }) => el('section', { class: 'panel versus-group' },
         el('div', { class: 'meta label muted' },
             el('span', {}, `0${i + 1} · ${group.name}`),
-            el('span', {}, 'A ⟵ faster ⟶ B')),
-        ...metrics.map((metric) => renderRow(metric, a, b)))));
+            el('span', {}, `${names.a} ⟵ faster ⟶ ${names.b}`)),
+        ...metrics.map((metric) => renderRow(metric, a, b, names)))));
     $('copy-text').textContent = 'Copy this comparison';
 }
 
