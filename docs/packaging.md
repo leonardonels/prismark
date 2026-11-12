@@ -105,6 +105,12 @@ fails. Keep a copy of the keystore outside GitHub: Android installs an update
 only if it is signed with the same key, so a lost key means users must
 uninstall the app to get a new version.
 
+Publishing a release rebuilds the site with the new version (`site.yml`). Pages
+names each deployment after its commit and keeps the one already live when the
+name is the same, so if the tag is on the commit `main` last deployed, the site
+keeps the old version. Push any change under `site/` to `main`, or tag a commit
+of its own (as `Version X.Y.Z` is when it isn't merged in a pull request).
+
 ## iOS and iPadOS
 
 `tools/package-ios.sh` builds `build/ios-package/prismark-VERSION-ios-arm64-unsigned.ipa`. It runs on a Mac with Xcode 27
