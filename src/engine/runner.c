@@ -145,6 +145,7 @@ static int kernel_offered(const pmk_ctx *c, const char *id) {
   int phone = !strcmp(c->m.os, "android") || !strcmp(c->m.os, "ios");
   if (!strcmp(id, "K1")) return !phone;
   if (!strcmp(id, "K1x")) return !phone && strcmp(c->m.os, "ipados");
+  if (!strcmp(id, "K13")) return !phone && strcmp(c->m.os, "ipados"); /* 0.7 GiB of matrix: desktops only */
   return 1;
 }
 

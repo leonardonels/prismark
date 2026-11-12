@@ -209,8 +209,12 @@ ids = [d["run_id"] for d in runs]
 out["run_id"] = str(uuid.uuid5(uuid.NAMESPACE_URL, "prismark-merge:" + ",".join(ids)))
 out["merged_from"] = ids
 if any(d["config"].get("kernels") != runs[0]["config"].get("kernels") for d in runs):
-    out["config"]["kernels"] = ",".join(dict.fromkeys(k for d in runs for k in (d["config"].get("kernels") or "").split(",") if k)) or None
-out["summary"] = runs[0]["summary"].split("\n")[1] + "\nBest of %d runs (%s), each test from the run where it scored best.\n" % (
+    # A run of every test (no list) stays one: naming the tests of the partial runs would hide the rest.
+    out["config"]["kernels"] = None if any(not d["config"].get("kernels") for d in runs) else ",".join(
+        dict.fromkeys(k for d in runs for k in d["config"]["kernels"].split(",") if k))
+# The machine's line of the first run's summary; results from before summaries were stored have the model only.
+machine_line = runs[0]["summary"].split("\n")[1] if runs[0].get("summary") else runs[0]["machine"]["cpu"]["model"]
+out["summary"] = machine_line + "\nBest of %d runs (%s), each test from the run where it scored best.\n" % (
     len(runs), ", ".join(i[:8] for i in ids))
 
 src = {}

@@ -213,6 +213,10 @@ static const struct {
      "Multiplies large tables of decimal numbers (double precision), as scientific and engineering software do, "
      "with the widest vector instructions the processor has (AVX-512, AVX2 or NEON).",
      "billions of operations per second, GFLOP/s (higher is better)."},
+    {"K13", "solver", MC_T, "sparse matrix, memory-bound",
+     "One step of a simulation solver: a sparse matrix of 0.7 GiB (a 3D mesh) times a vector, as structural and "
+     "fluid simulation repeat thousands of times. Its speed is set by memory bandwidth more than by core count.",
+     "billions of operations per second, GFLOP/s (higher is better). Desktops only."},
     {"K11", "bandwidth", PMK_MODE_STRESS, "write and check 2 GiB",
      "Writes 2 GiB of memory on every core and checks every word on the next pass, over and over.",
      "gigabytes per second (higher is better), and any word that came back wrong."},
@@ -265,6 +269,7 @@ static const struct {
     {0, "Compiling code", "K1", "mc_threaded", 1, NULL},
     {0, "Full software build", "K1x", "mc_threaded", 1, NULL},
     {0, "Vector maths", "K12", "mc_threaded", 0, NULL},
+    {0, "Simulation solver", "K13", "mc_threaded", 0, NULL},
     {1, "3D rendering, after warming up", "K2", "st_sustained", 0, NULL},
     {1, "Compiling code, after warming up", "K1", "st_sustained", 1, NULL},
     {1, "Vector maths, after warming up", "K12", "st_sustained", 0, NULL},

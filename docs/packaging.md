@@ -33,8 +33,8 @@ an `.rpm` for Fedora, for x86-64 and ARM64. Install with the system's own tool,
 which also brings in the few libraries every desktop has:
 
 ```sh
-sudo apt install ./prismark_0.5.3_amd64.deb        # Ubuntu 22.04 or later, Debian 12 or later
-sudo dnf install ./prismark-0.5.3-1.x86_64.rpm     # Fedora
+sudo apt install ./prismark_0.5.4_amd64.deb        # Ubuntu 22.04 or later, Debian 12 or later
+sudo dnf install ./prismark-0.5.4-1.x86_64.rpm     # Fedora
 ```
 
 Prismark then appears in the desktop's menu; `prismark` and `prismark-gui`

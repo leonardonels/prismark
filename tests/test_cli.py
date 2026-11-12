@@ -169,7 +169,7 @@ class Cli(unittest.TestCase):
         rows = {line[:47].strip(): line[47:] for line in out.splitlines() if line.startswith("  ") and len(line) > 47}
         self.assertTrue(rows["3D rendering on all cores"].endswith("4.16x better"), rows["3D rendering on all cores"])
         self.assertTrue(rows["Reacting from rest: a 1 ms task"].endswith("33.5 pts worse"))
-        self.assertIn("plugged in, run b3391174", out)
+        self.assertIn("plugged in, run f4df96fc", out)  # the merged run (references/README.md)
         self.assertIn("on battery, run 28e98b8f", out)
         self.assertIn("Percentages are compared by their difference in points", out)
         out, _ = self.run_cli("compare", a, a)

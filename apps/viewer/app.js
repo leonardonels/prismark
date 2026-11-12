@@ -130,6 +130,8 @@ const METRICS = [
 
   { id: 'mc_k12', group: 'mc', name: 'K12 vector maths', sub: 'mc_threaded · largest n · widest vectors', unit: 'GFLOP/s', better: 'higher',
     desc: 'Double-precision matrix multiply on every CPU, AVX-512 / AVX2 / NEON.', get: throughput('K12', 'mc_threaded') },
+  { id: 'mc_k13', group: 'mc', name: 'K13 simulation solver', sub: 'mc_threaded · largest n · 0.7 GiB sparse matrix', unit: 'GFLOP/s', better: 'higher',
+    desc: 'Residual of a 27-point sparse system (CSR) on every CPU; bound by memory bandwidth.', get: throughput('K13', 'mc_threaded') },
   { id: 'st_k12', group: 'st', name: 'K12 vector maths', sub: 'st_sustained · widest vectors', unit: 'GFLOP/s', better: 'higher',
     desc: 'The same on one core after warming up.', get: throughput('K12', 'st_sustained') },
   { id: 'm_lat1', group: 'mem', name: 'Memory latency', sub: 'K7 · largest working set · 1 copy', unit: 'ns', better: 'lower',

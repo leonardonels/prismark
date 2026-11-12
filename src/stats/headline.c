@@ -28,6 +28,7 @@ static const struct metric {
     {"mc_k1", "All cores", "Compiling code on all cores", "builds/h", 1, THROUGHPUT, "K1", "mc_threaded", NULL, 0},
     {"mc_k1x", "All cores", "Full software build", "s", 0, K1X, "K1x", NULL, NULL, 0},
     {"mc_k12", "All cores", "Vector maths on all cores", "GFLOP/s", 1, THROUGHPUT, "K12", "mc_threaded", NULL, 0},
+    {"mc_k13", "All cores", "Simulation solver on all cores", "GFLOP/s", 1, THROUGHPUT, "K13", "mc_threaded", NULL, 0},
     {"st_k2", "One core", "3D rendering on one core", "M samples/s", 1, THROUGHPUT, "K2", "st_sustained", NULL, 0},
     {"st_k1", "One core", "Compiling code on one core", "builds/h", 1, THROUGHPUT, "K1", "st_sustained", NULL, 0},
     {"st_k12", "One core", "Vector maths on one core", "GFLOP/s", 1, THROUGHPUT, "K12", "st_sustained", NULL, 0},
