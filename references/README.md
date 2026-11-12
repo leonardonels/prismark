@@ -34,7 +34,8 @@ covers every test any of them has. The `intel-i9-14900k`, `intel-i9-10900k-es`
 and `amd-ryzen5-7500f` references are each the best of two full runs, `apple-m2-macos`
 the best of three;
 `intel-i9-14900k-linux` is assembled from 14 runs of a few tests each
-(`merged_from` lists their run IDs).
+(`merged_from` lists their run IDs). `amd-ryzen7-8845hs` is its full run with the
+Simulation solver added from a later run of that test alone.
 
 **A placeholder.** Example values, typed in by hand, for a ranking to compare
 against when no real result exists (none are shipped). The app tags them PLACEHOLDER and shows a
@@ -71,6 +72,7 @@ banner while any are loaded. The format:
 | `mc_k1` | Compiling code on all cores | builds/h |
 | `mc_k1x` | Full software build | s |
 | `mc_k12` | Vector maths on all cores | GFLOP/s |
+| `mc_k13` | Simulation solver on all cores | GFLOP/s |
 | `st_k2` | 3D rendering on one core | M samples/s |
 | `st_k1` | Compiling code on one core | builds/h |
 | `st_k12` | Vector maths on one core | GFLOP/s |
