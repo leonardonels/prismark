@@ -94,6 +94,7 @@ prismark_add_kernel(k6_lua SOURCES kernels/k6_lua/k6.c kernels/k6_lua/lua_one.c
   INCLUDE ${PRISMARK_LUA_INCLUDE} DEFINES ${PRISMARK_LUA_DEFINES})
 prismark_add_kernel(k11_stream SOURCES kernels/k11_stream/k11.c)
 prismark_add_kernel(k12_vector SOURCES kernels/k12_vector/k12.c)
+prismark_add_kernel(k13_sparse SOURCES kernels/k13_sparse/k13.c)
 include(cmake/k1.cmake)
 prismark_kernel_tables()
 if(PRISMARK_HAVE_K1)

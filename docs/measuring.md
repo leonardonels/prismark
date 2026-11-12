@@ -23,6 +23,7 @@ These pages use the app's names, with the ID in brackets where it helps.
 | Wake-up test | K9 | Calibrated dependent-add loop | `kernels/k9_calib` |
 | Timer punctuality | K10 | Periodic timer | `src/engine/mode_periodic.c` |
 | Memory bandwidth | K11 | Most of the free memory written and checked on every core, four patterns (stress test only) | `kernels/k11_stream` |
+| Simulation solver | K13 | Residual of a sparse system: a 27-point 3D mesh matrix in CSR, 0.7 GiB, far larger than any cache, so memory bandwidth sets its speed; GFLOP/s. Desktops only | `kernels/k13_sparse` |
 | Vector maths | K12 | Double-precision matrix multiply with fused multiply-adds at the widest vectors (AVX-512, AVX2, NEON), GFLOP/s | `kernels/k12_vector` |
 
 ## Measurement modes
@@ -35,7 +36,7 @@ command line selects modes by ID (`--mode`).
 | --- | --- | --- | --- | --- |
 | Single-thread burst | one core, short task | `st_burst` | Execution time of short interactive workloads on one core | Compression, Opening a photo, Reading JSON, Starting a script |
 | Single-thread sustained | one core, after warming up | `st_sustained` | Single-core throughput after a warm-up at full load | Compiling code, 3D rendering, Vector maths |
-| Multi-thread | all cores, working together | `mc_threaded` | Scaling of multithreaded workloads, including serial fractions | Compiling code, Full software build, 3D rendering, Vector maths |
+| Multi-thread | all cores, working together | `mc_threaded` | Scaling of multithreaded workloads, including serial fractions | Compiling code, Full software build, 3D rendering, Vector maths, Simulation solver |
 | Multi-instance | all cores, each on its own | `mc_instances` | Memory latency while every core uses memory | Memory delay |
 | Cold start | started from rest | `cold_burst` | Latency penalty of work issued from idle, on the machine as configured | Wake-up test; Opening a photo, Starting a script |
 | Periodic | timer punctuality | `periodic` | Wake-up latency distribution of periodic tasks | Timer punctuality |
@@ -67,6 +68,12 @@ Vector maths is also a benchmark (One core, All cores) with an absolute score
 in GFLOP/s. It runs at the widest vector instructions the processor has,
 picked at run time; every width computes bit-identical results, and each
 result records which one ran (`vector_isa`).
+
+Simulation solver is the counterpart of Vector maths for engineering simulation (FEA, CFD). Vector maths works
+on tiles that stay in the cache and scales with cores and vector width; Simulation solver sweeps a sparse matrix
+of 0.7 GiB, as iterative solvers do, and stops scaling once the memory channels are full. Its scaling (1, 2, 4,
+… threads) shows where that happens, which is what decides between more cores and more memory channels in a
+workstation. It runs on all cores only, on desktop computers, and needs about 1 GB of free memory.
 
 Every input is generated from fixed seeds or fetched by hash, so every host does
 identical work. Kernels are built without FP contraction and without libm

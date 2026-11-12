@@ -107,6 +107,7 @@ const METRICS = [
     { id: 'mc_k1', group: 'mc', name: 'Compiling code', title: 'Compiling code on all cores', sub: 'All cores compile C++ in memory', unit: 'builds/h', higher: true, get: throughput('K1', 'mc_threaded') },
     { id: 'mc_k1x', group: 'mc', name: 'Full software build', title: 'Full software build with standard tools', sub: 'Real build: CMake + Ninja', unit: 's', higher: false, get: fullBuild },
     { id: 'mc_k12', group: 'mc', name: 'Vector maths', title: 'Vector maths on all cores', sub: 'All cores, widest vectors (AVX / NEON)', unit: 'GFLOP/s', higher: true, get: throughput('K12', 'mc_threaded') },
+    { id: 'mc_k13', group: 'mc', name: 'Simulation solver', title: 'Simulation solver on all cores', sub: 'Sparse matrix, limited by memory speed', unit: 'GFLOP/s', higher: true, get: throughput('K13', 'mc_threaded') },
     { id: 'st_k2', group: 'st', name: '3D rendering, one core', title: '3D rendering on one core', sub: 'One core, after warming up', unit: 'M samples/s', higher: true, get: throughput('K2', 'st_sustained') },
     { id: 'st_k1', group: 'st', name: 'Compiling, one core', title: 'Compiling code on one core', sub: 'One core, after warming up', unit: 'builds/h', higher: true, get: throughput('K1', 'st_sustained') },
     { id: 'st_k12', group: 'st', name: 'Vector maths, one core', title: 'Vector maths on one core', sub: 'One core, widest vectors', unit: 'GFLOP/s', higher: true, get: throughput('K12', 'st_sustained') },

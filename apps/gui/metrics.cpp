@@ -211,6 +211,18 @@ const QVector<Metric> &metrics() {
        "Higher is better, in billions of floating-point operations per second (GFLOP/s). Each row says which vector "
        "instructions it ran with.",
        "scaling:K12", true, {"mc_threaded"}, "K12", throughput("K12", "mc_threaded")},
+      {"mc_k13", "mc", "Simulation solver", "Simulation solver on all cores", "Sparse matrix, limited by memory speed",
+       "GFLOP/s",
+       "How much of an engineering simulation's core arithmetic every core together gets done: the sparse matrix "
+       "step that structural (FEA) and fluid (CFD) solvers repeat thousands of times. Its matrix is far larger than "
+       "the processor's caches, so its speed is set by how fast memory delivers data (memory channels and their "
+       "speed) more than by the number of cores: compare it with “Vector maths”, which stays in the cache.",
+       "A matrix of 0.7 GiB describes a 3D mesh in which every point is tied to its 26 neighbours. Every core takes "
+       "blocks of its rows and computes how far a trial solution is from the right one (the residual). The scaling "
+       "chart shows at how many threads the memory is saturated: more cores than that add little, which matters "
+       "when a simulation licence is priced per core. Desktop computers only. " + kSettle,
+       "Higher is better, in billions of floating-point operations per second (GFLOP/s).",
+       "scaling:K13", true, {"mc_threaded"}, "K13", throughput("K13", "mc_threaded")},
       {"st_k2", "st", "3D rendering, one core", "3D rendering on one core", "One core, after warming up", "M samples/s",
        "How fast a single core is on a long task once it has warmed up: what one core can keep up.",
        "The renderer runs alone on the fastest core. " + kSettle,
@@ -477,7 +489,7 @@ QString plainKernel(const QString &kernel, const QString &variant) {
       {"K3", "Compression"},       {"K4", "Opening a photo"},     {"K5", "Reading JSON"},
       {"K6", "Starting a script"}, {"K7", "Memory delay"},        {"K8", "Matrix maths"},
       {"K9", "Wake-up test"},      {"K10", "Timer punctuality"},   {"K11", "Memory bandwidth"},
-      {"K12", "Vector maths"}};
+      {"K12", "Vector maths"},     {"K13", "Simulation solver"}};
   QString n = names.value(kernel, kernel);
   if (variant == "fp32") n += ", decimals";
   else if (variant == "int8") n += ", small integers";
@@ -600,6 +612,6 @@ QString isaName(const QString &level) {
 bool offeredOn(const QString &kernel, const QString &os) {
   bool phone = os == "android" || os == "ios";
   if (kernel == "K1") return !phone;
-  if (kernel == "K1x") return !phone && os != "ipados";
+  if (kernel == "K1x" || kernel == "K13") return !phone && os != "ipados";
   return true;
 }

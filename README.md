@@ -30,7 +30,7 @@ Every desktop package holds the app, the command line and everything the tests n
 
 | Tab | Tests |
 | --- | --- |
-| **All cores** | 3D rendering, compiling code, a full software build, vector maths |
+| **All cores** | 3D rendering, compiling code, a full software build, vector maths, a simulation solver |
 | **One core** | the same long tasks on one core, and short everyday ones: compression, opening a photo, reading JSON, starting a script |
 | **Memory & timing** | memory delay with every core busy, timer punctuality |
 | **Responsiveness** | how fast work starts when the processor was resting |

@@ -4,7 +4,7 @@
  *   ST burst      single-core speed on short interactive tasks: K3 (small
  *                 input), K4, K5, K6; pre-warmed; one series per core type
  *   ST sustained  single-core speed at thermal steady state: K1, K2, K12
- *   MC threaded   scaling of multithreaded software: K1, K2, K12 (and K1x) at
+ *   MC threaded   scaling of multithreaded software: K1, K2, K12, K13 (and K1x) at
  *                 n = 1, 2, 4, ..., all CPUs, each run sustained
  *   MC instances  memory latency under contention: K7 while n - 1 other
  *                 copies chase memory on the other CPUs
@@ -25,7 +25,7 @@
 
 static const char *const BURST_KERNELS[] = {"K3", "K4", "K5", "K6"};
 static const char *const SUSTAINED_KERNELS[] = {"K1", "K2", "K12"};
-static const char *const THREADED_KERNELS[] = {"K1", "K2", "K12"};
+static const char *const THREADED_KERNELS[] = {"K1", "K2", "K12", "K13"};
 
 #define COUNT(a) ((int)(sizeof(a) / sizeof *(a)))
 
@@ -274,6 +274,13 @@ int mode_mc_threaded(pmk_ctx *c) {
     if (!tk) {
       ctx_unavailable(c, id, NULL, "mc_threaded", "not built");
       continue;
+    }
+    if (!strcmp(tk->id, "K13")) { /* its matrix must fit in memory that is free: swapping would be measured */
+      uint64_t avail = pal_mem_available();
+      if (avail && avail < PMK_SOLVER_MEM) {
+        ctx_unavailable(c, id, NULL, "mc_threaded", "not enough memory: its matrix needs about 1 GB free");
+        continue;
+      }
     }
     void *inst = wl_create(c, tk, wl_size_for(c, tk), "mc_threaded");
     if (!inst) continue;
