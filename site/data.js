@@ -21,7 +21,8 @@ function fillDownloads(downloads) {
     main.querySelector('.label').textContent = offer ? offer.label : 'ALL FILES ⟶';
 }
 
-const filled = fetch('data.json')
+// no-cache: the browser asks again every visit, so a new release shows as soon as it's deployed.
+const filled = fetch('data.json', { cache: 'no-cache' })
     .then((response) => response.json())
     .then((data) => {
         document.querySelectorAll('[data-fill]').forEach((element) => {
