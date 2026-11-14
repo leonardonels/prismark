@@ -96,6 +96,22 @@ banner while any are loaded. The format:
 A key the app does not know is reported when it starts (on the terminal), so
 typos do not pass silently.
 
-Result files measured before ISA uplift was removed still hold its series and
-U_ISA ratios; the app and `prismark compare` ignore them, and
-`tools/merge-best.py` still merges such files.
+## Measured before the November 2026 measurement changes
+
+The references here were measured before the changes listed below, and need measuring again to compare
+exactly with new runs. `amd-ryzen7-8845hs-battery` is the exception: it is a full run of 2026-11-14, measured
+with them.
+
+- All-core tests run their jobs back to back (a few percent faster, more on machines whose thread count does
+  not divide a job's tasks evenly).
+- Opening a photo and Starting a script take their memory from their own buffers, which changes them most on
+  Windows and macOS.
+- Memory delay is read at 256 MiB on every machine; older files hold a set sized by each machine's cache
+  (64 to 384 MiB), which is what the app falls back to for them.
+- macOS waits on critical timers, so its Reacting from rest and Timer punctuality results change completely.
+- Vector maths keeps 16 accumulation chains on ARM64 instead of 8.
+- Series are measured in three sessions (`results[].sessions` holds where each starts) and intervals come from
+  their spread; files without sessions keep intervals over their repetitions, which are narrower than they
+  should be. `tools/merge-best.py` still recomputes scaling and ratios with those.
+- Single-core tests use a first hardware thread (CPU 14, not 15, on an 8-core SMT processor), and thread
+  counts fill physical cores of every type before SMT siblings.
