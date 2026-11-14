@@ -70,13 +70,17 @@ double mode_stress_est(const pmk_ctx *c) {
 }
 
 /* Core cycling: seconds on each core per visit. */
-#define CYCLE_S 10.0
+#define CYCLE_S 20.0
 
 /* Appends a visit's windows and checks to a core's series; offset_s is when the visit began in the part. */
 static int merge_visit(pmk_result *dst, pmk_result *v, double offset_s) {
-  for (size_t i = 0; i < v->n; i++)
+  /* A visit's first window holds its start (the thread starting, the clock rising to this core's boost): with a
+     few windows per visit it would be a large share of a core's samples, so it is run but not kept. The core's
+     time (elapsed_s) counts it. */
+  size_t from = v->n > 1 ? 1 : 0;
+  for (size_t i = from; i < v->n; i++)
     if (result_push(dst, v->samples[i], NAN, v->observed[i])) return PMK_ERR_NOMEM;
-  for (size_t i = 0; i < v->temps.n; i++)
+  for (size_t i = from; i < v->temps.n; i++)
     if (dvec_push(&dst->temps, v->temps.v[i]) || dvec_push(&dst->mhz, i < v->mhz.n ? v->mhz.v[i] : 0) ||
         dvec_push(&dst->power, i < v->power.n ? v->power.v[i] : NAN))
       return PMK_ERR_NOMEM;
@@ -89,7 +93,7 @@ static int merge_visit(pmk_result *dst, pmk_result *v, double offset_s) {
   dst->elapsed_s += v->elapsed_s;
   dst->input_hash = v->input_hash;
   dst->checksum = v->checksum;
-  dst->checksum_ok = (dst->checksum_ok || dst->n == v->n) && v->checksum_ok;
+  dst->checksum_ok = (dst->checksum_ok || dst->elapsed_s == v->elapsed_s) && v->checksum_ok; /* the first visit sets it */
   dst->isa = v->isa;
   dst->errors += v->errors;
   dst->wrong_tasks += v->wrong_tasks;

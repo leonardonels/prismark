@@ -93,25 +93,18 @@ static int measure_warm(pmk_ctx *c, pmk_result *r) {
   return PMK_OK;
 }
 
-static int measure_cold(pmk_ctx *c, pmk_result *r) {
-  uint64_t iters = iters_for(c, r->type, r->w_cycles);
-  uint64_t x = g_sink;
-  while (!ctx_precise_enough(c, r, c->cfg.cold_max_reps)) {
-    int irc = ctx_interrupt(c);
-    if (irc) return irc;
-    double gap_ms = GAP_MIN_MS + (GAP_MAX_MS - GAP_MIN_MS) * pmk_rng_unit(&c->rng);
-    uint64_t deadline = pal_now_ns() + (uint64_t)(gap_ms * 1e6);
-    pal_sleep_until_ns(deadline);
-    /* Wake lateness is relative to the sleep clock; the work itself is timed on the raw clock. */
-    uint64_t woke = pal_now_ns(), t0 = pal_now_raw_ns();
-    int cpu = pal_current_cpu();
-    x = c->k->k9_run(iters, x);
-    uint64_t t1 = pal_now_raw_ns();
-    double wake = (double)(woke - deadline);
-    if (result_push(r, wake + (double)(t1 - t0), wake, cpu)) return PMK_ERR_NOMEM;
-  }
-  g_sink = x;
-  return PMK_OK;
+/* One repetition from rest: a random idle gap, then the task, timed from its deadline. */
+static int cold_rep(pmk_ctx *c, pmk_result *r, uint64_t *x) {
+  double gap_ms = GAP_MIN_MS + (GAP_MAX_MS - GAP_MIN_MS) * pmk_rng_unit(&c->rng);
+  uint64_t deadline = pal_now_ns() + (uint64_t)(gap_ms * 1e6);
+  pal_sleep_until_ns(deadline);
+  /* Wake lateness is relative to the sleep clock; the work itself is timed on the raw clock. */
+  uint64_t woke = pal_now_ns(), t0 = pal_now_raw_ns();
+  int cpu = pal_current_cpu();
+  *x = c->k->k9_run(r->iters, *x);
+  uint64_t t1 = pal_now_raw_ns();
+  double wake = (double)(woke - deadline);
+  return result_push(r, wake + (double)(t1 - t0), wake, cpu) ? PMK_ERR_NOMEM : PMK_OK;
 }
 
 static int run_type(pmk_ctx *c, int type) {
@@ -133,6 +126,8 @@ static int run_type(pmk_ctx *c, int type) {
   for (int i = 0; i < NW; i++) worder[i] = i;
   ctx_shuffle(&c->rng, worder, NW);
   int rc = PMK_OK;
+  size_t cold[NW];
+  /* On a busy core first, one task size after another: nothing waits, so nothing is gained by mixing them. */
   for (int wi = 0; wi < NW && rc == PMK_OK; wi++) {
     double w_ms = W_MS[worder[wi]];
     ctx_emit(c, PMK_EV_PHASE, "cold_burst", "K9", (uint32_t)wi + 1, NW, "core %s, task of %g ms",
@@ -152,9 +147,30 @@ static int run_type(pmk_ctx *c, int type) {
       r->w_cycles = by_time ? (uint64_t)llround(w_ms * 1e6 / cal->ns_per_iter * cal->cycles_per_iter)
                             : (uint64_t)llround(w_ms * khz);
       r->iters = iters_for(c, type, r->w_cycles);
-      rc = warm ? measure_warm(c, r) : measure_cold(c, r);
+      if (warm) rc = measure_warm(c, r);
+      else cold[worder[wi]] = c->nres - 1;
     }
   }
+  /*
+   * From rest: every repetition waits 50 to 500 ms whatever its task, so each one draws its task size at random
+   * among the series still open. Every size is then sampled over the whole length of the mode instead of in
+   * its own few minutes: what changes slowly on the machine falls on all sizes alike, and the curve R_resp(W)
+   * compares like with like. A series closes when its median is known well enough or at its repetition limit.
+   */
+  int open[NW], nopen = NW;
+  for (int i = 0; i < NW; i++) open[i] = i;
+  uint64_t x = g_sink;
+  if (rc == PMK_OK)
+    ctx_emit(c, PMK_EV_INFO, "cold_burst", "K9", 0, 0, "core %s: every task size from rest, in random order",
+             c->m.type_names[type]);
+  while (nopen > 0 && rc == PMK_OK) {
+    if ((rc = ctx_interrupt(c))) break;
+    int k = (int)pmk_rng_below(&c->rng, (uint64_t)nopen);
+    pmk_result *r = &c->res[cold[open[k]]];
+    rc = cold_rep(c, r, &x);
+    if (rc == PMK_OK && ctx_precise_enough(c, r, c->cfg.cold_max_reps)) open[k] = open[--nopen];
+  }
+  g_sink = x;
   return rc;
 }
 
@@ -221,7 +237,7 @@ static int realistic(pmk_ctx *c, const char *id, int type) {
 }
 
 int mode_cold_burst_steps(const pmk_ctx *c) {
-  int ntypes = c->cfg.cpu >= 0 ? 1 : c->m.ntypes, n = ctx_kernel_selected(c, "K9") ? ntypes * NW : 0;
+  int ntypes = ctx_ntypes(c), n = ctx_kernel_selected(c, "K9") ? ntypes * NW : 0;
   static const char *const REALISTIC[] = {"K4", "K6"};
   for (int k = 0; k < 2; k++)
     if (ctx_kernel_selected(c, REALISTIC[k]) && pmk_find_tk(c->k, REALISTIC[k], NULL)) n += ntypes * 2;
@@ -236,7 +252,7 @@ int mode_cold_burst_steps(const pmk_ctx *c) {
 double mode_cold_burst_est(const pmk_ctx *c) {
   double gap_s = (GAP_MIN_MS + GAP_MAX_MS) / 2 / 1e3;
   int reps = c->cfg.cold_max_reps < 400 ? c->cfg.cold_max_reps : 400;
-  int ntypes = c->cfg.cpu >= 0 ? 1 : c->m.ntypes, k9 = ctx_kernel_selected(c, "K9") ? ntypes * NW : 0;
+  int ntypes = ctx_ntypes(c), k9 = ctx_kernel_selected(c, "K9") ? ntypes * NW : 0;
   return k9 * (reps * gap_s + 2) + (mode_cold_burst_steps(c) - k9) * (c->cfg.min_reps * gap_s + 2);
 }
 
@@ -245,9 +261,9 @@ int mode_cold_burst(pmk_ctx *c) {
   int order[PMK_MAX_TYPES] = {0, 1, 2, 3};
   ctx_shuffle(&c->rng, order, c->m.ntypes);
   int rc = PMK_OK;
-  int ntypes = c->cfg.cpu >= 0 ? 1 : c->m.ntypes; /* an explicit CPU means one core type */
+  int ntypes = ctx_ntypes(c); /* an explicit CPU means one core type */
   for (int i = 0; i < ntypes && rc == PMK_OK; i++)
-    if (ctx_kernel_selected(c, "K9")) rc = run_type(c, c->cfg.cpu >= 0 ? ctx_type_of_cpu(c, c->cfg.cpu) : order[i]);
+    if (ctx_kernel_selected(c, "K9")) rc = run_type(c, c->cfg.cpu >= 0 ? ctx_type_of_cpu(c, c->cfg.cpu) : ctx_can_place(c) ? order[i] : 0);
 
   static const char *const REALISTIC[] = {"K4", "K6"};
   int jobs[2 * PMK_MAX_TYPES], nj = 0;

@@ -65,7 +65,9 @@ function memoryDelay(allCopies) {
     return (doc) => {
         const rows = series(doc).filter((r) => r.kernel === 'K7');
         if (!rows.length) return null;
-        const largest = Math.max(...rows.map((r) => r.working_set_bytes));
+        // the same 256 MiB on every machine; results from before it was measured keep their largest set
+        const sizes = rows.map((r) => r.working_set_bytes);
+        const largest = sizes.includes(268435456) ? 268435456 : Math.max(...sizes);
         const at = rows.filter((r) => r.working_set_bytes === largest);
         const row = allCopies ? largestN(at) : at.find((r) => r.n === 1);
         return row ? range(row.median) : null;

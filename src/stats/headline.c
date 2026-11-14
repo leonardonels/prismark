@@ -136,6 +136,11 @@ static value read_result(const jv *root, const struct metric *m) {
       double ws = 0;
       for (size_t i = 0; i < ns; i++)
         if (is(&series->items[i], "kernel", "K7")) ws = fmax(ws, jv_num(jv_get(&series->items[i], "working_set_bytes"), 0));
+      /* The same 256 MiB working set on every machine: a set sized by each machine's own cache compared different
+         work. Results from before it was measured on every machine keep their largest set. */
+      for (size_t i = 0; i < ns; i++)
+        if (is(&series->items[i], "kernel", "K7") && jv_num(jv_get(&series->items[i], "working_set_bytes"), 0) == 268435456.0)
+          ws = 268435456.0;
       for (size_t i = 0; i < ns; i++) {
         const jv *r = &series->items[i];
         if (!is(r, "kernel", "K7") || jv_num(jv_get(r, "working_set_bytes"), 0) != ws) continue;
@@ -241,7 +246,19 @@ int pmk_compare_headline(const char *a_json, const char *b_json, char **report_t
   describe(&t, "B", &B);
   buf_printf(&t, "\n  %-44s %-12s %10s %10s   %s\n", "", "unit", "A", "B", "A against B");
   const char *group = NULL;
-  int shown = 0, no_interval = 0, fewer = 0, better = 0, worse = 0, any_points = 0, only[2] = {0, 0};
+  int shown = 0, no_interval = 0, fewer = 0, better = 0, worse = 0, any_points = 0, only[2] = {0, 0}, os_note = 0;
+  /* Timer punctuality and reacting from rest are set by the operating system's timers and idle policy as much
+     as by the processor: across two systems they are shown, not judged. */
+  const char *osa = jv_str(jv_path(A.root, "machine.os"), ""), *osb = jv_str(jv_path(B.root, "machine.os"), "");
+  int os_differs = *osa && *osb && strcmp(osa, osb);
+  /* The smallest difference that means anything: each run measures some tests twice and so knows how far one
+     measurement moves within the run (analysis.repeatability). Two measurements differ by chance by up to
+     1.96 sqrt(sa^2 + sb^2) on the log scale; a reference of typed-in values adds nothing. */
+  double sa = jv_num(jv_path(A.root, "analysis.repeatability.rel_sd"), 0), sb = jv_num(jv_path(B.root, "analysis.repeatability.rel_sd"), 0);
+  if (!isfinite(sa)) sa = 0;
+  if (!isfinite(sb)) sb = 0;
+  double floor_ln = 1.96 * sqrt(sa * sa + sb * sb);
+  int noise_note = 0;
   pmk_buf missing = {0};
   for (size_t i = 0; i < NMETRICS; i++) {
     const struct metric *m = &METRICS[i];
@@ -258,15 +275,23 @@ int pmk_compare_headline(const char *a_json, const char *b_json, char **report_t
     double r = m->higher_better ? a->est / b->est : b->est / a->est;
     int intervals = isfinite(a->lo) && isfinite(a->hi) && isfinite(b->lo) && isfinite(b->hi);
     int overlap = intervals && a->lo <= b->hi && b->lo <= a->hi;
+    if (!overlap && strcmp(m->unit, "%") && floor_ln > 0 && fabs(log(r)) < floor_ln) overlap = 1, noise_note = 1;
     char x[32], y[32], verdict[48];
     /* A percentage is compared by its difference in points: 47 % against 86 % is 38 points, not "1.80x". */
     int points = !strcmp(m->unit, "%");
     any_points |= points;
     double d = m->higher_better ? a->est - b->est : b->est - a->est;
-    if (overlap) snprintf(verdict, sizeof verdict, "same");
+    int os_bound = os_differs && (m->how == PERIODIC || m->how == RRESP);
+    if (os_bound) snprintf(verdict, sizeof verdict, "not compared: %s against %s", osa, osb), os_note = 1;
+    else if (overlap) snprintf(verdict, sizeof verdict, "same");
     else if (points) snprintf(verdict, sizeof verdict, "%.1f pts %s", fabs(d), d >= 0 ? "better" : "worse");
     else if (r >= 1) snprintf(verdict, sizeof verdict, "%.2fx better", r);
     else snprintf(verdict, sizeof verdict, "%.2fx worse", 1 / r);
+    if (os_bound) {
+      buf_printf(&t, "  %-44s %-12s %10s %10s   %s\n", m->name, m->unit, fmt(x, sizeof x, a->est), fmt(y, sizeof y, b->est),
+                 verdict);
+      continue;
+    }
     if (!overlap) (points ? d >= 0 : r >= 1) ? better++ : worse++;
     char mark[48] = "";
     if (!intervals) strcat(mark, ", may be noise"), no_interval = 1;
@@ -291,6 +316,12 @@ int pmk_compare_headline(const char *a_json, const char *b_json, char **report_t
   free(miss);
   buf_printf(&t, "\"better\" and \"worse\" follow each unit's direction: a shorter time or a higher speed is better.\n");
   if (any_points) buf_printf(&t, "Percentages are compared by their difference in points.\n");
+  if (noise_note)
+    buf_printf(&t, "Differences under %.1f %% count as the same: that is how far a result moves within one run.\n",
+               (exp(floor_ln) - 1) * 100);
+  if (os_note)
+    buf_printf(&t, "\"not compared\": timers and waking from rest follow the operating system; they compare between "
+                   "machines on the same system.\n");
   if (no_interval) buf_printf(&t, "\"may be noise\": one side has no 95 %% range, so the difference may not be real.\n");
   if (fewer) buf_printf(&t, "\"fewer threads\": measured on fewer threads than the machine has (--max-threads).\n");
   const char *ida = A.reference ? NULL : jv_str(jv_get(A.root, "run_id"), NULL);

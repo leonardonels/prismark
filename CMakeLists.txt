@@ -119,7 +119,9 @@ elseif(PRISMARK_PAL STREQUAL "darwin")
   if(IOS)
     set(PRISMARK_PAL_LIBS "")
   else()
-    set(PRISMARK_PAL_LIBS "-framework CoreGraphics" "-framework CoreFoundation" "-framework IOKit")
+    # Foundation: NSProcessInfo, for Low Power Mode in the recorded machine state.
+    set(PRISMARK_PAL_LIBS "-framework CoreGraphics" "-framework CoreFoundation" "-framework IOKit"
+      "-framework Foundation")
   endif()
 else()
   set(PRISMARK_PAL_SOURCES pal/windows/pal_windows.c)

@@ -37,6 +37,8 @@
 
 static int g_ncpu_conf;
 static unsigned char *g_online;
+static cpu_set_t g_affinity0; /* the affinity the process was started with (taskset, a container's cpuset) */
+static int g_have_affinity0;
 static char g_cpu_temp_path[300];
 
 
@@ -325,6 +327,18 @@ static void classify_types(pmk_machine *m) {
     capv[i] = (long)sysfs_read_ll(p, -1);
     if (capv[i] < 0) {
       free(capv);
+      /* No capacities (x86 that is not Intel hybrid): AMD's processors with compact cores (Zen 4c, Zen 5c
+         beside the full ones) show only in the maximum clock, which is far lower on the compact cores. Cores
+         within 15 % of the fastest are one type: preferred-core rankings of equal cores differ by less. */
+      int top = 0, slow = 0;
+      for (int k = 0; k < m->ncpu; k++)
+        if (m->cpus[k].max_khz > top) top = m->cpus[k].max_khz;
+      for (int k = 0; k < m->ncpu; k++)
+        if (m->cpus[k].max_khz > 0 && (double)m->cpus[k].max_khz < 0.85 * top) m->cpus[k].type = 1, slow++;
+      if (slow) {
+        m->ntypes = 2;
+        snprintf(m->type_names[1], sizeof m->type_names[1], "E");
+      }
       return;
     }
     int seen = 0;
@@ -434,6 +448,10 @@ int pal_init(pmk_machine *m) {
 
   cpu_set_t set;
   m->caps.pinning = sched_getaffinity(0, sizeof set, &set) == 0;
+  if (m->caps.pinning && !g_have_affinity0) { /* once: a second run in the process starts from a mask this one set */
+    g_affinity0 = set;
+    g_have_affinity0 = 1;
+  }
 #ifdef __ANDROID__
   /*
    * An app's threads may only run on the CPUs of its cpuset, which Android changes with the app's state (all
@@ -486,17 +504,23 @@ void pal_sleep_until_ns(uint64_t t) {
 void pal_sleep_ns(uint64_t ns) { pal_sleep_until_ns(pal_now_ns() + ns); }
 
 int pal_pin_self(int cpu) {
+  if (cpu < 0 || cpu >= CPU_SETSIZE) return -1;
   cpu_set_t set;
   CPU_ZERO(&set);
   CPU_SET(cpu, &set);
   return sched_setaffinity(0, sizeof set, &set);
 }
 
+/* Back to the CPUs the process was started on: a mask given with taskset, or a container's, is not widened. */
 int pal_unpin_self(void) {
   cpu_set_t set;
-  CPU_ZERO(&set);
-  for (int c = 0; c < g_ncpu_conf && c < CPU_SETSIZE; c++)
-    if (!g_online || g_online[c]) CPU_SET(c, &set);
+  if (g_have_affinity0) {
+    set = g_affinity0;
+  } else {
+    CPU_ZERO(&set);
+    for (int c = 0; c < g_ncpu_conf && c < CPU_SETSIZE; c++)
+      if (!g_online || g_online[c]) CPU_SET(c, &set);
+  }
   return sched_setaffinity(0, sizeof set, &set);
 }
 
@@ -690,6 +714,9 @@ void pal_state_json(pmk_jw *w, const char *key, const pmk_machine *m, int measur
   char v[128];
   jw_obj_begin(w, key);
   jw_str(w, "power_mode", sysfs_read("/sys/firmware/acpi/platform_profile", v, sizeof v) ? NULL : v);
+  /* "always [madvise] never": whether large allocations get huge pages (the memory tests' speed depends on it). */
+  jw_str(w, "transparent_hugepage", sysfs_read("/sys/kernel/mm/transparent_hugepage/enabled", v, sizeof v) ? NULL : v);
+  jw_int(w, "page_bytes", sysconf(_SC_PAGESIZE));
   long long smt = sysfs_read_ll(SYS_CPU "/smt/active", -1);
   if (smt >= 0) jw_bool(w, "smt_active", (int)smt);
   else jw_null(w, "smt_active");

@@ -1,6 +1,10 @@
 /*
  * Darwin platform layer (macOS, iOS, iPadOS).
  *
+ * Deadlines of the wake-up and timer tests are armed as critical timers (kevent, NOTE_CRITICAL): an ordinary
+ * sleep (mach_wait_until) is coalesced by the kernel, by 10 ms and more for the tests' waits and by over 100 ms
+ * at background priority, which was measured in place of the processor's wake-up.
+ *
  * There is no thread pinning and no frequency or idle control. Threads are
  * steered to a core type with QoS classes (USER_INTERACTIVE for P cores,
  * BACKGROUND for E cores), and the observed "CPU" of a repetition is the
@@ -14,11 +18,16 @@
 #include <TargetConditionals.h>
 #if TARGET_OS_OSX
 #include <CoreGraphics/CoreGraphics.h>
+#include <IOKit/ps/IOPSKeys.h>
+#include <IOKit/ps/IOPowerSources.h>
 #endif
+#include <errno.h>
 #include <mach/mach.h>
 #include <mach/mach_time.h>
 #include <math.h>
 #include <notify.h>
+#include <objc/message.h>
+#include <objc/runtime.h>
 #if TARGET_OS_IOS
 #include <os/proc.h>
 #endif
@@ -27,6 +36,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/event.h>
 #include <sys/sysctl.h>
 #include <sys/utsname.h>
 #include <unistd.h>
@@ -36,6 +46,7 @@
 
 static mach_timebase_info_data_t g_tb;
 static __thread int t_requested_type = -1;
+static __thread int t_kq = -1; /* this thread's kqueue for critical timers; -1 until pal_set_timer_slack_min */
 static int g_nperf; /* perflevel0 logical CPUs */
 #define MAX_HW_CPUS 256
 static int g_hw_to_id[MAX_HW_CPUS]; /* hardware CPU number -> CPU id here; -1 unknown */
@@ -139,6 +150,7 @@ int pal_init(pmk_machine *m) {
   m->llc_bytes = sysctl_u64("hw.l3cachesize", 0);
   if (!m->llc_bytes) m->llc_bytes = sysctl_u64("hw.perflevel0.l2cachesize", sysctl_u64("hw.l2cachesize", 0));
   m->caps.qos_only = 1;
+  m->caps.timer_slack = 1; /* critical timers (pal_set_timer_slack_min) */
   dsens_init(m, g_nperf);
   /* The CPU a thread is on (pthread_cpu_number_np) in the numbering used here: the performance cores of the
      hardware numbering, in order, are ids 0.., the efficiency cores follow, as the types are laid out above. */
@@ -166,6 +178,14 @@ void pal_fini(pmk_machine *m) {
 uint64_t pal_now_ns(void) { return to_ns(mach_absolute_time()); }
 uint64_t pal_now_raw_ns(void) { return to_ns(mach_absolute_time()); }
 void pal_sleep_until_ns(uint64_t t) {
+  /* A thread that asked for exact timers (pal_set_timer_slack_min) waits on a critical timer, which the kernel
+     does not coalesce; if that fails, and for every other thread, the ordinary wait. */
+  while (t_kq >= 0 && pal_now_ns() < t) {
+    struct kevent64_s ev, out;
+    EV_SET64(&ev, 1, EVFILT_TIMER, EV_ADD | EV_ONESHOT, NOTE_ABSOLUTE | NOTE_MACHTIME | NOTE_CRITICAL, (int64_t)to_abs(t), 0,
+             0, 0);
+    if (kevent64(t_kq, &ev, 1, &out, 1, 0, NULL) < 0 && errno != EINTR) break;
+  }
   while (pal_now_ns() < t) mach_wait_until(to_abs(t));
 }
 void pal_sleep_ns(uint64_t ns) { pal_sleep_until_ns(pal_now_ns() + ns); }
@@ -189,14 +209,24 @@ int pal_current_cpu(void) {
     return g_hw_to_id[hw];
   return t_requested_type < 0 ? -1 : (t_requested_type == 0 ? 0 : g_nperf);
 }
-int pal_set_timer_slack_min(void) { return -1; }
+int pal_set_timer_slack_min(void) {
+  if (t_kq < 0) t_kq = kqueue(); /* kept for the thread's life: the runner's main thread */
+  return t_kq >= 0 ? 0 : -1;
+}
 
-/* Not measured on Apple platforms yet: 0 means unknown, so no test is limited by it. */
+/* macOS: the pages that are free, or that the system gives up without compressing or swapping (inactive file
+   pages, purgeable memory). 0 means unknown, so no test is limited by it. */
 uint64_t pal_mem_available(void) {
 #if TARGET_OS_IOS
   return os_proc_available_memory(); /* what this app may still use before iOS ends it, not what the device has free */
 #else
-  return 0;
+  vm_statistics64_data_t vm;
+  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+  vm_size_t page = 0;
+  if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&vm, &count) != KERN_SUCCESS ||
+      host_page_size(mach_host_self(), &page) != KERN_SUCCESS)
+    return 0;
+  return ((uint64_t)vm.free_count + (uint64_t)vm.inactive_count + (uint64_t)vm.purgeable_count) * (uint64_t)page;
 #endif
 }
 /* The average clock of the CPU's core type since the previous reading (sensors.c): threads are steered to a
@@ -285,10 +315,38 @@ static int thermal_pressure(void) {
   return ok ? (int)state : -1;
 }
 
+/* Low Power Mode (it lowers the clocks): 1 on, 0 off, -1 if this system cannot say. NSProcessInfo is the only
+   public source; it is reached through the Objective-C runtime, and is absent when Foundation is not loaded. */
+static int low_power_mode(void) {
+  Class cls = objc_getClass("NSProcessInfo");
+  SEL shared = sel_registerName("processInfo"), low = sel_registerName("isLowPowerModeEnabled");
+  if (!cls || !class_getClassMethod(cls, shared) || !class_getInstanceMethod(cls, low)) return -1; /* before macOS 12 */
+  id info = ((id (*)(Class, SEL))objc_msgSend)(cls, shared);
+  if (!info) return -1;
+  return ((BOOL (*)(id, SEL))objc_msgSend)(info, low) ? 1 : 0;
+}
+
+/* 1 on mains power, 0 on battery, -1 if unknown. */
+static int ac_online(void) {
+#if TARGET_OS_OSX
+  CFTypeRef info = IOPSCopyPowerSourcesInfo();
+  if (!info) return -1;
+  CFStringRef type = IOPSGetProvidingPowerSourceType(info);
+  int ac = type ? CFStringCompare(type, CFSTR(kIOPMACPowerKey), 0) == kCFCompareEqualTo : -1;
+  CFRelease(info);
+  return ac;
+#else
+  return -1;
+#endif
+}
+
 void pal_state_json(pmk_jw *w, const char *key, const pmk_machine *m, int measure_power) {
   (void)m;
   jw_obj_begin(w, key);
-  jw_null(w, "power_mode");
+  int lpm = low_power_mode(), ac = ac_online();
+  jw_str(w, "power_mode", lpm < 0 ? NULL : lpm ? "low-power" : "normal");
+  if (ac >= 0) jw_bool(w, "ac_online", ac);
+  else jw_null(w, "ac_online");
   int tp = thermal_pressure();
   if (tp >= 0) jw_int(w, "thermal_pressure", tp);
   else jw_null(w, "thermal_pressure");

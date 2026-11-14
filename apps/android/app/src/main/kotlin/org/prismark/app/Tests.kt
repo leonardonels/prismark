@@ -85,7 +85,9 @@ private fun medianOf(kernel: String, mode: String, start: String, k: Double): (J
 
 private fun k7(all: Boolean): (JSONObject) -> Value? = { d ->
     val rows = series(d).filter { it.optString("kernel") == "K7" }
-    val ws = rows.maxOfOrNull { it.optDouble("working_set_bytes", 0.0) } ?: 0.0
+    // the same 256 MiB on every machine; results from before it was measured keep their largest set
+    val sizes = rows.map { it.optDouble("working_set_bytes", 0.0) }
+    val ws = if (268435456.0 in sizes) 268435456.0 else sizes.maxOrNull() ?: 0.0
     val at = rows.filter { it.optDouble("working_set_bytes", 0.0) == ws }
     val r = if (all) largestN(at) else at.lastOrNull { it.optInt("n") == 1 }
     r?.let { ci(it.optJSONObject("median")) }

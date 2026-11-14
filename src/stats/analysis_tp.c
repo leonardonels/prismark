@@ -26,7 +26,16 @@ typedef struct tp_row {
   pmk_ci initial;  /* windowed: perf over the first windows after warm-up */
   pmk_ci throttle; /* windowed: R_throttle = perf_steady / perf_initial */
   pmk_ci job;      /* windowed: median job time, ns */
+  /* Sessions (stats.h): how many, the variance of ln(session median) with its degrees of freedom, and after
+     moderation the standard error of ln(median) and the degrees of freedom of its interval. sdf 0: no sessions. */
+  int k, sdf, tdf;
+  double svar, se;
 } tp_row;
+
+typedef struct rep_pair { /* one test measured twice in the run, minutes apart, on the same CPU */
+  const char *kernel, *mode_a, *mode_b;
+  double ratio; /* second / first */
+} rep_pair;
 
 typedef struct scale_row {
   const char *kernel;
@@ -71,6 +80,9 @@ struct pmk_analysis_tp {
   size_t nra;
   sum_row *sums;
   size_t nsums;
+  rep_pair *rep;
+  size_t nrep;
+  double rep_sd; /* relative standard deviation of one measurement between two moments of the run, NaN if unknown */
 };
 
 static int is_tp_mode(const pmk_result *r) {
@@ -79,6 +91,14 @@ static int is_tp_mode(const pmk_result *r) {
 }
 
 static int same_str(const char *a, const char *b) { return a == b || (a && b && !strcmp(a, b)); }
+
+/* Windows of one run follow one another in time: resampled in blocks (stats.h). */
+static pmk_ci win_median(const double *x, size_t n, pmk_rng *rng) {
+  return pmk_boot_median_block(x, n, pmk_block_len(n), PMK_BOOT_B, rng);
+}
+static pmk_ci win_ratio(const double *a, size_t na, const double *b, size_t nb, pmk_rng *rng) {
+  return pmk_boot_median_ratio_block(a, na, pmk_block_len(na), b, nb, pmk_block_len(nb), PMK_BOOT_B, rng);
+}
 
 static const double *steady_set(const pmk_result *r, size_t *n) {
   *n = r->n - r->steady_from;
@@ -141,7 +161,7 @@ static row_sum stress_totals(const stress_row *x) {
   for (int i = 0; i < n; i++) {
     const pmk_result *r = x->ncores ? x->cores[i] : x->r;
     const char *v = stress_verdict(r);
-    t.ran += (double)r->n * r->window_ms / 1e3;
+    t.ran += x->ncores ? r->elapsed_s : (double)r->n * r->window_ms / 1e3; /* core cycling drops windows */
     t.stopped |= r->stopped;
     if (r->stop_reason && (!t.stop_reason || r->stopped)) t.stop_reason = r->stop_reason;
     if (!strcmp(v, "failed") || (!strcmp(v, "too_hot") && strcmp(t.verdict, "failed"))) t.verdict = v;
@@ -156,7 +176,9 @@ static row_sum stress_totals(const stress_row *x) {
   return t;
 }
 
-/* Core cycling: each core's median speed; the score is the slowest core's, once the part ran 10 minutes. */
+/* Core cycling: each core's median speed; the score is the slowest core's, once the part ran 10 minutes. A
+   minimum over cores reads low by the cores' noise, the more so the more cores there are: each core's own
+   interval is reported with it (cores[].perf), and visits are long enough for several windows per core. */
 static void compute_each_core(pmk_ctx *c, stress_row *row) {
   pmk_ci none = {NAN, NAN, NAN};
   double ran = 0;
@@ -165,8 +187,8 @@ static void compute_each_core(pmk_ctx *c, stress_row *row) {
   row->core_perf = calloc((size_t)row->ncores, sizeof *row->core_perf);
   for (int i = 0; row->core_perf && i < row->ncores; i++) {
     const pmk_result *r = row->cores[i];
-    ran += (double)r->n * r->window_ms / 1e3;
-    row->core_perf[i] = r->n ? pmk_boot_median(r->samples, r->n, PMK_BOOT_B, &c->stat_rng) : none;
+    ran += r->elapsed_s;
+    row->core_perf[i] = r->n ? win_median(r->samples, r->n, &c->stat_rng) : none;
     if (!(row->score.est <= row->core_perf[i].est)) row->score = row->core_perf[i];
     for (size_t k = 0; k < r->temps.n; k++)
       if (isfinite(r->temps.v[k]) && !(row->temp_max >= r->temps.v[k])) row->temp_max = r->temps.v[k];
@@ -182,14 +204,14 @@ static void compute_stress(pmk_ctx *c, stress_row *row) {
   pmk_ci none = {NAN, NAN, NAN};
   row->score = none;
   if (ran >= PMK_STRESS_SCORE_TO_S - 1e-6 && (n = windows_in(r, PMK_STRESS_SCORE_FROM_S, PMK_STRESS_SCORE_TO_S, &from)))
-    row->score = pmk_boot_median(r->samples + from, n, PMK_BOOT_B, rng);
+    row->score = win_median(r->samples + from, n, rng);
   /* The first window holds the start-up (threads starting, the first job), so the first minute begins after it. */
   n = windows_in(r, w, 60, &from);
   if (!n) n = r->n, from = 0;
-  row->first = pmk_boot_median(r->samples + from, n, PMK_BOOT_B, rng);
+  row->first = win_median(r->samples + from, n, rng);
   size_t last = r->n < (size_t)(60 / w + 0.5) ? r->n : (size_t)(60 / w + 0.5);
-  row->end = pmk_boot_median(r->samples + r->n - last, last, PMK_BOOT_B, rng);
-  row->hold_up = pmk_boot_median_ratio(r->samples + r->n - last, last, r->samples + from, n, PMK_BOOT_B, rng);
+  row->end = win_median(r->samples + r->n - last, last, rng);
+  row->hold_up = win_ratio(r->samples + r->n - last, last, r->samples + from, n, rng);
   row->temp_max = NAN;
   for (size_t i = 0; i < r->temps.n; i++)
     if (isfinite(r->temps.v[i]) && !(row->temp_max >= r->temps.v[i])) row->temp_max = r->temps.v[i];
@@ -206,19 +228,117 @@ static pmk_ci invert_time(pmk_ci t, double work, double unit_div) {
 static void compute_row(pmk_ctx *c, tp_row *row) {
   const pmk_result *r = row->r;
   pmk_rng *rng = &c->stat_rng;
-  row->med = pmk_boot_median(r->samples, r->n, PMK_BOOT_B, rng);
+  row->med = r->windowed ? win_median(r->samples, r->n, rng) : pmk_boot_median(r->samples, r->n, PMK_BOOT_B, rng);
   row->perf = row->initial = row->throttle = row->job = (pmk_ci){NAN, NAN, NAN};
   if (r->windowed) {
     size_t ns, ni;
     const double *s = steady_set(r, &ns), *i = initial_set(r, &ni);
-    row->perf = pmk_boot_median(s, ns, PMK_BOOT_B, rng);
-    row->initial = pmk_boot_median(i, ni, PMK_BOOT_B, rng);
-    row->throttle = pmk_boot_median_ratio(s, ns, i, ni, PMK_BOOT_B, rng);
+    row->perf = win_median(s, ns, rng);
+    row->initial = win_median(i, ni, rng);
+    row->throttle = win_ratio(s, ns, i, ni, rng);
     row->job = pmk_boot_median(r->job_ns.v, r->job_ns.n, PMK_BOOT_B, rng);
   } else if (r->job_work > 0) {
     const pmk_tk *tk = pmk_find_tk(r->k, r->kernel, r->variant);
     if (tk) row->perf = invert_time(row->med, r->job_work, tk->unit_div);
   }
+}
+
+/* est with the interval est * exp(+- t(df) * se). */
+static pmk_ci log_ci(double est, double se, int df) {
+  double half = pmk_t975(df) * se;
+  return (pmk_ci){est, est * exp(-half), est * exp(half)};
+}
+
+static const tp_row *row_of(const pmk_analysis_tp *a, const pmk_result *r) {
+  for (size_t i = 0; i < a->nrows; i++)
+    if (a->rows[i].r == r) return &a->rows[i];
+  return NULL;
+}
+
+/*
+ * Intervals from sessions (stats.h): each series' own between-session variance, moderated with the pooled
+ * variance of the other series of its mode, replaces the interval over its repetitions.
+ *
+ * The sessions of a series lie within one mode, a minute or so apart, in the same thermal state. What moves a
+ * result between two moments further apart (and between two runs) they do not see; the run's repeatability
+ * does (below: the same test in two modes), so its variance is added to every interval: on the log scale
+ * se^2 = var' / k + rep^2 for a series with sessions, and a bootstrap interval of half-width h becomes
+ * sqrt(h^2 + (1.96 rep)^2).
+ */
+static pmk_ci widen(pmk_ci c, double rep) {
+  if (!(rep > 0) || !isfinite(c.lo) || !isfinite(c.hi) || !(c.lo > 0) || !(c.est > 0)) return c;
+  double lo = log(c.est / c.lo), hi = log(c.hi / c.est), f = 1.96 * rep;
+  return (pmk_ci){c.est, c.est * exp(-sqrt(lo * lo + f * f)), c.est * exp(sqrt(hi * hi + f * f))};
+}
+
+static void session_intervals(pmk_analysis_tp *a) {
+  double rep = isfinite(a->rep_sd) ? a->rep_sd : 0;
+  for (size_t i = 0; i < a->nrows; i++) {
+    tp_row *row = &a->rows[i];
+    const pmk_result *r = row->r;
+    size_t from = r->windowed ? r->steady_from : 0;
+    if (r->nsess < 2 || from || pmk_session_logvar(r->samples, r->n, r->sess_start, r->nsess, &row->svar, &row->sdf))
+      row->sdf = 0;
+    row->k = row->sdf ? row->sdf + 1 : 0;
+  }
+  for (size_t i = 0; i < a->nrows; i++) {
+    tp_row *row = &a->rows[i];
+    if (!row->sdf) {
+      row->med = widen(row->med, rep);
+      row->perf = widen(row->perf, rep);
+      continue;
+    }
+    double sum = 0, mvar;
+    int df = 0;
+    for (size_t j = 0; j < a->nrows; j++)
+      if (j != i && a->rows[j].sdf && !strcmp(a->rows[j].r->mode, row->r->mode))
+        sum += a->rows[j].svar * a->rows[j].sdf, df += a->rows[j].sdf;
+    pmk_moderate(row->svar, row->sdf, df ? sum / df : 0, df, &mvar, &row->tdf);
+    row->se = sqrt(mvar / row->k + rep * rep);
+    if (row->r->windowed) {
+      row->perf = log_ci(row->perf.est, row->se, row->tdf);
+      row->med = log_ci(row->med.est, row->se, row->tdf);
+    } else {
+      row->med = log_ci(row->med.est, row->se, row->tdf);
+      if (isfinite(row->perf.est)) /* throughput falls as the time rises: the bounds swap */
+        row->perf = (pmk_ci){row->perf.est, row->perf.est * row->med.est / row->med.hi, row->perf.est * row->med.est / row->med.lo};
+    }
+  }
+}
+
+/*
+ * Repeatability. Some tests are measured twice in a run, in different modes, on the same CPU and with the same
+ * input: the sustained tests on one core and as the one-thread step of the all-core mode, and the short tasks
+ * as a short task and as the busy-core series of the from-rest mode. Each pair is two measurements of one
+ * quantity minutes apart, so their disagreement is the run's own repeatability: with d = ln(second / first),
+ * the standard deviation of one measurement is sqrt(mean(d^2) / 2). Comparisons use it as the smallest
+ * difference that means anything (headline.c).
+ */
+static void repeatability(pmk_analysis_tp *a) {
+  static const struct {
+    const char *mode_a, *mode_b;
+  } PAIRS[] = {{"st_sustained", "mc_threaded"}, {"st_burst", "cold_burst"}};
+  a->rep_sd = NAN;
+  double sum2 = 0;
+  for (size_t i = 0; i < a->nrows; i++) {
+    const pmk_result *x = a->rows[i].r;
+    if (x->purpose) continue;
+    for (size_t j = 0; j < a->nrows; j++) {
+      const pmk_result *y = a->rows[j].r;
+      int p = !strcmp(x->mode, PAIRS[0].mode_a) && !strcmp(y->mode, PAIRS[0].mode_b) && y->nthreads == 1 ? 0
+            : !strcmp(x->mode, PAIRS[1].mode_a) && !strcmp(y->mode, PAIRS[1].mode_b) && y->warm ? 1 : -1;
+      if (p < 0 || y->purpose || strcmp(x->kernel, y->kernel) || !same_str(x->variant, y->variant) ||
+          !same_str(x->size, y->size) || x->cpu != y->cpu || x->cpu < 0 || x->k != y->k)
+        continue;
+      /* both as speeds, so every ratio reads the same way */
+      double vx = x->windowed ? a->rows[i].perf.est : 1 / a->rows[i].med.est;
+      double vy = y->windowed ? a->rows[j].perf.est : 1 / a->rows[j].med.est;
+      if (!(vx > 0) || !(vy > 0)) continue;
+      a->rep[a->nrep++] = (rep_pair){x->kernel, x->mode, y->mode, vy / vx};
+      sum2 += log(vy / vx) * log(vy / vx);
+    }
+  }
+  if (a->nrep) a->rep_sd = sqrt(sum2 / (double)a->nrep / 2);
 }
 
 static const pmk_result *find(const pmk_ctx *c, const char *kernel, const char *mode, const char *tier, int n,
@@ -280,7 +400,7 @@ static int cmp_rows(const void *pa, const void *pb) {
   if ((d = (!strcmp(a->kernel, "K1x")) - (!strcmp(b->kernel, "K1x")))) return d;
   if ((d = cmp_str(a->kernel, b->kernel))) return d;
   if ((d = cmp_str(a->variant, b->variant))) return d;
-  if ((d = cmp_str(a->k->tier, b->k->tier))) return d; /* "baseline" < "max" */
+  if ((d = cmp_str(a->k->tier, b->k->tier))) return d;
   if (a->ws_bytes != b->ws_bytes) return a->ws_bytes < b->ws_bytes ? -1 : 1;
   if ((d = a->nthreads - b->nthreads)) return d;
   if ((d = a->type - b->type)) return d;
@@ -313,7 +433,9 @@ void analysis_tp_compute(pmk_ctx *c) {
   a->ra = calloc(cap * 2, sizeof *a->ra);
   a->sums = calloc(cap, sizeof *a->sums);
   a->st = calloc(cap, sizeof *a->st);
-  if (!a->rows || !a->sc || !a->ra || !a->sums || !a->st) return;
+  a->rep = calloc(cap, sizeof *a->rep);
+  a->rep_sd = NAN;
+  if (!a->rows || !a->sc || !a->ra || !a->sums || !a->st || !a->rep) return;
   pmk_rng *rng = &c->stat_rng;
 
   stress_row *cycling = NULL;
@@ -344,6 +466,8 @@ void analysis_tp_compute(pmk_ctx *c) {
     row->r = r;
     compute_row(c, row);
   }
+  repeatability(a);
+  session_intervals(a);
 
   /* Scaling against n = 1 of the same kernel (MC threaded). */
   for (size_t i = 0; i < c->nres; i++) {
@@ -354,10 +478,14 @@ void analysis_tp_compute(pmk_ctx *c) {
     scale_row *s = &a->sc[a->nsc++];
     s->kernel = r->kernel;
     s->n = r->nthreads;
-    if (r->windowed) {
+    const tp_row *rn = row_of(a, r), *r1 = row_of(a, one);
+    if (r->windowed && rn && r1 && rn->sdf && r1->sdf) {
+      /* both from sessions: the errors of the two medians add on the log scale */
+      s->S = log_ci(rn->perf.est / r1->perf.est, sqrt(rn->se * rn->se + r1->se * r1->se), rn->tdf < r1->tdf ? rn->tdf : r1->tdf);
+    } else if (r->windowed) {
       size_t n1, nn;
       const double *x1 = steady_set(one, &n1), *xn = steady_set(r, &nn);
-      s->S = pmk_boot_median_ratio(xn, nn, x1, n1, PMK_BOOT_B, rng); /* perf_n / perf_1 = T_1 / T_n */
+      s->S = win_ratio(xn, nn, x1, n1, rng); /* perf_n / perf_1 = T_1 / T_n */
     } else {
       s->S = pmk_boot_median_ratio(one->samples, one->n, r->samples, r->n, PMK_BOOT_B, rng);
     }
@@ -386,7 +514,7 @@ void analysis_tp_compute(pmk_ctx *c) {
         size_t m = 0;
         for (size_t j = 0; t && j < nk; j++)
           if (w[j] > 0) t[m++] = r->work_fraction * 3600e9 / w[j];
-        if (m) add_ratio(a, "R_build", r, r->nthreads, core, pmk_boot_median_ratio(r->samples, r->n, t, m, PMK_BOOT_B, rng));
+        if (m) add_ratio(a, "R_build", r, r->nthreads, core, pmk_boot_median_ratio_block(r->samples, r->n, 1, t, m, pmk_block_len(m), PMK_BOOT_B, rng));
         free(t);
       }
     }
@@ -410,6 +538,7 @@ void analysis_tp_free(pmk_ctx *c) {
   free(c->antp->sc);
   free(c->antp->ra);
   free(c->antp->sums);
+  free(c->antp->rep);
   for (size_t i = 0; i < c->antp->nst; i++) {
     free(c->antp->st[i].cores);
     free(c->antp->st[i].core_perf);
@@ -454,6 +583,13 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
     if (r->ws_bytes) jw_int(w, "working_set_bytes", (int64_t)r->ws_bytes);
     if (!strcmp(r->mode, "cold_burst")) jw_str(w, "start", r->warm ? "warm" : "cold");
     jw_int(w, "samples", (int64_t)r->n);
+    /* How the interval was made: from the spread between sessions, or (one session) over the repetitions. */
+    jw_str(w, "interval", row->sdf ? "sessions" : "repetitions");
+    if (row->sdf) {
+      jw_int(w, "sessions", row->k);
+      jw_num(w, "session_rel_sd", sqrt(row->svar));
+      jw_num(w, "interval_df", row->tdf);
+    }
     if (r->windowed) {
       jw_str(w, "unit", unit_of(r));
       ci_json(w, "perf_steady", row->perf);
@@ -489,6 +625,20 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
     jw_obj_end(w);
   }
   jw_arr_end(w);
+
+  jw_obj_begin(w, "repeatability");
+  jw_num(w, "rel_sd", a ? a->rep_sd : NAN);
+  jw_arr_begin(w, "pairs");
+  for (size_t i = 0; a && i < a->nrep; i++) {
+    jw_obj_begin(w, NULL);
+    jw_str(w, "kernel", a->rep[i].kernel);
+    jw_str(w, "first", a->rep[i].mode_a);
+    jw_str(w, "second", a->rep[i].mode_b);
+    jw_num(w, "ratio", a->rep[i].ratio);
+    jw_obj_end(w);
+  }
+  jw_arr_end(w);
+  jw_obj_end(w);
 
   jw_arr_begin(w, "scaling");
   for (size_t i = 0; a && i < a->nsc; i++) {
@@ -726,6 +876,10 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
       buf_printf(b, "  (%s)\n", dur);
     }
   }
+  if (a->nrep)
+    buf_printf(b, "\nRepeatability in this run: +-%.1f %% (%zu test%s measured twice, minutes apart). Intervals come from the\n"
+                  "spread between a series' sessions; a difference from another run below about %.1f %% is noise.\n",
+               a->rep_sd * 100, a->nrep, a->nrep == 1 ? "" : "s", a->rep_sd * 100 * 1.96 * 1.414);
   int bad = 0;
   for (size_t i = 0; i < a->nsums; i++) bad += !a->sums[i].consistent;
   if (a->nsums)

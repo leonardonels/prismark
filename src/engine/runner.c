@@ -180,8 +180,10 @@ int ctx_can_place_set(const pmk_ctx *c, const int *cpus, int n) {
 
 static int cmp_cpu_order(const void *a, const void *b) {
   const pmk_cpu *x = a, *y = b;
-  if (x->type != y->type) return x->type - y->type; /* fastest type first */
-  if (x->smt != y->smt) return x->smt - y->smt;     /* one thread per core before SMT siblings */
+  /* One thread per physical core before any SMT sibling, as schedulers fill a hybrid processor: the efficiency
+     cores come before the second threads of the performance cores. Within that, the fastest type first. */
+  if (x->smt != y->smt) return x->smt - y->smt;
+  if (x->type != y->type) return x->type - y->type;
   return x->id - y->id;
 }
 
@@ -195,6 +197,16 @@ int ctx_cpu_order(const pmk_ctx *c, int *out) {
   qsort(tmp, (size_t)c->m.ncpu, sizeof *tmp, cmp_cpu_order);
   for (int i = 0; i < c->m.ncpu; i++) out[i] = tmp[i].id;
   free(tmp);
+  /* The CPU the single-core modes use comes first, so n = 1 here is the same core as "one core" there. */
+  if (c->cfg.cpu < 0) {
+    int pref = ctx_cpu_for_type(c, 0);
+    for (int i = 1; i < c->m.ncpu; i++)
+      if (out[i] == pref) {
+        memmove(out + 1, out, (size_t)i * sizeof *out);
+        out[0] = pref;
+        break;
+      }
+  }
   return c->m.ncpu;
 }
 
@@ -300,11 +312,18 @@ void result_free(pmk_result *r) {
 
 int ctx_cpu_for_type(const pmk_ctx *c, int type) {
   if (c->cfg.cpu >= 0) return c->cfg.cpu;
-  /* The highest-numbered CPU of the type; CPU 0 usually handles the most interrupts. */
-  int best = -1;
-  for (int i = 0; i < c->m.ncpu; i++)
-    if (c->m.cpus[i].type == type && c->m.cpus[i].id > best) best = c->m.cpus[i].id;
-  return best >= 0 ? best : 0;
+  /* Among the type's CPUs: a first hardware thread before an SMT sibling, then the highest maximum clock (cores
+     of one type can differ), then the highest number; CPU 0 usually handles the most interrupts. */
+  const pmk_cpu *best = NULL;
+  for (int i = 0; i < c->m.ncpu; i++) {
+    const pmk_cpu *x = &c->m.cpus[i];
+    if (x->type != type) continue;
+    if (!best || (x->smt == 0) > (best->smt == 0) ||
+        ((x->smt == 0) == (best->smt == 0) &&
+         (x->max_khz > best->max_khz || (x->max_khz == best->max_khz && x->id > best->id))))
+      best = x;
+  }
+  return best ? best->id : 0;
 }
 
 int ctx_precise_enough(pmk_ctx *c, const pmk_result *r, int max_reps) {
@@ -312,6 +331,23 @@ int ctx_precise_enough(pmk_ctx *c, const pmk_result *r, int max_reps) {
   if (r->n >= (size_t)max_reps) return 1;
   if (r->n % 5) return 0;
   pmk_ci ci = pmk_boot_median(r->samples, r->n, 500, &c->stat_rng);
+  return (ci.hi - ci.lo) / 2 <= 0.01 * ci.est;
+}
+
+void result_session(pmk_result *r) {
+  if (r->nsess < PMK_MAX_SESS) r->sess_start[r->nsess++] = (uint32_t)r->n;
+}
+
+int ctx_session_done(pmk_ctx *c, const pmk_result *r, size_t from, int rounds, int max_reps) {
+  if (rounds <= 1) return ctx_precise_enough(c, r, max_reps);
+  size_t n = r->n - from, smin = ((size_t)c->cfg.min_reps + (size_t)rounds - 1) / (size_t)rounds;
+  if (smin < PMK_BOOT_MIN_N) smin = PMK_BOOT_MIN_N;
+  size_t smax = (size_t)max_reps / (size_t)rounds;
+  if (smax < smin) smax = smin;
+  if (n < smin) return 0;
+  if (n >= smax) return 1;
+  if (n % 5) return 0;
+  pmk_ci ci = pmk_boot_median(r->samples + from, n, 500, &c->stat_rng);
   return (ci.hi - ci.lo) / 2 <= 0.01 * ci.est;
 }
 
@@ -487,7 +523,8 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
   jw_int(w, "requested_cpu", r->cpu);
   /* QoS-only platforms: how the threads were placed. "qos-background" (efficiency cores) runs at a clock the OS
      holds low for background work, so it is not the cores' full speed. */
-  if (c->m.caps.qos_only)
+  if (!ctx_can_place(c)) jw_str(w, "placement", "unpinned"); /* threads ran where the scheduler put them */
+  else if (c->m.caps.qos_only)
     jw_str(w, "placement", r->unsteered ? "unsteered"
                            : c->m.ntypes > 1 && r->type == c->m.ntypes - 1 ? "qos-background"
                                                                            : "qos-interactive");
@@ -496,6 +533,11 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
   jw_arr_end(w);
   jw_obj_end(w);
   jw_str(w, "unit", r->unit);
+  if (r->nsess) { /* index of the first sample of each session */
+    jw_arr_begin(w, "sessions");
+    for (int i = 0; i < r->nsess; i++) jw_int(w, NULL, r->sess_start[i]);
+    jw_arr_end(w);
+  }
   samples_json(w, "samples", r->samples, r->n, !strcmp(r->unit, "ns") && strcmp(r->kernel, "K7"));
   if (!strcmp(r->mode, "cold_burst") && !r->warm) {
     jw_arr_begin(w, "wake_ns");
@@ -782,7 +824,8 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
     int modes[NMODES], nmodes = 0;
     for (int i = 0; i < NMODES; i++)
       if (c->cfg.modes & MODES[i].bit) modes[nmodes++] = i;
-    ctx_shuffle(&c->rng, modes, nmodes);
+    /* A fixed order, coolest first: the modes that need a rested machine (from rest, timer), then the short
+       tasks, then the sustained ones, so no short series starts on the heat an all-core run left behind. */
     double est[NMODES];
     for (int i = 0; i < nmodes; i++) {
       c->run_steps += (uint32_t)MODES[modes[i]].steps(c);

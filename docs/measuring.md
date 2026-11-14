@@ -19,9 +19,9 @@ These pages use the app's names, with the ID in brackets where it helps.
 | Opening a photo | K4 | JPEG decode (stb_image, SIMD off) and triangle-filter resize | `kernels/k4_image` |
 | Reading JSON | K5 | Validating JSON parser, exact number handling | `kernels/k5_json` |
 | Starting a script | K6 | Lua 5.4.7: new state, load and run a script | `kernels/k6_lua` |
-| Memory delay | K7 | Pointer chase over L1-to-DRAM working sets | `kernels/k7_chase` |
+| Memory delay | K7 | Pointer chase over working sets from 16 KiB to 256 MiB (the headline result, the same size on every machine), on ordinary pages | `kernels/k7_chase` |
 | Wake-up test | K9 | Calibrated dependent-add loop | `kernels/k9_calib` |
-| Timer punctuality | K10 | Periodic timer | `src/engine/mode_periodic.c` |
+| Timer punctuality | K10 | Periodic timer: idle, with every other core busy, and "contended" with its own core busy too | `src/engine/mode_periodic.c` |
 | Memory bandwidth | K11 | Most of the free memory written and checked on every core, four patterns (stress test only) | `kernels/k11_stream` |
 | Simulation solver | K13 | Residual of a sparse system: a 27-point 3D mesh matrix in CSR, 0.7 GiB, far larger than any cache, so memory bandwidth sets its speed; GFLOP/s. Desktops only | `kernels/k13_sparse` |
 | Vector maths | K12 | Double-precision matrix multiply with fused multiply-adds at the widest vectors (AVX-512, AVX2, NEON), GFLOP/s | `kernels/k12_vector` |
@@ -51,7 +51,7 @@ benchmark:
 
 - Its CPU load is Vector maths, wide fused multiply-adds: the hottest load a
   processor gets. *Each core in turn* runs it on one physical core at a time,
-  moving on every 10 s (core cycling), so every core reaches its own
+  moving on every 20 s (core cycling; the first 5 s of each visit are not scored), so every core reaches its own
   single-core boost, where per-core instability shows; its score is the
   slowest core.
 - The memory part is a memory test: about three quarters of the free memory,
@@ -73,7 +73,7 @@ Simulation solver is the counterpart of Vector maths for engineering simulation 
 on tiles that stay in the cache and scales with cores and vector width; Simulation solver sweeps a sparse matrix
 of 0.7 GiB, as iterative solvers do, and stops scaling once the memory channels are full. Its scaling (1, 2, 4,
 … threads) shows where that happens, which is what decides between more cores and more memory channels in a
-workstation. It runs on all cores only, on desktop computers, and needs about 1 GB of free memory.
+workstation. On one thread its speed is set by the processor's floating-point add chain, not by memory. It runs on all cores only, on desktop computers, and needs about 1 GB of free memory.
 
 Every input is generated from fixed seeds or fetched by hash, so every host does
 identical work. Kernels are built without FP contraction and without libm
@@ -85,6 +85,41 @@ against ARM64).
 
 - Results are reported per kernel and per mode. Measurements from different
   modes are not combined.
+- Modes run in a fixed order, coolest first: from rest, timer, short tasks, one
+  core sustained, all cores, memory. A short task never starts on the heat an
+  all-core run left behind.
+- In the all-core tests the jobs follow one another without a pause, so no
+  thread waits at the end of a job and the result does not depend on how the
+  task count divides by the thread count. (The stress test keeps a barrier
+  between jobs for its per-task checks.)
+- A series is not measured in one piece. Each mode goes round its tests three
+  times (in a new random order each round), and every series takes a third of
+  its repetitions in each round: its three *sessions*. The other tests are the
+  wait between them, so the run is no longer, and the series is sampled at
+  three separate moments. Its 95 % interval comes from the spread of the three
+  session medians, steadied with the spread of the other series of the mode,
+  and not from the repetitions of one sitting, which agree with each other far
+  better than two runs do. Quick runs keep one session.
+- Some tests are measured twice in a run, on the same core with the same
+  input: the sustained tests on one core and as the one-thread step of the
+  all-core mode, the short tasks as a short task and as the busy-core series
+  of the from-rest mode. Their disagreement is the run's *repeatability*
+  (`analysis.repeatability`, printed with the summary). It is added to every
+  interval, and `prismark compare` treats a difference smaller than the two
+  runs' repeatability as the same.
+- In the wake-up test every repetition from rest draws its task size at random,
+  so every size is sampled over the whole length of the mode.
+- Series without sessions (the from-rest series, full builds, quick runs) keep
+  a bootstrap interval of the median; throughput windows are resampled in
+  blocks of consecutive windows, and fewer than 8 samples give no interval.
+- Timer punctuality and reacting from rest depend on the operating system's
+  timers as much as on the processor: `prismark compare` shows them across two
+  systems without judging them.
+- The short tasks take their memory from buffers kept per thread, not from
+  the C library, so they time the processor and not the system's allocator.
+- Profiles in `prismark compare --detail` report the weighted geometric mean
+  G of the per-test ratios, which reads the same whichever machine is the
+  denominator.
 - Derived metrics (scaling S/E/p, throttling ratio, build overhead R_build,
   stress hold-up) compare the same kernel and the same binary, with bootstrap
   95 % intervals.

@@ -18,7 +18,18 @@
 #include "rng.h"
 
 #define K12_TILE 64 /* a task: a TILE x TILE block of C */
-#define K12_ROWS 4  /* rows of C kept in registers at once */
+/*
+ * Rows of C kept in registers at once. With K12_COLS vectors each they are the independent fma chains of the
+ * inner loop, and a core runs at most chains / fma latency of them per cycle. x86-64 cores have two fma units
+ * and 4 cycles of latency: 8 chains fill them, and 16 registers hold no more. ARM64 cores with four units
+ * (Apple's, Oryon, Cortex-X) need 16 chains, and have 32 registers for them; with 8 they stopped at 2 fma per
+ * cycle. The order of the operations on each element does not change, so neither do the results.
+ */
+#if defined(__aarch64__) || defined(_M_ARM64)
+#define K12_ROWS 8
+#else
+#define K12_ROWS 4
+#endif
 #define K12_COLS 2  /* vectors of C per row kept in registers at once */
 
 typedef void (*k12_block_fn)(const double *a, size_t lda, const double *bp, int n, double *c);
@@ -76,7 +87,8 @@ static void pick(k12 *s) {
 #if defined(__aarch64__) || defined(_M_ARM64)
   s->isa = "NEON";
 #else
-  s->isa = "SSE4.2";
+  /* Without FMA instructions every fma is a call into the C library: the speed is then that library's. */
+  s->isa = __builtin_cpu_supports("fma") ? "SSE4.2" : "SSE4.2, software FMA";
   int avx2 = __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"), avx512 = avx2 && __builtin_cpu_supports("avx512f");
   if (want && !strcmp(want, "base")) return;
   if (avx512 && !(want && !strcmp(want, "avx2"))) s->block = block_avx512, s->isa = "AVX-512";

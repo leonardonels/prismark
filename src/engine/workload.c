@@ -3,9 +3,14 @@
  * the calling thread, and sustained runs on pinned worker threads with
  * windowed throughput: a fixed untimed warm-up, then a fixed measurement.
  *
- * Threaded runs share each job: workers take tasks from a common counter and
- * the leader (worker 0) starts the next job only when every task of the
- * current one is done, as a renderer finishes a frame before the next.
+ * Threaded runs share each job: workers take tasks from a common counter. In
+ * the benchmark modes the jobs follow one another without a pause: a thread
+ * that finds a job's tasks all taken starts on the next job at once, so no
+ * thread waits at a job's end and the speed does not depend on how the task
+ * count divides by the thread count. The stress test keeps a barrier (the
+ * leader, worker 0, starts the next job only when every task of the current
+ * one is done): its memory kernel writes in place, and its per-task checks
+ * need a task index to run once at a time.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
@@ -58,6 +63,23 @@ typedef struct shared {
   atomic_int stop;
   atomic_int cpu0;        /* CPU of worker 0, refreshed per task */
   atomic_int failed;
+
+  /* Jobs without a barrier (stream): task g of the run is task g % ntasks of job g / ntasks. Each job in flight
+     has a slot for its checksum and its count of finished tasks. Jobs complete in any order (a thread that was
+     descheduled holds its job open while the others go on), so a slot is free again only once every earlier job
+     is complete too: base_job is the oldest job still open, and no thread starts a task of job
+     base_job + nslots or later. With the slots there are, that wait happens only when one thread stands still
+     for several whole jobs. */
+  int stream;
+  _Atomic uint64_t next_g, base_job;
+  struct slot {
+    _Atomic uint64_t sum;
+    atomic_size_t done;
+    int complete; /* under lock: complete, waiting for the jobs before it */
+  } *slots;
+  size_t nslots;
+  uint64_t last_job_raw; /* when the previous job completed, under lock */
+  atomic_int pin_failed;
 
   /* threaded job control */
   pal_lock *lock;
@@ -179,12 +201,55 @@ static void work_tasks(shared *sh, int w, const void *inst, void *scratch) {
   }
 }
 
+/* Jobs back to back, no barrier: see the top of the file. A job's time is the time since the previous one completed. */
+static void *stream_main(void *arg) {
+  worker *wk = arg;
+  shared *sh = wk->sh;
+  const void *inst = sh->s->inst;
+  if (wk->cpu >= 0) {
+    if (pal_pin_self(wk->cpu)) atomic_store(&sh->pin_failed, 1);
+  } else if (sh->c->m.caps.qos_only) pal_unpin_self(); /* one ordinary class, not the creator's */
+  void *scratch = sh->tk->scratch_new ? sh->tk->scratch_new(inst) : NULL;
+  if (sh->tk->scratch_new && !scratch) {
+    atomic_store(&sh->failed, 1);
+    atomic_store(&sh->stop, 1);
+  }
+  while (!atomic_load_explicit(&sh->stop, memory_order_relaxed) && !ctx_cancelled()) {
+    uint64_t g = atomic_fetch_add(&sh->next_g, 1), job = g / sh->ntasks;
+    size_t i = (size_t)(g % sh->ntasks);
+    struct slot *sl = &sh->slots[job % sh->nslots];
+    while (job >= atomic_load(&sh->base_job) + sh->nslots && !atomic_load(&sh->stop) && !ctx_cancelled())
+      pal_sleep_ns(50000); /* its slot still belongs to a job a slow thread has not finished */
+    if (job >= atomic_load(&sh->base_job) + sh->nslots) break; /* the run ended during the wait */
+    if (wk->index == 0) atomic_store_explicit(&sh->cpu0, pal_current_cpu(), memory_order_relaxed);
+    uint64_t t_start = pal_now_raw_ns();
+    uint64_t h = sh->tk->task(inst, scratch, i);
+    account(sh, wk->index, t_start, sh->tk->task_work(inst, i));
+    atomic_fetch_add(&sl->sum, pmk_job_combine(0, i, h));
+    if (atomic_fetch_add(&sl->done, 1) + 1 == sh->ntasks) {
+      pal_lock_acquire(sh->lock);
+      uint64_t now = pal_now_raw_ns(), sum = atomic_exchange(&sl->sum, 0), base = atomic_load(&sh->base_job);
+      atomic_store(&sl->done, 0);
+      sl->complete = 1;
+      for (; sh->slots[base % sh->nslots].complete; base++) sh->slots[base % sh->nslots].complete = 0;
+      atomic_store(&sh->base_job, base);
+      /* A job that ended after the run stopped had tasks outside the measurement: not recorded. */
+      if (!ctx_cancelled() && !atomic_load(&sh->stop)) record_job(sh, now - sh->last_job_raw, sum);
+      sh->last_job_raw = now;
+      pal_lock_release(sh->lock);
+    }
+  }
+  if (scratch && sh->tk->scratch_free) sh->tk->scratch_free(scratch);
+  return NULL;
+}
+
 static void *threaded_main(void *arg) {
   worker *wk = arg;
   shared *sh = wk->sh;
   const void *inst = sh->s->inst;
-  if (wk->cpu >= 0) pal_pin_self(wk->cpu);
-  else if (sh->c->m.caps.qos_only) pal_unpin_self(); /* one ordinary class, not the creator's */
+  if (wk->cpu >= 0) {
+    if (pal_pin_self(wk->cpu)) atomic_store(&sh->pin_failed, 1);
+  } else if (sh->c->m.caps.qos_only) pal_unpin_self(); /* one ordinary class, not the creator's */
   void *scratch = sh->tk->scratch_new ? sh->tk->scratch_new(inst) : NULL;
   if (sh->tk->scratch_new && !scratch) {
     atomic_store(&sh->failed, 1);
@@ -283,6 +348,47 @@ static void clock_domains(const pmk_ctx *c, const sus_spec *s, pmk_result *r, in
   r->nclock_dom = n > 1 ? n : 0;
 }
 
+int wl_merge_session(pmk_result *dst, pmk_result *v) {
+  size_t from = v->steady_from < v->n ? v->steady_from : 0, had_jobs = dst->job_ns.n;
+  int first = dst->nsess == 0;
+  result_session(dst);
+  for (size_t i = from; i < v->n; i++)
+    if (result_push(dst, v->samples[i], NAN, v->observed[i])) return PMK_ERR_NOMEM;
+  for (size_t i = from; i < v->temps.n; i++)
+    if (dvec_push(&dst->temps, v->temps.v[i]) || dvec_push(&dst->mhz, i < v->mhz.n ? v->mhz.v[i] : 0) ||
+        dvec_push(&dst->power, i < v->power.n ? v->power.v[i] : NAN))
+      return PMK_ERR_NOMEM;
+  if (first) { /* the clock domains are the machine's: the same in every session */
+    dst->nclock_dom = v->nclock_dom;
+    memcpy(dst->clock_dom, v->clock_dom, sizeof dst->clock_dom);
+    memcpy(dst->clock_idle, v->clock_idle, sizeof dst->clock_idle);
+  }
+  for (int d = 0; d < dst->nclock_dom; d++)
+    for (size_t i = from; i < v->mhz_dom[d].n; i++)
+      if (dvec_push(&dst->mhz_dom[d], v->mhz_dom[d].v[i])) return PMK_ERR_NOMEM;
+  /* Job checksums: a session that finished no job (a long compile) has none. */
+  if (v->job_ns.n) {
+    if (!had_jobs) dst->checksum = v->checksum, dst->checksum_ok = v->checksum_ok;
+    else dst->checksum_ok = dst->checksum_ok && v->checksum_ok && v->checksum == dst->checksum;
+  }
+  for (size_t i = 0; i < v->job_ns.n; i++)
+    if (dvec_push(&dst->job_ns, v->job_ns.v[i])) return PMK_ERR_NOMEM;
+  dst->windowed = 1;
+  dst->window_ms = v->window_ms;
+  dst->nthreads = v->nthreads;
+  dst->unsteered = v->unsteered;
+  dst->isa = v->isa;
+  dst->input_hash = v->input_hash;
+  dst->errors += v->errors;
+  dst->steady = (first || dst->steady) && v->steady;
+  dst->steady_from = 0;
+  dst->elapsed_s += v->elapsed_s;
+  dst->clamped += v->clamped;
+  if (v->clamped && !(dst->lowest_mhz <= v->lowest_mhz)) dst->lowest_mhz = v->lowest_mhz;
+  if (first && !v->clamped) dst->lowest_mhz = NAN;
+  return PMK_OK;
+}
+
 int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   const pmk_tk *tk = s->tk;
   double win_ms = s->window_ms > 0 ? s->window_ms : wl_window_ms(c, tk), win_s = win_ms / 1e3;
@@ -333,7 +439,10 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
       sh->fault_after = (uint64_t)(after * 1e9);
   }
   atomic_store(&sh->cpu0, -1);
-  if (!sh->work || !sh->lock) rc = PMK_ERR_NOMEM;
+  sh->stream = !s->check_tasks;
+  sh->nslots = (size_t)s->nthreads / (sh->ntasks ? sh->ntasks : 1) + 8;
+  sh->slots = calloc(sh->nslots, sizeof *sh->slots);
+  if (!sh->work || !sh->lock || !sh->slots || !sh->ntasks) rc = PMK_ERR_NOMEM;
 
   int started = 0;
   if (rc == PMK_OK) {
@@ -341,12 +450,12 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
     int place = s->cpus && ctx_can_place_set(c, s->cpus, s->nthreads);
     r->unsteered = !place && c->m.caps.qos_only;
     uint64_t t0_mono = pal_now_ns();
-    sh->t0_raw = pal_now_raw_ns();
+    sh->t0_raw = sh->last_job_raw = pal_now_raw_ns();
     for (int i = 0; i < s->nthreads; i++) {
       wk[i].sh = sh;
       wk[i].index = i;
       wk[i].cpu = place ? s->cpus[i] : -1;
-      wk[i].th = pal_thread_start(threaded_main, &wk[i]);
+      wk[i].th = pal_thread_start(sh->stream ? stream_main : threaded_main, &wk[i]);
       if (!wk[i].th) {
         atomic_store(&sh->stop, 1);
         rc = PMK_ERR_SYSTEM;
@@ -439,6 +548,17 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   if (s->warm_only) r->steady_from = r->n > 13 ? r->n - 10 : r->n / 2;
   else r->steady_from = r->n > warm_w ? warm_w : 0;
   r->steady = rc == PMK_OK && (r->n == total_w || r->stopped) && !s->warm_only;
+  /* A benchmark series is steady when its scored windows show no trend: no slope that stands out from their
+     noise, or one that moves the speed by less than 2 % over the whole measurement. (A stress-test part is
+     expected to drift: there the flag only says it ran its length.) */
+  if (r->steady && !s->check_tasks && r->n - r->steady_from >= 5) {
+    double rel = NAN;
+    int flat = pmk_slope_flat(r->samples + r->steady_from, r->n - r->steady_from, &rel);
+    r->steady = flat || (isfinite(rel) && fabs(rel) * (double)(r->n - r->steady_from) < 0.02);
+  }
+  if (atomic_load(&sh->pin_failed))
+    ctx_emit(c, PMK_EV_WARNING, r->mode, tk->id, 0, 0,
+             "%s n=%d: a thread could not be pinned to its CPU and ran where the scheduler put it", tk->id, s->nthreads);
   /*
    * Platform clamp: a clock below the CPU's own hardware minimum (or, where that is unknown, below 15 % of its
    * maximum, under the base clock any sustained load settles at) is forced from outside the processor, e.g. by
@@ -479,6 +599,7 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
              (unsigned long long)sh->checksum_bad, atomic_load(&sh->njobs));
   pal_lock_free(sh->lock);
   free(sh->work);
+  free(sh->slots);
   free(sh->ref);
   free(sh->ref_set);
   free(sh->wrong_by_cpu);

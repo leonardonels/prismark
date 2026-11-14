@@ -77,7 +77,9 @@ private func medianOf(_ kernel: String, _ mode: String, start: String? = nil, _ 
 private func memory(all: Bool) -> (Doc) -> Value? {
     { d in
         let rows = series(d).filter { $0["kernel"] as? String == "K7" }
-        let largest = rows.map { num($0, "working_set_bytes") }.max() ?? 0
+        // the same 256 MiB on every machine; results from before it was measured keep their largest set
+        let sizes = rows.map { num($0, "working_set_bytes") }
+        let largest = sizes.contains(268435456) ? 268435456 : (sizes.max() ?? 0)
         let at = rows.filter { num($0, "working_set_bytes") == largest }
         let row = all ? at.max { int($0, "n") < int($1, "n") } : at.last { int($0, "n") == 1 }
         return ci(row?["median"] as? Doc)

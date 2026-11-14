@@ -2,8 +2,10 @@
  * Periodic: how late can a deadline task wake up?
  *
  * K10 sleeps to absolute deadlines one period apart and records the lateness
- * L = t_actual - t_scheduled, first on an idle machine, then with K7 pointer
- * chases loading every other CPU.
+ * L = t_actual - t_scheduled under three conditions, in random order: on an
+ * idle machine; "loaded", with K7 pointer chases on every other CPU (shared
+ * resources busy, its own CPU free); and "contended", with one on its own CPU
+ * as well, so the scheduler has to take the CPU from running work.
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
@@ -47,7 +49,7 @@ static int run_condition(pmk_ctx *c, int cpu, int loaded, const pmk_k7_node *nod
     ls = calloc((size_t)c->m.ncpu, sizeof *ls);
     if (!ls) return PMK_ERR_NOMEM;
     for (int i = 0; i < c->m.ncpu; i++) {
-      if (c->m.cpus[i].id == cpu) continue;
+      if (c->m.cpus[i].id == cpu && loaded < 2) continue; /* "contended" also loads the timer's own CPU */
       loader *l = &ls[nl];
       l->cpu = c->m.cpus[i].id;
       l->start = pmk_rng_below(&c->rng, nnodes);
@@ -65,7 +67,7 @@ static int run_condition(pmk_ctx *c, int cpu, int loaded, const pmk_k7_node *nod
     r->cpu = cpu;
     for (int i = 0; i < c->m.ncpu; i++)
       if (c->m.cpus[i].id == cpu) r->type = c->m.cpus[i].type;
-    r->condition = loaded ? "loaded" : "idle";
+    r->condition = loaded == 2 ? "contended" : loaded ? "loaded" : "idle";
     r->period_ms = period_ms;
     r->loaders = nl;
     uint64_t next = pal_now_ns() + period;
@@ -93,7 +95,7 @@ static int run_condition(pmk_ctx *c, int cpu, int loaded, const pmk_k7_node *nod
 
 int mode_periodic_steps(const pmk_ctx *c) {
   if (!ctx_kernel_selected(c, "K10")) return 0;
-  return c->m.ncpu > 1 ? 2 : 1;
+  return c->m.ncpu > 1 ? 3 : 1;
 }
 
 /* Each condition runs for cfg.periodic_seconds; building the memory ring takes about a second. */
@@ -122,14 +124,14 @@ int mode_periodic(pmk_ctx *c) {
     c->k->k7_build(nodes, nnodes, pmk_rng_next(&c->rng));
   }
 
-  int order[2] = {0, 1};
-  int ncond = has_load ? 2 : 1;
+  int order[3] = {0, 1, 2};
+  int ncond = has_load ? 3 : 1;
   ctx_shuffle(&c->rng, order, ncond);
   int rc = PMK_OK;
   for (int i = 0; i < ncond && rc == PMK_OK; i++) {
     int loaded = order[i];
     ctx_emit(c, PMK_EV_PHASE, "periodic", "K10", (uint32_t)i + 1, (uint32_t)ncond,
-             "%s, period %g ms, %g s on CPU %d", loaded ? "loaded" : "idle", c->cfg.periodic_period_ms,
+             "%s, period %g ms, %g s on CPU %d", loaded == 2 ? "contended" : loaded ? "loaded" : "idle", c->cfg.periodic_period_ms,
              c->cfg.periodic_seconds, cpu);
     rc = run_condition(c, cpu, loaded, nodes, nnodes);
   }

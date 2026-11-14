@@ -7,9 +7,12 @@
  * ratio of medians forms the bootstrap distribution. Two machines differ on a
  * kernel only when the 95 % CI of r excludes 1.
  *
- * A profile declares kernels and time fractions alpha_i and reports
- *   H = (sum_i alpha_i / r_i)^-1   and   sigma = sqrt(sum_i alpha_i (ln r_i - mean)^2)
- * from jointly resampled r_i, alongside every r_i. A profile with a missing
+ * A profile declares kernels and weights alpha_i and reports the weighted geometric mean
+ *   G = exp(sum_i alpha_i ln r_i)   and   sigma = sqrt(sum_i alpha_i (ln r_i - ln G)^2)
+ * from jointly resampled r_i, alongside every r_i. The geometric mean is the one mean of ratios that does not
+ * depend on which machine is the denominator: G(A, B) G(B, A) = 1 and G(A, C) = G(A, B) G(B, C). (A weighted
+ * harmonic mean, used before, is a speedup only for time fractions measured on B, and called each of two
+ * machines slower than the other when their ratios straddled 1.) A profile with a missing
  * kernel is not reported; weights are never renormalised. Tail profiles
  * (Realtime) report quantiles side by side and are never averaged.
  *
@@ -65,6 +68,10 @@ typedef struct series {
   int higher_better;
   double *x;        /* comparable samples: steady windows (higher better) or times (lower better) */
   size_t nx;
+  /* Sessions (stats.h): the variance of ln(session median) and its degrees of freedom (0: none recorded), and
+     after moderation with the run's other series of the mode, the standard error of ln(median) and its df. */
+  int sdf, tdf;
+  double svar, se;
 } series;
 
 typedef struct run {
@@ -125,11 +132,36 @@ static int load_series(run *R, char *err, size_t errlen) {
     s->x = malloc(s->nx * sizeof *s->x);
     if (!s->x) return snprintf(err, errlen, "out of memory"), -1;
     for (size_t k = 0; k < s->nx; k++) s->x[k] = jv_num(&samples->items[from + k], NAN);
+    const jv *sess = jv_get(r, "sessions");
+    size_t k = jv_len(sess);
+    if (k >= 2 && k <= 64 && !from) {
+      uint32_t starts[64];
+      for (size_t q = 0; q < k; q++) starts[q] = (uint32_t)jv_num(&sess->items[q], 0);
+      if (pmk_session_logvar(s->x, s->nx, starts, (int)k, &s->svar, &s->sdf)) s->sdf = 0;
+    }
     if (!strcmp(s->mode, "mc_threaded") && s->n > R->max_n_threaded) R->max_n_threaded = s->n;
     if (!strcmp(s->mode, "mc_instances") && s->n > R->max_n_instances) R->max_n_instances = s->n;
     R->ns++;
   }
+  /* The same moderation as the run's own analysis (analysis_tp.c), with the run's repeatability added. */
+  double rep = jv_num(jv_path(R->root, "analysis.repeatability.rel_sd"), 0);
+  if (!isfinite(rep)) rep = 0;
+  for (size_t i = 0; i < R->ns; i++) {
+    series *s = &R->s[i];
+    if (!s->sdf) continue;
+    double sum = 0, mvar;
+    int df = 0;
+    for (size_t j = 0; j < R->ns; j++)
+      if (j != i && R->s[j].sdf && !strcmp(R->s[j].mode, s->mode)) sum += R->s[j].svar * R->s[j].sdf, df += R->s[j].sdf;
+    pmk_moderate(s->svar, s->sdf, df ? sum / df : 0, df, &mvar, &s->tdf);
+    s->se = sqrt(mvar / (s->sdf + 1) + rep * rep);
+  }
   return 0;
+}
+
+static double normal(pmk_rng *r) { /* Box-Muller */
+  double u = pmk_rng_unit(r), v = pmk_rng_unit(r);
+  return sqrt(-2 * log(u > 0 ? u : 0x1p-53)) * cos(6.283185307179586 * v);
 }
 
 static int eq(const char *a, const char *b) { return a == b || (a && b && !strcmp(a, b)); }
@@ -150,9 +182,27 @@ static const series *match(const run *R, const series *s, int n) {
 
 /* r = perf(A) / perf(B): ratio of windows, or inverse ratio of times. */
 static int ratio_reps(const series *a, const series *b, pmk_rng *rng, double *est, double *reps) {
+  if (a->sdf && b->sdf) {
+    /* Both measured in sessions: ln r has the standard error of the two medians together, and the replicates
+       are draws of est * exp(se * t), t Student's with the smaller of the two degrees of freedom, so they carry
+       the spread between sessions into the profiles as well. */
+    double ma = pmk_median(a->x, a->nx), mb = pmk_median(b->x, b->nx), se = sqrt(a->se * a->se + b->se * b->se);
+    int df = a->tdf < b->tdf ? a->tdf : b->tdf;
+    *est = a->higher_better ? ma / mb : mb / ma;
+    for (int i = 0; i < B; i++) {
+      double chi = 0;
+      for (int q = 0; q < df; q++) {
+        double z = normal(rng);
+        chi += z * z;
+      }
+      reps[i] = *est * exp(se * normal(rng) / sqrt(chi / df));
+    }
+    return 0;
+  }
   if (a->higher_better) {
     *est = pmk_median(a->x, a->nx) / pmk_median(b->x, b->nx);
-    return pmk_boot_ratio_reps(a->x, a->nx, b->x, b->nx, B, rng, reps);
+    /* throughput windows: correlated in time, resampled in blocks */
+    return pmk_boot_ratio_reps_block(a->x, a->nx, pmk_block_len(a->nx), b->x, b->nx, pmk_block_len(b->nx), B, rng, reps);
   }
   *est = pmk_median(b->x, b->nx) / pmk_median(a->x, a->nx);
   return pmk_boot_ratio_reps(b->x, b->nx, a->x, a->nx, B, rng, reps);
@@ -211,8 +261,8 @@ static void series_label(char *out, size_t n, const series *s) {
   if (s->w_ms > 0) ADD(" %g ms task,", s->w_ms);
   if (s->ws > 0) ADD(" %g KiB,", s->ws / 1024);
   if (s->n > 1) ADD(" %d %s,", s->n, !strcmp(s->mode, "mc_instances") ? "copies" : "threads");
-  if (s->purpose) ADD(" new instructions (%s)", s->tier);
-  else ADD(" core %s", s->core ? s->core : "?");
+  if (s->purpose) ADD(" %s,", s->purpose); /* a mode's warm-up */
+  ADD(" core %s", s->core ? s->core : "?");
 #undef ADD
 }
 
@@ -322,26 +372,20 @@ static void profile(pmk_jw *w, pmk_buf *t, const jv *p, const run *A, const run 
   } else {
     /* Joint bootstrap distribution of H and sigma: replicate b uses replicate b of every r_i. */
     for (int b = 0; b < B; b++) {
-      double inv = 0, mean = 0, var = 0;
-      for (size_t i = 0; i < ni; i++) {
-        inv += it[i].alpha / it[i].reps[b];
-        mean += it[i].alpha * log(it[i].reps[b]);
-      }
+      double mean = 0, var = 0;
+      for (size_t i = 0; i < ni; i++) mean += it[i].alpha * log(it[i].reps[b]);
       for (size_t i = 0; i < ni; i++) var += it[i].alpha * (log(it[i].reps[b]) - mean) * (log(it[i].reps[b]) - mean);
-      H[b] = 1 / inv;
+      H[b] = exp(mean);
       S[b] = sqrt(var);
     }
     jw_str(w, "status", "ok");
-    double inv = 0, mean = 0, var = 0;
-    for (size_t i = 0; i < ni; i++) {
-      inv += it[i].alpha / it[i].est;
-      mean += it[i].alpha * log(it[i].est);
-    }
+    double mean = 0, var = 0;
+    for (size_t i = 0; i < ni; i++) mean += it[i].alpha * log(it[i].est);
     for (size_t i = 0; i < ni; i++) var += it[i].alpha * (log(it[i].est) - mean) * (log(it[i].est) - mean);
-    pmk_ci hci = pmk_ci_from_reps(1 / inv, H, B), sci = pmk_ci_from_reps(sqrt(var), S, B);
-    ci_json(w, "H", hci);
+    pmk_ci hci = pmk_ci_from_reps(exp(mean), H, B), sci = pmk_ci_from_reps(sqrt(var), S, B);
+    ci_json(w, "G", hci);
     ci_json(w, "sigma_ln_r", sci);
-    buf_printf(t, "\n%s: H = %.3f [%.3f, %.3f]   sigma(ln r) = %.3f [%.3f, %.3f]%s\n", name, hci.est, hci.lo, hci.hi,
+    buf_printf(t, "\n%s: G = %.3f [%.3f, %.3f]   sigma(ln r) = %.3f [%.3f, %.3f]%s\n", name, hci.est, hci.lo, hci.hi,
                sci.est, sci.lo, sci.hi, ni == 1 ? "  (single kernel, no aggregate)" : "");
     jw_arr_begin(w, "items");
     for (size_t i = 0; i < ni; i++) {
@@ -455,6 +499,8 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
     double est;
     if (ratio_reps(a, b, &rng, &est, reps)) continue;
     pmk_ci ci = pmk_ci_from_reps(est, reps, B);
+    if (!(a->sdf && b->sdf) && (a->nx < PMK_BOOT_MIN_N || b->nx < PMK_BOOT_MIN_N))
+      ci.lo = ci.hi = NAN; /* too few samples for an interval */
     int differ = ci.lo > 1 || ci.hi < 1;
     char lab[160];
     series_label(lab, sizeof lab, a);

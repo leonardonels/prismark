@@ -7,7 +7,6 @@ Copyright 2026 The Prismark Authors. Apache-2.0.
 
 A test is chosen as a whole (its series, raw results and derived rows come from one run):
   - throughput series: highest steady perf; time series: lowest median
-  - ISA-uplift pair (baseline + max), in results before ISA uplift was removed: highest gain
   - realistic from-rest pair (warm + cold): lowest cold median
   - K9 wake-up test per core type: highest mean R_resp (with its calibration)
   - K10 timer per condition: lowest p99.9
@@ -43,8 +42,6 @@ def unit_of(k):
     kernel, variant, mode, tier, purpose, core, n, start, ws = k
     if purpose == "warmup":
         return ("warmup", mode)  # not scored: the first run's
-    if purpose == "isa_uplift":
-        return ("uplift", kernel, variant)
     if mode == "cold_burst" and kernel != "K9":
         return ("rest", kernel, core)
     if mode == "cold_burst":
@@ -90,9 +87,6 @@ for d in runs:
 def score(key, g):
     """Higher is better."""
     kind = key[0]
-    if kind == "uplift":
-        r = g["ratios"].get(("U_ISA", key[1], key[2], "P"))
-        return r["value"]["est"] if r else None
     if kind == "rest":
         cold = [s for s in g["series"] if s.get("start") == "cold"]
         return -cold[0]["median"]["est"] if cold else None
@@ -194,10 +188,6 @@ for x in union("ratios", lambda x: (x["name"], x["kernel"], x.get("variant"), x[
         k1 = R[("K1", None, "mc_threaded", "baseline", None, "P", x["n"], None, None)]
         t = [fr[0] * 3600e9 / w for w in steady(k1) if w > 0]
         val = boot_ratio(k1x["samples"], t)
-    elif name == "U_ISA":
-        m = R[(k, v, "st_sustained", "max", "isa_uplift", core, 1, None, None)]
-        b = R[(k, v, "st_sustained", "baseline", "isa_uplift", core, 1, None, None)]
-        val = boot_ratio(steady(m), steady(b))
     else:  # R_resp: t_warm / t_cold
         w = R[(k, v, "cold_burst", "baseline", None, core, 1, "warm", None)]
         c = R[(k, v, "cold_burst", "baseline", None, core, 1, "cold", None)]

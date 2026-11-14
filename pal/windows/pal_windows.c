@@ -42,6 +42,7 @@
 static LARGE_INTEGER g_freq;
 static _Thread_local HANDLE t_timer;
 static int g_high_res_timer;
+static int g_time_period; /* timeBeginPeriod(1) is in effect and is undone in pal_fini */
 static GROUP_AFFINITY *g_cpu_affinity; /* per CPU index in pmk_machine.cpus order */
 static int g_ncpu;
 
@@ -213,6 +214,8 @@ int pal_init(pmk_machine *m) {
 }
 
 void pal_fini(pmk_machine *m) {
+  if (g_time_period) timeEndPeriod(1);
+  g_time_period = 0;
   if (g_emi != INVALID_HANDLE_VALUE) CloseHandle(g_emi);
   g_emi = INVALID_HANDLE_VALUE;
   if (g_clock_query) PdhCloseQuery(g_clock_query);
@@ -373,7 +376,14 @@ int64_t pal_input_idle_ms(void) {
 
 const char *pal_input_source(void) { return "GetLastInputInfo"; }
 
-int pal_set_timer_slack_min(void) { return g_high_res_timer ? 0 : (timeBeginPeriod(1) == 0 ? 0 : -1); }
+/* Without high-resolution timers (before Windows 10 1803) the system timer period is lowered, once, for the run
+   only: it is a system-wide setting. */
+int pal_set_timer_slack_min(void) {
+  if (g_high_res_timer || g_time_period) return 0;
+  if (timeBeginPeriod(1) != 0) return -1;
+  g_time_period = 1;
+  return 0;
+}
 
 int pal_random_bytes(void *p, size_t n) {
   return BCryptGenRandom(NULL, p, (ULONG)n, BCRYPT_USE_SYSTEM_PREFERRED_RNG) == 0 ? 0 : -1;

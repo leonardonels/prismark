@@ -13,6 +13,15 @@
 #include "rng.h"
 
 #define PMK_MAX_CLOCK_DOMAINS 8
+/*
+ * Sessions. A series is not measured in one piece: its repetitions are taken in PMK_SESSIONS sessions, with
+ * the other series of its mode measured in between (the modes go round their tests several times). The tests
+ * are each other's wait, so the run is no longer, and every series is sampled at moments minutes apart: the
+ * spread of its session medians is the spread a second run would show, which repetitions taken back to back
+ * cannot see. Quick runs keep one session.
+ */
+#define PMK_SESSIONS 3
+#define PMK_MAX_SESS 8
 #define PMK_MAX_WRONG_CPUS 64
 
 typedef struct pmk_dvec {
@@ -80,6 +89,8 @@ typedef struct pmk_result {
   /* K7 latency */
   uint64_t ws_bytes;
   /* data, in repetition order */
+  int nsess;                         /* sessions the samples were taken in, 0 if not recorded */
+  uint32_t sess_start[PMK_MAX_SESS]; /* index of each session's first sample */
   double *samples;
   double *wake;        /* cold burst: deadline -> thread running, ns; else NaN */
   int32_t *observed;   /* CPU read at each repetition or window */
@@ -152,6 +163,9 @@ void ctx_cooldown(pmk_ctx *c, const char *phase);
 
 /* Threads can be placed: pinned to a CPU, or (QoS-only platforms) steered to its core type. */
 static inline int ctx_can_place(const pmk_ctx *c) { return c->m.caps.pinning || c->m.caps.qos_only; }
+/* Core types the single-core modes run once each: one when a CPU is given, and one where threads cannot be
+   placed at all (the series then runs wherever the scheduler puts it; see core.observed). */
+static inline int ctx_ntypes(const pmk_ctx *c) { return c->cfg.cpu >= 0 || !ctx_can_place(c) ? 1 : c->m.ntypes; }
 /* Picks the CPU for single-core work of the given type. */
 int ctx_cpu_for_type(const pmk_ctx *c, int type);
 int ctx_type_of_cpu(const pmk_ctx *c, int cpu);
@@ -179,6 +193,13 @@ int ctx_thread_steps(const pmk_ctx *c, int *out, int max);
 int ctx_memory_allows(pmk_ctx *c, const char *kernel, int n, uint64_t per_thread);
 /* True once the median CI half-width is within 1% or max_reps is reached. */
 int ctx_precise_enough(pmk_ctx *c, const pmk_result *r, int max_reps);
+/* Sessions per series in this run. */
+static inline int ctx_sessions(const pmk_ctx *c) { return c->cfg.quick_inputs ? 1 : PMK_SESSIONS; }
+/* Marks that the samples pushed from here on belong to a new session. */
+void result_session(pmk_result *r);
+/* The same test as ctx_precise_enough for one session of `rounds`: over the samples from index `from` on, with
+   the series' repetition limits shared out between its sessions (at least 8 each, so a session has a median). */
+int ctx_session_done(pmk_ctx *c, const pmk_result *r, size_t from, int rounds, int max_reps);
 void ctx_shuffle(pmk_rng *r, int *v, int n);
 
 /* ---------- throughput-kernel helpers (workload.c) ---------- */
@@ -216,6 +237,9 @@ typedef struct sus_spec {
  * measured window.
  */
 int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r);
+/* Appends one session of a sustained series (v, from wl_sustained) to the series: its scored windows only, as
+   a new session. The series then holds scored windows alone (steady_from 0). */
+int wl_merge_session(pmk_result *dst, pmk_result *v);
 
 /* ---------- modes ---------- */
 

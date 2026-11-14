@@ -389,7 +389,7 @@ static void test_compare(void) {
       const char *name = jv_str(jv_get(p, "name"), "");
       if (!strcmp(name, "Render")) { /* K2 at each machine's largest n */
         CHECK(!strcmp(jv_str(jv_get(p, "status"), ""), "ok"));
-        NEAR(jv_num(jv_path(p, "H.est"), 0), 2.0, 0.01);
+        NEAR(jv_num(jv_path(p, "G.est"), 0), 2.0, 0.01);
       } else if (!strcmp(name, "Daily") || !strcmp(name, "Dev")) { /* missing kernels: not reported */
         CHECK(!strncmp(jv_str(jv_get(p, "status"), ""), "not reported", 12));
       }
@@ -407,7 +407,7 @@ static void test_compare(void) {
   d = json ? jdoc_parse(json, NULL, 0) : NULL;
   if (d) {
     const jv *p = &jv_get(jdoc_root(d), "profiles")->items[0];
-    NEAR(jv_num(jv_path(p, "H.est"), 0), 2.0, 0.01);
+    NEAR(jv_num(jv_path(p, "G.est"), 0), 2.0, 0.01);
     NEAR(jv_num(jv_path(p, "sigma_ln_r.est"), 1), 0.0, 0.01);
     jdoc_free(d);
   }
