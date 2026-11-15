@@ -63,6 +63,8 @@ typedef struct stress_row {
   const pmk_result **cores;
   pmk_ci *core_perf;
   int ncores;
+  pmk_ci slowest;     /* core cycling: the slowest core's speed, reported beside the score */
+  int slowest_k;      /* and which of cores[] it is, -1 if none */
   pmk_ci score;       /* median window speed over minute 9-10, NaN when the part ran less than 10 minutes */
   pmk_ci first, end;  /* the first minute (after its first window) and the last minute */
   pmk_ci hold_up;     /* end / first */
@@ -176,24 +178,41 @@ static row_sum stress_totals(const stress_row *x) {
   return t;
 }
 
-/* Core cycling: each core's median speed; the score is the slowest core's, once the part ran 10 minutes. A
-   minimum over cores reads low by the cores' noise, the more so the more cores there are: each core's own
-   interval is reported with it (cores[].perf), and visits are long enough for several windows per core. */
+/*
+ * Core cycling: each core's median speed; the score is the median core's, once the part ran 10 minutes, and the
+ * slowest core is reported beside it. The slowest core was the score before: a minimum over cores reads low by the
+ * cores' noise, the more so the more cores there are (the lowest of 16 equal cores measured to within 2 % sits near
+ * -2 %, of 8 a little higher), so it marked machines down for their core count. The test still exists to find one
+ * weak core, which the slowest core and each core's own speed and checks show (cores[]). The score's interval is
+ * the median of the cores' interval ends, so it stays about one core's measurement wide.
+ */
 static void compute_each_core(pmk_ctx *c, stress_row *row) {
   pmk_ci none = {NAN, NAN, NAN};
   double ran = 0;
   row->score = row->first = row->end = row->hold_up = none;
   row->temp_max = row->mhz = row->watts = NAN;
+  row->slowest = none;
+  row->slowest_k = -1;
   row->core_perf = calloc((size_t)row->ncores, sizeof *row->core_perf);
+  double *est = calloc((size_t)row->ncores, sizeof *est), *lo = calloc((size_t)row->ncores, sizeof *lo),
+         *hi = calloc((size_t)row->ncores, sizeof *hi);
+  size_t nm = 0;
   for (int i = 0; row->core_perf && i < row->ncores; i++) {
     const pmk_result *r = row->cores[i];
     ran += r->elapsed_s;
     row->core_perf[i] = r->n ? win_median(r->samples, r->n, &c->stat_rng) : none;
-    if (!(row->score.est <= row->core_perf[i].est)) row->score = row->core_perf[i];
+    if (isfinite(row->core_perf[i].est)) {
+      if (!(row->slowest.est <= row->core_perf[i].est)) row->slowest = row->core_perf[i], row->slowest_k = i;
+      if (est && lo && hi) est[nm] = row->core_perf[i].est, lo[nm] = row->core_perf[i].lo, hi[nm++] = row->core_perf[i].hi;
+    }
     for (size_t k = 0; k < r->temps.n; k++)
       if (isfinite(r->temps.v[k]) && !(row->temp_max >= r->temps.v[k])) row->temp_max = r->temps.v[k];
   }
-  if (ran < PMK_STRESS_SCORE_TO_S - 1e-6) row->score = none;
+  if (nm) row->score = (pmk_ci){pmk_median(est, nm), pmk_median(lo, nm), pmk_median(hi, nm)};
+  free(est);
+  free(lo);
+  free(hi);
+  if (ran < PMK_STRESS_SCORE_TO_S - 1e-6) row->score = row->slowest = none;
 }
 
 static void compute_stress(pmk_ctx *c, stress_row *row) {
@@ -714,7 +733,12 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
       jw_int(w, key, (int64_t)t.wrong_n[k]);
     }
     jw_obj_end(w);
-    if (x->ncores) { /* core cycling: each core's speed and checks */
+    if (x->ncores) { /* core cycling: the score is the median core's; the slowest beside it; each core's speed and checks */
+      jw_str(w, "score_of", "median core");
+      jw_obj_begin(w, "slowest_core");
+      jw_int(w, "cpu", x->slowest_k >= 0 ? x->cores[x->slowest_k]->cpu : -1);
+      ci_json(w, "perf", x->slowest);
+      jw_obj_end(w);
       jw_arr_begin(w, "cores");
       for (int k = 0; k < x->ncores; k++) {
         const pmk_result *q = x->cores[k];
@@ -882,8 +906,12 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
       if (ran < 120) snprintf(dur, sizeof dur, "%.0f s%s", ran, t.stopped ? ", stopped" : "");
       else snprintf(dur, sizeof dur, "%.0f min%s", ran / 60, t.stopped ? ", stopped" : "");
       if (x->ncores) {
-        buf_printf(b, "  %-10s %-12s %3d cores %-26s %s (slowest core)  (%s)\n", r->part, pmk_display_name(r->kernel),
+        buf_printf(b, "  %-10s %-12s %3d cores %-26s %s (median core)  (%s)\n", r->part, pmk_display_name(r->kernel),
                    x->ncores, score, unit_of(r), dur);
+        if (isfinite(x->slowest.est) && x->slowest_k >= 0)
+          buf_printf(b, "    slowest: CPU %d, %.4g [%.4g, %.4g] %s, %.1f%% below the median core\n",
+                     x->cores[x->slowest_k]->cpu, x->slowest.est, x->slowest.lo, x->slowest.hi, unit_of(r),
+                     100 * (1 - x->slowest.est / x->score.est));
         for (int k = 0; x->core_perf && k < x->ncores; k++)
           buf_printf(b, "    CPU %-4d %-3s %.4g %s%s\n", x->cores[k]->cpu, c->m.type_names[x->cores[k]->type],
                      x->core_perf[k].est, unit_of(r), x->cores[k]->wrong_tasks + x->cores[k]->errors ? "  WRONG RESULTS" : "");

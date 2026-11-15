@@ -329,12 +329,12 @@ const QVector<Metric> &metrics() {
        stress("all_cores")},
       {"s_cc", "stress", "Each core in turn", "Each core in turn (core cycling)",
        "One core at a time, every core in turn", "GFLOP/s",
-       "Vector maths on a single core at its highest boost clock, moving to the next physical core every 10 seconds "
+       "Vector maths on a single core at its highest boost clock, moving to the next physical core every 20 seconds "
        "and around again. Each core reaches its own top clock only when it runs alone, so this is where a single "
        "weak or degraded core, or a too aggressive per-core tuning (such as AMD's Curve Optimizer), shows up.",
-       kStressHow + " The score is the slowest core's speed.",
-       "Higher is better, in GFLOP/s: the slowest core's speed. The test page lists every core, and any core that "
-       "computed a wrong result.",
+       kStressHow + " The score is the median core's speed; the slowest core is shown beside it.",
+       "Higher is better, in GFLOP/s: the median core's speed. The test page lists every core, the slowest one, and "
+       "any core that computed a wrong result.",
        "stress:each_core", true, {"stress"}, "K12", stress("each_core")},
       {"s_mem", "stress", "Memory", "Memory under stress", "Most of the free memory, tested on every core", "GB/s",
        "A memory test: every core writes about three quarters of the free memory and checks every word on the next "

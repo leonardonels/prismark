@@ -14,6 +14,8 @@
 #include "prismark/prismark.h"
 #include "stats.h"
 #include "zstd.h"
+#include "ctx.h"
+#include "rng.h"
 
 long pmk_k5_parse_count_baseline(const char *text, size_t len);
 
@@ -372,6 +374,49 @@ static char *fake_result(double k2_perf, double k3_ns, int pinning) {
   return buf_take(&w.b);
 }
 
+/* Core cycling: the score is the median core's, not the slowest's; the slowest core is reported beside it. Four
+   cores of 10 minutes in all: three at about 100, one at 90. */
+static void test_core_cycling_score(void) {
+  pmk_ctx *c = calloc(1, sizeof *c);
+  CHECK(c != NULL);
+  if (!c) return;
+  c->m.ntypes = 1;
+  strcpy(c->m.type_names[0], "P");
+  pmk_rng_seed(&c->stat_rng, 7);
+  const double speed[4] = {101, 90, 99, 100};
+  c->res = calloc(4, sizeof *c->res);
+  c->nres = c->capres = 4;
+  for (int i = 0; c->res && i < 4; i++) {
+    pmk_result *r = &c->res[i];
+    r->kernel = "K12", r->mode = "stress", r->part = "each_core", r->unit = "GFLOP/s", r->k = &pmk_kernels_baseline;
+    r->cpu = i, r->windowed = 1, r->window_ms = 5000, r->elapsed_s = 150, r->lowest_mhz = NAN, r->tau_s = NAN;
+    r->first_wrong_s = NAN, r->first_wrong_cpu = -1;
+    r->n = 30;
+    r->samples = malloc(r->n * sizeof *r->samples);
+    for (size_t k = 0; r->samples && k < r->n; k++) r->samples[k] = speed[i] * (1 + 0.001 * (double)(k % 5) - 0.002);
+  }
+  analysis_tp_compute(c);
+  pmk_jw w = {0};
+  jw_obj_begin(&w, NULL);
+  analysis_tp_json(c, &w);
+  jw_obj_end(&w);
+  char *json = buf_take(&w.b);
+  jdoc *d = json ? jdoc_parse(json, NULL, 0) : NULL;
+  CHECK(d != NULL);
+  if (d) {
+    const jv *st = &jv_get(jdoc_root(d), "stress")->items[0];
+    NEAR(jv_num(jv_path(st, "score.est"), 0), 99.5, 0.3); /* the median of 90, 99, 100, 101 */
+    CHECK(jv_num(jv_path(st, "slowest_core.cpu"), -1) == 1);
+    NEAR(jv_num(jv_path(st, "slowest_core.perf.est"), 0), 90, 0.3);
+    jdoc_free(d);
+  }
+  free(json);
+  analysis_tp_free(c);
+  for (int i = 0; c->res && i < 4; i++) free(c->res[i].samples);
+  free(c->res);
+  free(c);
+}
+
 static void test_compare(void) {
   char *a = fake_result(2.0, 10e6, 1), *b = fake_result(1.0, 20e6, 1), *c = fake_result(1.0, 20e6, 0);
   char *json = NULL, *text = NULL;
@@ -457,6 +502,7 @@ static void test_compare(void) {
 }
 
 int main(void) {
+  test_core_cycling_score();
   test_quantiles();
   test_bootstrap();
   test_bootstrap_reps();

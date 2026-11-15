@@ -127,7 +127,7 @@ const METRICS = [
     { id: 'c_k6', group: 'resp', name: 'Script from rest', title: 'Starting a small script from rest', sub: 'Launch Lua after a pause', unit: 'ms', higher: false, get: medianOf('K6', 'cold_burst', 'cold', 1e-6) },
     { id: 's_st', group: 'stress', name: 'One core', title: 'One core under stress', sub: 'Speed in the 10th minute', unit: 'GFLOP/s', higher: true, get: stress('one_core') },
     { id: 's_mc', group: 'stress', name: 'All cores', title: 'All cores under stress', sub: 'Speed in the 10th minute', unit: 'GFLOP/s', higher: true, get: stress('all_cores') },
-    { id: 's_cc', group: 'stress', name: 'Each core in turn', title: 'Each core in turn (core cycling)', sub: 'The slowest core', unit: 'GFLOP/s', higher: true, get: stress('each_core') },
+    { id: 's_cc', group: 'stress', name: 'Each core in turn', title: 'Each core in turn (core cycling)', sub: 'The median core', unit: 'GFLOP/s', higher: true, get: stress('each_core') },
     { id: 's_mem', group: 'stress', name: 'Memory', title: 'Memory under stress', sub: 'Speed in the 10th minute', unit: 'GB/s', higher: true, get: stress('memory') },
 ];
 

@@ -52,8 +52,10 @@ benchmark:
 - Its CPU load is Vector maths, wide fused multiply-adds: the hottest load a
   processor gets. *Each core in turn* runs it on one physical core at a time,
   moving on every 20 s (core cycling; the first 5 s of each visit are not scored), so every core reaches its own
-  single-core boost, where per-core instability shows; its score is the
-  slowest core.
+  single-core boost, where per-core instability shows. Its score is the
+  median core, with the slowest core reported beside it: the slowest of many
+  cores reads low by their measurement noise alone, more so the more cores a
+  processor has, so it would mark processors down for their core count.
 - The memory part is a memory test: about three quarters of the free memory,
   checked word by word with four patterns in turn.
 - Every job is checked against the result a correct machine produces (known in

@@ -5,7 +5,7 @@
  *   one core     vector maths (K12: AVX-512, AVX2 or NEON fused multiply-adds, the hottest load) on one CPU of
  *                the fastest core type
  *   all cores    vector maths on every CPU
- *   each core    vector maths on one core at a time, moving to the next physical core every 10 s and around again
+ *   each core    vector maths on one core at a time, moving to the next physical core every 20 s and around again
  *                (OCCT's core cycling): each core at its single-core boost, where per-core instability shows
  *   memory       K11 on every CPU: about three quarters of the free memory written and checked over and over,
  *                with four patterns in turn (a memory test, and its bandwidth)
