@@ -32,7 +32,8 @@ also recomputes the scaling and the ratios from the merged samples. The runs
 may be partial (a few tests each, as when the app runs one test): the merge
 covers every test any of them has. The `intel-i9-14900k`, `intel-i9-10900k-es`
 and `amd-ryzen5-7500f` references are each the best of two full runs, `apple-m2-macos`
-the best of three;
+the best of three, with its compile tests replaced by 0.6.2 runs timed with the packages' compiler
+(`tools/merge-best.py --replace K1,K1x OUT REFERENCE RUN...`);
 `intel-i9-14900k-linux` is assembled from 14 runs of a few tests each
 (`merged_from` lists their run IDs). `amd-ryzen7-8845hs` is its full run with the
 Simulation solver added from a later run of that test alone.
