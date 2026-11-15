@@ -36,8 +36,36 @@ jobs:
       - run: python3 tools/site_data.py site/data.json
         env:
           GITHUB_TOKEN: ${{ github.token }}
-      - uses: actions/upload-pages-artifact@v5
+      - id: upload
+        uses: actions/upload-pages-artifact@v5
         with:
           path: site
+      # Pages names a deployment after its build version and, when the name repeats, keeps serving the earlier one.
+      # deploy-pages names it after the commit, so a release tagged on a commit main had already deployed left the
+      # site on the previous version (0.5.4, 0.6.0). The deployment is made here, named after the commit and the run.
       - id: deployment
-        uses: actions/deploy-pages@v5
+        uses: actions/github-script@v7
+        env:
+          ARTIFACT_ID: ${{ steps.upload.outputs.artifact_id }}
+        with:
+          script: |
+            const version = `${context.sha}-${context.runId}-${process.env.GITHUB_RUN_ATTEMPT}`;
+            const { data: made } = await github.request('POST /repos/{owner}/{repo}/pages/deployments', {
+              ...context.repo,
+              artifact_id: Number(process.env.ARTIFACT_ID),
+              pages_build_version: version,
+              oidc_token: await core.getIDToken(),
+            });
+            core.info(`Pages deployment ${version}`);
+            core.setOutput('page_url', made.page_url);
+            const failed = ['deployment_failed', 'deployment_content_failed', 'deployment_cancelled',
+                            'deployment_lost', 'deployment_perms_error', 'deployment_attempt_error'];
+            for (let i = 0; i < 120; i++) { /* up to 10 minutes */
+              await new Promise((r) => setTimeout(r, 5000));
+              const { data: s } = await github.request('GET /repos/{owner}/{repo}/pages/deployments/{id}', {
+                ...context.repo, id: made.id,
+              });
+              if (s.status === 'succeed') return core.info('Deployed');
+              if (failed.includes(s.status)) return core.setFailed(`Pages deployment: ${s.status}`);
+            }
+            core.setFailed('Pages deployment: no answer in 10 minutes');
