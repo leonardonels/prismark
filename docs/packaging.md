@@ -106,8 +106,9 @@ only if it is signed with the same key, so a lost key means users must
 uninstall the app to get a new version.
 
 Publishing a release rebuilds the site with the new version (`site.yml`). Pages
-keeps serving the deployment already live when a new one has the same name, so
-each deployment is named after its commit and its run, not the commit alone.
+keeps serving the deployment already live when a new one is for the same commit,
+which it is when the tag is on the commit `main` last deployed, so the homepage
+also asks GitHub for the newest release on each visit (`site/data.js`).
 
 ## iOS and iPadOS
 

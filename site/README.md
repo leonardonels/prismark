@@ -41,8 +41,8 @@ pages then have no data.
 
 | Value | Source |
 | --- | --- |
-| `version` | The newest GitHub release that isn't a draft. Betas count, because `/releases/latest` ignores pre-releases and returns 404 while every release is a beta |
-| `downloads` | The address of each package in that release, matched by the end of its file name (`PACKAGES` in `site_data.py`). The build stops if a file is missing, so **renaming or dropping a package means changing `PACKAGES` too** |
+| `version` | The newest GitHub release that isn't a draft (`data.js` also asks GitHub on each visit, and its answer wins when the release has every package: Pages may still serve a build from before the release). Betas count, because `/releases/latest` ignores pre-releases and returns 404 while every release is a beta |
+| `downloads` | The address of each package in that release, matched by the end of its file name (`PACKAGES` in `site_data.py`, and again in `data.js`). The build stops if a file is missing, so **renaming or dropping a package means changing both `PACKAGES`** |
 | `tests` (12) | The different kinds of work in `ITEMS`, `apps/cli/main.c` |
 | `measurements` (23) | The entries in the table in `apps/gui/metrics.cpp` |
 | `references.json` | `references/*.json`, cut down to the fields `compare-data.js` reads |
