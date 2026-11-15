@@ -345,7 +345,7 @@ jobs:
           rpm -qp --requires dist/prismark-*.rpm
           "$d/prismark" --version
           "$d/prismark" tests > /dev/null
-          "$d/prismark" checksums --k1-data "$d/k1x" --tests K1 -o "k1-checksums-linux-${{ matrix.arch }}.json"
+          "$d/prismark" checksums --k1-data "$d/k1x" --tests K1 --burst-only -o "k1-checksums-linux-${{ matrix.arch }}.json"
           cp "$d/tools/prismark-compiler.json" "compiler-linux-${{ matrix.arch }}.json"
           newest=$(find "$d" -path "$d/k1x" -prune -o -type f \( -name '*.so*' -o -perm -u+x \) -print |
             while read -r f; do file -b "$f" | grep -q '^ELF' && objdump -T "$f"; done |
@@ -426,7 +426,7 @@ jobs:
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/prismark" --version
           "$app/Contents/MacOS/prismark" tests > /dev/null
-          "$app/Contents/MacOS/prismark" checksums --k1-data "$app/Contents/Resources/k1x" --tests K1 -o k1-checksums-macos-arm64.json
+          "$app/Contents/MacOS/prismark" checksums --k1-data "$app/Contents/Resources/k1x" --tests K1 --burst-only -o k1-checksums-macos-arm64.json
           cp "$app/Contents/Resources/tools/prismark-compiler.json" compiler-macos-arm64.json
           "$app/Contents/MacOS/prismark" --quick --skip-preflight --max-threads 2 --mode st_burst --kernels K2,K3,K5 -o "$RUNNER_TEMP/smoke.json"
           "$app/Contents/Resources/tools/bin/clang++-19" --version
@@ -511,7 +511,8 @@ jobs:
         run: python3 tools/ci/compare_checksums.py checksums-x86_64.json checksums-aarch64.json
 
   # Gate 3: the compile tests time one compiler build. Every package carries the same compiler id, and Compiling
-  # code gives the same output from the Linux and macOS packages (Windows packages are built only).
+  # code gives the same output from the Linux and macOS packages (Windows packages are built only), checked at
+  # its burst size: a few units, minutes per package instead of half an hour for the whole snapshot.
   compiler-gate:
     needs: [linux-packages, macos-package, windows-portable]
     runs-on: ubuntu-24.04
