@@ -54,6 +54,12 @@ is an ink prism on a paper tile, the light look being the default (`prismark-app
 
 ## Components
 
+- **Title strip.** The window's title bar, 32 px of the ink ground across the top in place of the top seam: where you
+  are in mono capitals (the page brighter, then the test group and the test), and on the right a chip with a volt mark
+  naming the processor and the system. Dragging it moves the window and a double-click maximizes it. The window
+  controls are the desktop's: Apple's red, yellow and green buttons on macOS; flat 46 × 32 minimize, maximize and close
+  on Windows; small square tiles on Linux, as many and in the order the window manager is set to (GNOME shows close
+  only by default). Close turns red under the mouse. The measuring window has the same strip, without maximize.
 - **Side column.** The app's three places, Tests, Results and Device, as blocks down the right edge with labels that
   read bottom to top. The current one is a little taller, with a volt edge.
 - **Segmented tabs.** Square tabs; the current one is a panel with a volt foot, the others recessed. Numbered tabs
@@ -100,4 +106,6 @@ A dialog is a stub torn off the pass: a code, one sentence, two buttons.
 The README's banner and screenshots are in [`docs/images`](images): a dark and a light version of each, shown by
 GitHub to match the reader's theme. Screenshots come from the app itself (`PRISMARK_GUI_SCREENSHOT=file.png
 prismark-gui`, with `QT_QPA_PLATFORM=offscreen`, `PRISMARK_GUI_DARK=0` or `1`, and `PRISMARK_GUI_PAGE=0`, `1` or `2`), at
-1440 × 900.
+1440 × 900. Drawn offscreen they have no title strip. To look at another desktop's strip on a running app,
+`PRISMARK_GUI_TITLEBAR=windows`, `gnome` or `kde` draws it there, with `PRISMARK_GUI_BUTTONS` for a GNOME button layout
+(`close,minimize,maximize:` puts them on the left).

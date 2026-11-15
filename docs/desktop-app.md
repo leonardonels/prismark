@@ -21,6 +21,10 @@ started from the applications menu like any other app.
 
 - Built automatically when Qt Widgets and Svg are found (Qt 6, or Qt 5.15;
   the packages are in [Building](building.md#building)); `-DPRISMARK_GUI=OFF` skips it. Its typefaces (Archivo, Saira and IBM Plex Mono) are fetched at pinned versions and compiled in.
+- **Title bar.** The app draws its own, as a strip across the top of the window (see
+  [Design](design.md#components)). macOS keeps its own window buttons on it; on Windows and Linux the window is
+  frameless, moved by the strip and resized from its edges, with the buttons the desktop shows: on GNOME and KDE
+  Plasma, those of its window manager setting, in its order.
 - **Isolation.** Runs execute in the `prismark` runner next to the app, as a
   separate process. During a run the main window closes and only a small
   measuring window remains, static except when a new phase begins;
