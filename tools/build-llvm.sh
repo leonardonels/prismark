@@ -98,7 +98,7 @@ cmake -S "$LLVM_SRC/runtimes" -B "$WORK/runtimes" -G Ninja "${COMMON[@]}" -DCMAK
   -DLIBCXX_HERMETIC_STATIC_LIBRARY=ON -DLIBCXXABI_HERMETIC_STATIC_LIBRARY=ON -DLIBUNWIND_HIDE_SYMBOLS=ON \
   -DLIBCXX_CXX_ABI=libcxxabi -DLIBCXXABI_USE_LLVM_UNWINDER=$UNWINDER -DLIBCXX_INCLUDE_BENCHMARKS=OFF \
   -DLIBCXX_INCLUDE_TESTS=OFF -DLIBCXXABI_INCLUDE_TESTS=OFF -DLIBUNWIND_INCLUDE_TESTS=OFF \
-  -DLIBCXX_INCLUDE_DOCS=OFF -DLIBUNWIND_INCLUDE_DOCS=OFF "${RT_EXTRA[@]}"
+  -DLIBCXX_INCLUDE_DOCS=OFF -DLIBUNWIND_INCLUDE_DOCS=OFF ${RT_EXTRA[@]+"${RT_EXTRA[@]}"}
 cmake --build "$WORK/runtimes" --target install -j "$(jobs)"
 
 # Every C++ file of the compiler is built against that libc++ and linked with it, nothing else.
@@ -127,7 +127,11 @@ cmake -S "$LLVM_SRC/llvm" -B "$WORK/llvm" -G Ninja "${COMMON[@]}" -DCMAKE_BUILD_
 cmake --build "$WORK/llvm" --target install clang llvm-ar clang-resource-headers -j "$(jobs)"
 EXE=; [ "$TARGET" = windows-x86_64 ] && EXE=.exe
 mkdir -p "$PREFIX/bin" "$PREFIX/lib/clang/19"
-cp "$WORK/llvm/bin/clang-19$EXE" "$WORK/llvm/bin/llvm-ar$EXE" "$PREFIX/bin/"
+# The driver is bin/clang-19 with a clang link on Linux and macOS, but only bin/clang.exe on Windows: copy
+# whichever it is under the one name the packages use. (${A[@]+...} above: macOS's bash 3.2 calls an empty
+# array unbound under set -u.)
+cp "$WORK/llvm/bin/clang$EXE" "$PREFIX/bin/clang-19$EXE"
+cp "$WORK/llvm/bin/llvm-ar$EXE" "$PREFIX/bin/"
 rm -rf "$PREFIX/lib/clang/19/include"
 cp -R "$WORK/llvm/lib/clang/19/include" "$PREFIX/lib/clang/19/"
 
