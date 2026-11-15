@@ -12,6 +12,7 @@
  * PRISMARK_GUI_SCREENSHOT=<file.png> renders the window once, saves it and
  * exits (used to check the layout headless, with QT_QPA_PLATFORM=offscreen);
  * PRISMARK_GUI_PAGE=0|1|2 and PRISMARK_GUI_DARK=0|1 pick the page and theme.
+ * PRISMARK_GUI_TITLEBAR=windows|gnome|kde draws that desktop's title strip (titlebar.h).
  *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */

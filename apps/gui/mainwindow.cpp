@@ -51,6 +51,7 @@
 #include "setup.h"
 #include "stub.h"
 #include "theme.h"
+#include "titlebar.h"
 #include "widgets.h"
 
 namespace {
@@ -325,6 +326,7 @@ MainWindow::MainWindow() {
   advanced_ = s.value("advanced", false).toBool();
   input_ = new InputWatch(this);
   connect(input_, &InputWatch::activity, this, &MainWindow::onInputActivity);
+  ownTitleBar_ = useOwnTitleBar(this);
   buildUi();
   measure_ = buildMeasuringWindow();
   auto shortcut = [this](const QKeySequence &key, auto slot) {
@@ -365,8 +367,17 @@ MainWindow::~MainWindow() {
 void MainWindow::buildUi() {
   auto *page = new QWidget;
   setCentralWidget(page); /* a rebuild, for a new theme: the old page goes with it */
-  auto *outer = new QHBoxLayout(page);
-  outer->setContentsMargins(8, 8, 8, 8);
+  auto *frame = new QVBoxLayout(page);
+  frame->setContentsMargins(0, 0, 0, 0);
+  frame->setSpacing(0);
+  strip_ = nullptr;
+  if (ownTitleBar_) { /* the strip stands for the top seam */
+    strip_ = new TitleStrip;
+    frame->addWidget(strip_);
+  }
+  auto *outer = new QHBoxLayout;
+  frame->addLayout(outer, 1);
+  outer->setContentsMargins(8, strip_ ? 0 : 8, 8, 8);
   outer->setSpacing(8);
   pages_ = new QStackedWidget;
   pages_->addWidget(buildTestsPage());
@@ -380,9 +391,30 @@ void MainWindow::buildUi() {
     page_ = i;
     pages_->setCurrentIndex(i);
     if (i == 0) refreshRanking();
+    refreshStrip();
   });
   side_ = side;
   outer->addWidget(side);
+  refreshStrip();
+}
+
+void MainWindow::refreshStrip() {
+  if (!strip_) return;
+  QStringList path;
+  if (page_ == 0) {
+    path << tr("Tests");
+    for (const Group &g : groups())
+      if (g.id == group_) path << QString(g.label).replace("&&", "&");
+    if (const Metric *m = findMetric(metric_)) path << m->name;
+  } else {
+    path << (page_ == 1 ? tr("Results") : tr("Device"));
+  }
+  strip_->setPath(path);
+  const QJsonObject m = info_["machine"].toObject();
+  const QString cpu = shortCpu(m["cpu"].toObject()["model"].toString());
+  const QString device = cpu.isEmpty() ? QString() : QStringLiteral("%1 · %2").arg(cpu, prettyOs(m["os"].toString()));
+  strip_->setDevice(device);
+  if (measureStrip_) measureStrip_->setDevice(device);
 }
 
 void MainWindow::showPage(int i) {
@@ -390,6 +422,7 @@ void MainWindow::showPage(int i) {
   pages_->setCurrentIndex(i);
   side_->setCurrent(i);
   if (i == 0) refreshRanking();
+  refreshStrip();
 }
 
 /* The chosen theme is the whole window: every label is built with its colours, so it is built again. */
@@ -1078,7 +1111,16 @@ QWidget *MainWindow::buildMeasuringWindow() {
     cancelRun(); /* asks first */
     return false; /* the window closes when the runner has stopped */
   };
-  auto *l = new QVBoxLayout(win);
+  auto *frame = new QVBoxLayout(win);
+  frame->setContentsMargins(0, 0, 0, 0);
+  frame->setSpacing(0);
+  if (useOwnTitleBar(win)) {
+    measureStrip_ = new TitleStrip;
+    measureStrip_->setPath({QStringLiteral("Prismark")});
+    frame->addWidget(measureStrip_);
+  }
+  auto *l = new QVBoxLayout;
+  frame->addLayout(l);
   l->setContentsMargins(36, 32, 36, 28);
   l->setSpacing(10);
   auto *top = new QHBoxLayout;
@@ -1328,6 +1370,7 @@ void MainWindow::refreshRunLabels() {
 }
 
 void MainWindow::refreshRanking() {
+  refreshStrip();
   const Metric *m = findMetric(metric_);
   if (!m) return;
   QSettings().setValue("metric", metric_);

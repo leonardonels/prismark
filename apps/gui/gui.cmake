@@ -66,7 +66,7 @@ if(PRISMARK_DESKTOP AND NOT PRISMARK_GUI STREQUAL "OFF")
 
     add_executable(prismark-gui WIN32 MACOSX_BUNDLE
       apps/gui/main.cpp apps/gui/mainwindow.cpp apps/gui/metrics.cpp apps/gui/references.cpp apps/gui/widgets.cpp
-      apps/gui/theme.cpp apps/gui/setup.cpp apps/gui/inputwatch.cpp apps/gui/stub.cpp ${CMAKE_BINARY_DIR}/generated/prismark-gui.qrc
+      apps/gui/theme.cpp apps/gui/setup.cpp apps/gui/inputwatch.cpp apps/gui/stub.cpp apps/gui/titlebar.cpp ${CMAKE_BINARY_DIR}/generated/prismark-gui.qrc
       ${_win_icon})
     set_target_properties(prismark-gui PROPERTIES AUTOMOC ON AUTORCC ON
       MACOSX_BUNDLE_BUNDLE_NAME Prismark MACOSX_BUNDLE_GUI_IDENTIFIER org.prismark.app
@@ -76,7 +76,10 @@ if(PRISMARK_DESKTOP AND NOT PRISMARK_GUI STREQUAL "OFF")
       PMK_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
     target_link_libraries(prismark-gui PRIVATE Qt${QT_VERSION_MAJOR}::Widgets Qt${QT_VERSION_MAJOR}::Svg)
     if(WIN32)
-      target_link_libraries(prismark-gui PRIVATE shell32) # ShellExecuteEx: restart as administrator
+      target_link_libraries(prismark-gui PRIVATE shell32 dwmapi) # ShellExecuteEx: restart as administrator; DWM: corners
+    endif()
+    if(APPLE)
+      target_link_libraries(prismark-gui PRIVATE "-framework CoreFoundation") # the title bar's double-click setting
     endif()
     if(TARGET Qt${QT_VERSION_MAJOR}::DBus AND UNIX AND NOT APPLE)
       target_link_libraries(prismark-gui PRIVATE Qt${QT_VERSION_MAJOR}::DBus)

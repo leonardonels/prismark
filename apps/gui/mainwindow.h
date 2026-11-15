@@ -32,6 +32,7 @@ class QStackedWidget;
 class QTimer;
 class QVBoxLayout;
 class InputWatch;
+class TitleStrip;
 class RankingView;
 class GroupProgress;
 class RunTicket;
@@ -84,6 +85,7 @@ class MainWindow : public QMainWindow {
   void refresh();
   void refreshTests();
   void refreshRanking();
+  void refreshStrip(); /* the title strip: where you are, and the device */
   void refreshDetails();
   void refreshPass();
   void refreshRuns();
@@ -110,6 +112,8 @@ class MainWindow : public QMainWindow {
   QString group_ = "mc", metric_ = "mc_k2", selected_;
 
   int page_ = 0; /* 0 Tests, 1 Results, 2 Device */
+  bool ownTitleBar_ = false; /* the app draws the title strip (titlebar.h) */
+  TitleStrip *strip_ = nullptr, *measureStrip_ = nullptr;
   QStackedWidget *pages_ = nullptr;
   SideColumn *side_ = nullptr;
   Segmented *groups_ = nullptr;
