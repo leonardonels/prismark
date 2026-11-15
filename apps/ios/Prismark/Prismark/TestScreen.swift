@@ -76,6 +76,26 @@ struct TestDetail: View {
             .padding(.vertical, 16)
             .background(Color.volt)
 
+            let speeds = perThread(test, run.doc)
+            if let slowest = speeds.last {
+                // One thread on each type of core, from the same run of every core.
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(alignment: .firstTextBaseline) {
+                        Text("PER THREAD").font(.mono(12)).foregroundStyle(Color.muted)
+                        Spacer(minLength: 8)
+                        Text(speeds.map { "\($0.type) \(format($0.perThread))" }.joined(separator: " · "))
+                            .font(.mono(12, semibold: true))
+                    }
+                    Text("\(slowest.type) CORES HAD \(Int((slowest.share * 100).rounded())) % OF THE TASK TIME")
+                        .font(.mono(12))
+                        .foregroundStyle(Color.muted)
+                }
+                .padding(.horizontal, 20)
+                .padding(.vertical, 12)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(Color.panel)
+            }
+
             ScrollView {
                 // Not lazy, so the rows slide in with the screen.
                 VStack(spacing: 0) {

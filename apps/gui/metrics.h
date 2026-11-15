@@ -77,6 +77,10 @@ struct RunSummary {
     QString unit;
     struct Clock { QString domain; double mhz; bool idle; };
     QVector<Clock> mhzBy; /* clock per domain (core type, CCX) on machines with several; idle: no thread ran there */
+    /* One thread's speed on a core type (in unit) and the share of the task time that type had (by_core_type);
+       results from before 0.6.0 have none. */
+    struct Speed { QString type; double perThread, share; };
+    QVector<Speed> perType;
   };
   QVector<ColdPt> cold;
   QVector<ScalePt> scaling;

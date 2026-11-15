@@ -273,11 +273,12 @@ void ChartView::paintEvent(QPaintEvent *) {
 
   /* a whole number without decimals (128, not 128.0) */
   auto tick = [](double v) { return v == std::round(v) && std::abs(v) < 1e9 ? QString::number(qint64(v)) : formatValue(v); };
-  QString unit = yUnit_.isEmpty() ? QString() : " " + yUnit_;
   bool legend = lines_.size() > 1;
-  double legendH = legend || ideal_ ? fm.height() + 10 : 4, labelH = fv.height() + 2;
-  double left = 0; /* the unit only on the top line */
-  for (int k = 0; k <= 4; k++) left = std::max(left, double(fm.horizontalAdvance(tick(y0 + (y1 - y0) * k / 4) + (k == 4 ? unit : QString()))));
+  /* The unit stands in the top row, before the legend, not beside the top tick: the axis then keeps one place
+     whatever the unit's length, and charts stacked on the same steps keep their columns in line. */
+  double legendH = legend || ideal_ || !yUnit_.isEmpty() ? fm.height() + 10 : 4, labelH = fv.height() + 2;
+  double left = fm.horizontalAdvance(QStringLiteral("000.0")); /* the same for every usual tick; wider ones push it */
+  for (int k = 0; k <= 4; k++) left = std::max(left, double(fm.horizontalAdvance(tick(y0 + (y1 - y0) * k / 4))));
   left += 12;
   QRectF plot(left, legendH + labelH, width() - left - 4, height() - legendH - labelH - fm.height() * (xLabel_.isEmpty() ? 1 : 2) - 12);
   auto fy = [&](double y) { return plot.bottom() - (std::clamp(y, y0, y1) - y0) / (y1 - y0) * plot.height(); };
@@ -288,7 +289,7 @@ void ChartView::paintEvent(QPaintEvent *) {
     double yv = y0 + (y1 - y0) * k / 4;
     p.setPen(QPen(k ? t.border : t.muted, k ? 1 : 1.5));
     p.drawLine(QPointF(plot.left(), fy(yv)), QPointF(plot.right(), fy(yv)));
-    QString s = tick(yv) + (k == 4 ? unit : QString());
+    QString s = tick(yv);
     p.setPen(t.faint);
     p.drawText(QPointF(plot.left() - fm.horizontalAdvance(s) - 8, fy(yv) + fm.ascent() / 2.6), s);
   }
@@ -364,9 +365,15 @@ void ChartView::paintEvent(QPaintEvent *) {
   if (!xLabel_.isEmpty())
     p.drawText(QRectF(plot.left(), height() - fm.height() - 2, plot.width(), fm.height()), Qt::AlignLeft, xLabel_.toUpper());
 
+  double unitW = 0;
+  if (!yUnit_.isEmpty()) {
+    p.setPen(t.faint);
+    p.drawText(QPointF(0, 2 + fm.ascent()), yUnit_);
+    unitW = fm.horizontalAdvance(yUnit_) + 16;
+  }
   /* legend: only for several lines */
   if (legend) {
-    double lx = plot.left();
+    double lx = std::max(plot.left(), unitW);
     for (int i = 0; i < m; i++) {
       p.setPen(Qt::NoPen);
       p.setBrush(seriesColor(lines_[i].color >= 0 ? lines_[i].color : i));

@@ -420,8 +420,14 @@ bool summarize(const QJsonObject &doc, const QString &file, RunSummary &s) {
     QJsonArray idle = r["idle_domains"].toArray(); /* older results list only the domains in use */
     for (auto it = dom.begin(); it != dom.end(); ++it)
       by.push_back({it.key(), median(it.value().toArray()), idle.contains(it.key())});
+    QVector<RunSummary::LoadPt::Speed> perType;
+    QJsonObject types = r["by_core_type"].toObject();
+    for (auto it = types.begin(); it != types.end(); ++it) {
+      QJsonObject o = it.value().toObject();
+      perType.push_back({it.key(), o["per_thread"].toDouble(NAN), o["time_share"].toDouble(NAN)});
+    }
     s.load.push_back({r["kernel"].toString(), p["threads"].toInt(), median(r["samples"].toArray()),
-                      median(r["mhz"].toArray()), median(r["power_w"].toArray()), r["unit"].toString(), by});
+                      median(r["mhz"].toArray()), median(r["power_w"].toArray()), r["unit"].toString(), by, perType});
   }
   for (const QJsonValue &v : an["ratios"].toArray()) {
     QJsonObject r = v.toObject();

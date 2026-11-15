@@ -1514,6 +1514,8 @@ void MainWindow::refreshContext() {
     ghz.color = 2;
     /* On hybrid and multi-CCX processors, one clock per core type or CCX ("P" first, then by name). */
     QVector<ChartLine> clocks;
+    /* One thread's speed on each core type, where the processor has several and the result records it. */
+    QVector<ChartLine> perThread;
     for (const auto &x : r->load) {
       if (x.kernel != arg) continue;
       perf.unit = x.unit == "Msamples/s" ? tr("M/s") : x.unit;
@@ -1532,15 +1534,48 @@ void MainWindow::refreshContext() {
         }
         if (!d.idle) it->pts.push_back({double(x.n), d.mhz / 1000, NAN, NAN}); /* a domain not running the test: left out */
       }
+      auto typePoint = [&](const QString &type, double v) {
+        auto it = std::find_if(perThread.begin(), perThread.end(), [&](const ChartLine &l) { return l.name == type; });
+        if (it == perThread.end()) {
+          ChartLine l;
+          l.name = type;
+          perThread.push_back(l);
+          it = perThread.end() - 1;
+        }
+        it->pts.push_back({double(x.n), v, NAN, NAN});
+      };
+      for (const auto &d : x.perType) {
+        /* A type that only caught a stray task (under 1 % of the task time) has no speed worth a point. */
+        if (std::isfinite(d.perThread) && d.share >= 0.01) typePoint(d.type, d.perThread);
+      }
+      /* One thread is recorded without a split: its result is the speed of the one type whose clock ran. It keeps
+         the columns above those of the clock strip. */
+      if (x.n == 1 && x.perType.isEmpty() && std::isfinite(x.perf)) {
+        QStringList busy;
+        for (const auto &d : x.mhzBy)
+          if (!d.idle && std::isfinite(d.mhz)) busy << d.domain;
+        if (busy.size() == 1) typePoint(busy[0], x.perf);
+      }
     }
-    std::sort(clocks.begin(), clocks.end(), [](const ChartLine &a, const ChartLine &b) {
+    auto typeOrder = [](const ChartLine &a, const ChartLine &b) {
       return a.name.startsWith('P') != b.name.startsWith('P') ? a.name.startsWith('P') : a.name < b.name;
-    });
+    };
+    std::sort(clocks.begin(), clocks.end(), typeOrder);
     for (int i = 0; i < clocks.size(); i++) {
       clocks[i].color = 2 + i; /* named by its domain alone: the strip is the clock */
     }
     for (ChartLine *l : {&watts, &perf, &ghz}) std::sort(l->pts.begin(), l->pts.end(), byN);
     for (ChartLine &l : clocks) std::sort(l.pts.begin(), l.pts.end(), byN);
+    std::sort(perThread.begin(), perThread.end(), typeOrder);
+    for (int i = 0; i < perThread.size(); i++) {
+      /* The colour of the type's clock in the strip below, so the two read as a pair. */
+      auto it = std::find_if(clocks.begin(), clocks.end(), [&](const ChartLine &l) { return l.name == perThread[i].name; });
+      perThread[i].color = it != clocks.end() ? it->color : 2 + i;
+      std::sort(perThread[i].pts.begin(), perThread[i].pts.end(), byN);
+    }
+    /* Shown for two types or more, and like the clocks only when one of them spans two thread counts. */
+    bool types = perThread.size() >= 2 && std::any_of(perThread.begin(), perThread.end(),
+                                                       [](const ChartLine &l) { return l.pts.size() >= 2; });
     /* A core type that ran at only one thread count is still shown, as one point: efficiency cores join last, so
        with thread counts 1, 2, 4, 8 on 4 P + 4 E cores they run only at 8. The chart needs one line with two. */
     QVector<ChartLine> clockLines;
@@ -1567,17 +1602,21 @@ void MainWindow::refreshContext() {
              (power ? " " + tr("More threads should draw more power until the power limit; from there the clock eases "
                                "off. If the speed-up falls together with the power and the clock, something outside "
                                "the program (a power setting, a charger or dock) is holding the processor back.")
+                    : QString()) +
+             (types ? " " + tr("“Per thread” is the speed of one thread on each type of core while they all work, "
+                               "from the tasks that ran on it; a type appears from the thread count that gives it work.")
                     : QString()));
     if (speedup.pts.size() >= 2) {
       auto *ch = new ChartView;
-      ch->setData({speedup}, power || clock ? QString() : tr("threads"), 0, NAN, true);
-      ch->setYUnit(QStringLiteral("×"));
+      ch->setData({speedup}, power || clock || types ? QString() : tr("threads"), 0, NAN, true);
+      ch->setYUnit(tr("× one thread"));
       ch->setAspect(0.4, 190);
       contextLayout_->addWidget(ch);
     } else {
-      addStrip(contextLayout_, {perf}, perf.unit, power || clock ? QString() : tr("threads"));
+      addStrip(contextLayout_, {perf}, perf.unit, power || clock || types ? QString() : tr("threads"));
     }
-    if (power) addStrip(contextLayout_, {watts}, tr("W"), clock ? QString() : tr("threads"));
+    if (power) addStrip(contextLayout_, {watts}, tr("W"), clock || types ? QString() : tr("threads"));
+    if (types) addStrip(contextLayout_, perThread, tr("%1 per thread").arg(perf.unit), clock ? QString() : tr("threads"));
     if (clock) addStrip(contextLayout_, clockLines, tr("GHz"), tr("threads"));
   } else if (kind == "ratio") {
     ChartLine l = byThreads(arg, QString());

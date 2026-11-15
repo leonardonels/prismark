@@ -64,6 +64,33 @@ private func throughput(_ kernel: String, _ mode: String) -> (Doc) -> Value? {
     }
 }
 
+/// One thread's speed on a core type while every core works, and the share of the task time that type had.
+struct CoreSpeed: Identifiable {
+    let type: String
+    let perThread: Double
+    let share: Double
+    var id: String { type }
+}
+
+/// The all-cores series of a test by core type (by_core_type), fastest type first. Empty on a processor with one
+/// core type, in results from before 0.6.0 and for the other tests. A type that only caught a stray task (under
+/// 1 % of the task time) has no speed worth showing.
+func perThread(_ test: Test, _ d: Doc) -> [CoreSpeed] {
+    guard test.group == "mc" else { return [] }
+    let threads: (Doc) -> Int = { (($0["params"] as? Doc)?["threads"] as? NSNumber)?.intValue ?? 0 }
+    let rows = (d["results"] as? [Doc] ?? []).filter {
+        $0["kernel"] as? String == test.kernel && $0["mode"] as? String == "mc_threaded" && $0["tier"] as? String == "baseline"
+            && ($0["params"] as? Doc)?["purpose"] == nil
+    }
+    guard let row = rows.max(by: { threads($0) < threads($1) }), let types = row["by_core_type"] as? Doc else { return [] }
+    let speeds = types.compactMap { name, value -> CoreSpeed? in
+        let o = value as? Doc
+        let speed = CoreSpeed(type: name, perThread: num(o, "per_thread"), share: num(o, "time_share"))
+        return speed.perThread.isFinite && speed.share >= 0.01 ? speed : nil
+    }
+    return speeds.count >= 2 ? speeds.sorted { $0.perThread > $1.perThread } : []
+}
+
 private func medianOf(_ kernel: String, _ mode: String, start: String? = nil, _ k: Double) -> (Doc) -> Value? {
     { d in
         let row = series(d).first {

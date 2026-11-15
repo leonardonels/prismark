@@ -412,6 +412,9 @@ jobs:
     timeout-minutes: 60
     env:
       NDK_VERSION: "27.2.12479018"
+      # tools/site_data.py reads the latest release from the GitHub API; without a token it shares the
+      # runner's anonymous rate limit and fails with 403.
+      GITHUB_TOKEN: ${{ github.token }}
     steps:
       - uses: actions/checkout@v4
         with:

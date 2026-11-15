@@ -76,6 +76,31 @@ private fun throughput(kernel: String, mode: String): (JSONObject) -> Value? = {
     }
 }
 
+/** One thread's speed on a core type while every core works, and the share of the task time that type had. */
+data class CoreSpeed(val type: String, val perThread: Double, val share: Double)
+
+/**
+ * The all-cores series of a test by core type (by_core_type), fastest type first. Empty on a processor with one
+ * core type, in results from before 0.6.0 and for the other tests. A type that only caught a stray task (under
+ * 1 % of the task time) has no speed worth showing.
+ */
+fun perThread(test: Test, d: JSONObject): List<CoreSpeed> {
+    if (test.group != "mc") return emptyList()
+    val row = d.optJSONArray("results").objects()
+        .filter {
+            val params = it.optJSONObject("params")
+            it.optString("kernel") == test.kernel && it.optString("mode") == "mc_threaded" &&
+                it.optString("tier") == "baseline" && (params == null || !params.has("purpose") || params.isNull("purpose"))
+        }
+        .maxByOrNull { it.optJSONObject("params")?.optInt("threads") ?: 0 }
+    val types = row?.optJSONObject("by_core_type") ?: return emptyList()
+    val speeds = types.keys().asSequence().mapNotNull { name ->
+        val o = types.optJSONObject(name) ?: return@mapNotNull null
+        CoreSpeed(name, o.num("per_thread"), o.num("time_share")).takeIf { it.perThread.isFinite() && it.share >= 0.01 }
+    }.toList()
+    return if (speeds.size >= 2) speeds.sortedByDescending { it.perThread } else emptyList()
+}
+
 private fun medianOf(kernel: String, mode: String, start: String, k: Double): (JSONObject) -> Value? = { d ->
     series(d).firstOrNull {
         it.optString("kernel") == kernel && it.optString("mode") == mode && fast(it) &&
