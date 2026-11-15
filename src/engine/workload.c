@@ -386,11 +386,13 @@ int wl_merge_session(pmk_result *dst, pmk_result *v) {
   dst->clamped += v->clamped;
   if (v->clamped && !(dst->lowest_mhz <= v->lowest_mhz)) dst->lowest_mhz = v->lowest_mhz;
   if (first && !v->clamped) dst->lowest_mhz = NAN;
+  dst->paged_mib = first || isnan(dst->paged_mib) ? v->paged_mib : isnan(v->paged_mib) ? dst->paged_mib : dst->paged_mib + v->paged_mib;
   return PMK_OK;
 }
 
 int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   const pmk_tk *tk = s->tk;
+  r->paged_mib = NAN;
   double win_ms = s->window_ms > 0 ? s->window_ms : wl_window_ms(c, tk), win_s = win_ms / 1e3;
   double measure_s = s->measure_s > 0 ? s->measure_s
                                       : c->cfg.measure_s * (!strcmp(tk->id, "K1") ? SLOW_KERNEL_MEASURE_FACTOR : 1);
@@ -475,8 +477,11 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
     pal_power pw;
     pal_power_start(&pw);
     size_t w = 0;
+    /* Paging over the measured windows: the count at the start of the first one and at the end of the last. */
+    uint64_t paged0 = warm_w == 0 ? pal_paging_bytes() : 0, paged1 = 0;
     for (; rc == PMK_OK && w < total_w; w++) {
       pal_sleep_until_ns(t0_mono + (uint64_t)(w + 1) * sh->win_ns);
+      if (w + 1 == warm_w) paged0 = pal_paging_bytes();
       cpu_of[w] = atomic_load(&sh->cpu0);
       double khz = 0, dkhz[PMK_MAX_CLOCK_DOMAINS] = {0};
       int nk = 0, dn[PMK_MAX_CLOCK_DOMAINS] = {0};
@@ -529,6 +534,8 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
                    (double)total_w * win_s, w + 1 <= warm_w ? "warming up, not scored" : "measuring");
       }
     }
+    paged1 = pal_paging_bytes();
+    r->paged_mib = paged0 && paged1 >= paged0 && w > warm_w ? (double)(paged1 - paged0) / (1 << 20) : NAN;
     atomic_store(&sh->stop, 1);
     for (int i = 0; i < started; i++) pal_thread_join(wk[i].th);
     for (size_t i = 0; i < w && rc != PMK_ERR_NOMEM; i++) {
@@ -580,6 +587,14 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
              "%s n=%d: the platform throttled the CPU to %.0f MHz (below its %.0f MHz minimum) in %d of %zu scored "
              "windows; the score includes it",
              tk->id, s->nthreads, r->lowest_mhz, limit / 0.9, r->clamped, r->n - r->steady_from);
+  /* Paging: the system still compressing or swapping memory during the measurement, to make room for this test or
+     for other programs, takes time from it. Reported, and the score stays as measured. */
+  if (s->warm_only) r->paged_mib = NAN;
+  if (r->paged_mib >= PMK_PAGING_NOTE_MIB)
+    ctx_emit(c, PMK_EV_WARNING, r->mode, tk->id, 0, 0,
+             "%s n=%d: the system paged %.0f MiB of memory during the measurement (compressed or swapped), so the "
+             "score includes waiting for memory",
+             tk->id, s->nthreads, r->paged_mib);
   r->job_ns = sh->job_ns;
   r->checksum = sh->checksum;
   r->checksum_ok = sh->checksum_set && !sh->checksum_bad && !atomic_load(&sh->wrong_tasks);

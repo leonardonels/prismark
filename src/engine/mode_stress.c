@@ -99,6 +99,7 @@ static int merge_visit(pmk_result *dst, pmk_result *v, double offset_s) {
   dst->wrong_tasks += v->wrong_tasks;
   dst->clamped += v->clamped;
   if (v->clamped && !(dst->lowest_mhz <= v->lowest_mhz)) dst->lowest_mhz = v->lowest_mhz;
+  if (!isnan(v->paged_mib)) dst->paged_mib = isnan(dst->paged_mib) ? v->paged_mib : dst->paged_mib + v->paged_mib;
   if (isfinite(v->first_wrong_s) && !isfinite(dst->first_wrong_s)) {
     dst->first_wrong_s = offset_s + v->first_wrong_s;
     dst->first_wrong_cpu = v->first_wrong_cpu;
@@ -148,6 +149,7 @@ static int each_core(pmk_ctx *c, const pmk_tk *tk, void *inst, const int *order,
     r->first_wrong_s = NAN;
     r->first_wrong_cpu = -1;
     r->lowest_mhz = NAN;
+    r->paged_mib = NAN;
     idx[n] = c->nres - 1;
     cores[n++] = cpu->id;
   }

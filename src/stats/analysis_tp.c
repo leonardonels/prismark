@@ -602,6 +602,7 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
       jw_num(w, "perf_ci_rel", (row->perf.hi - row->perf.lo) / 2 / row->perf.est);
       jw_int(w, "clamped_windows", r->clamped);
       jw_num(w, "clamped_lowest_mhz", r->lowest_mhz);
+      jw_num(w, "paged_mib", r->paged_mib);
       jw_num(w, "mhz", steady_median(r, &r->mhz));
       if (r->nclock_dom) {
         jw_obj_begin(w, "mhz_by_domain");

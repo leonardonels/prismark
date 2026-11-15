@@ -77,6 +77,7 @@ typedef struct pmk_result {
   pmk_dvec power;      /* package power over each window in W, NaN if unknown */
   int clamped;         /* measured windows below the platform-clamp threshold (see wl_sustained) */
   double lowest_mhz;   /* lowest window clock among them, NaN if none */
+  double paged_mib;    /* MiB the system paged (compressed, swapped) during the measured windows; NaN if unknown */
   pmk_dvec job_ns;     /* duration of each complete job */
   double job_work;     /* work units per job (burst series), for throughput = work / time */
   double work_fraction; /* K1x: share of the whole snapshot's compile work its build covers (0 = unknown) */
@@ -185,6 +186,8 @@ int ctx_thread_steps(const pmk_ctx *c, int *out, int max);
 /* Clang at -O2 on the snapshot's largest unit peaks at 375 MB (median 164 MB; measured per unit, Clang 19); K1
    measured 436 MB on one thread and 719 MB on two. K1 and K1x plan 450 MB per thread: 3.6 GB at 8 threads. */
 #define PMK_COMPILE_MEM_PER_THREAD (450ull << 20)
+/* Paging during a measurement above this many MiB is reported with the series (wl_sustained). */
+#define PMK_PAGING_NOTE_MIB 256
 /* K13: its matrix and vectors (0.7 GiB), with room to spare. */
 #define PMK_SOLVER_MEM (1ull << 30)
 /* K1 measures this many times cfg.measure_s: one job is a whole translation unit. */

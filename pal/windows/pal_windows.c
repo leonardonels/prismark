@@ -368,6 +368,9 @@ uint64_t pal_mem_available(void) {
   return GlobalMemoryStatusEx(&ms) ? (uint64_t)ms.ullAvailPhys : 0;
 }
 
+/* Not measured on Windows yet: 0, so no measurement is flagged for paging. */
+uint64_t pal_paging_bytes(void) { return 0; }
+
 int64_t pal_input_idle_ms(void) {
   LASTINPUTINFO li = {sizeof li, 0};
   if (!GetLastInputInfo(&li)) return -1;

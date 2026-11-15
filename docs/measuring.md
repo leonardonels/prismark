@@ -134,7 +134,10 @@ against ARM64).
   clock of the CPUs in use: windows below the CPU's own hardware minimum (or
   15 % of its maximum where that is unknown) are throttling forced from
   outside the processor, such as laptop firmware asserting BD PROCHOT. They
-  are counted and reported ("throttled"), and the score keeps them. Measured on a 4-core laptop,
+  are counted and reported ("throttled"), and the score keeps them. The memory the
+  system pages during the measured windows (compressed or swapped, macOS and
+  Linux) is recorded too (`paged_mib`); above 256 MiB the series is reported as
+  including waiting for memory, and the score keeps it. Measured on a 4-core laptop,
   60 s covers the turbo budget (about 28 s on Intel laptops) and the thermal
   time constant (2–20 s). Short tasks, responsiveness, memory and timer
   tests have no warm-up.
@@ -147,3 +150,7 @@ against ARM64).
   idle-state configuration, temperature and idle power. Prismark never
   changes any of it: every test measures the machine as it is configured.
 - Tests that a platform cannot execute are listed as unavailable, not estimated.
+  A thread count or test that would not fit in memory is listed as unavailable
+  too, against what the system says is free: on macOS its own free level, which
+  counts the memory it can compress or swap out of other programs; on iOS what
+  the app may still use before the system ends it.

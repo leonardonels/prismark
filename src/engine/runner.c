@@ -566,6 +566,7 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
     jw_obj_end(w);
     jw_int(w, "clamped_windows", r->clamped);
     jw_num(w, "clamped_lowest_mhz", r->lowest_mhz);
+    jw_num(w, "paged_mib", r->paged_mib);
   }
   if (r->input_hash) {
     hex64(hx, r->input_hash);

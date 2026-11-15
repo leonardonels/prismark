@@ -177,6 +177,7 @@ static long sustained_result(pmk_ctx *c, const char *mode, const pmk_tk *tk, int
   r->type = type;
   r->cpu = nthreads == 1 ? cpus[0] : -1;
   r->lowest_mhz = NAN;
+  r->paged_mib = NAN;
   return (long)(c->nres - 1);
 }
 

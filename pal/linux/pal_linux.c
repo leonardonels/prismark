@@ -572,6 +572,17 @@ uint64_t pal_mem_available(void) {
   fclose(f);
   return (uint64_t)kb * 1024;
 }
+/* Pages swapped in and out since boot (/proc/vmstat), in bytes. */
+uint64_t pal_paging_bytes(void) {
+  FILE *f = fopen("/proc/vmstat", "r");
+  if (!f) return 0;
+  char line[128];
+  unsigned long long v, pages = 0;
+  while (fgets(line, sizeof line, f))
+    if (sscanf(line, "pswpin %llu", &v) == 1 || sscanf(line, "pswpout %llu", &v) == 1) pages += v;
+  fclose(f);
+  return (uint64_t)pages * (uint64_t)sysconf(_SC_PAGESIZE);
+}
 const char *pal_input_source(void) { return NULL; }
 
 int pal_random_bytes(void *p, size_t n) {

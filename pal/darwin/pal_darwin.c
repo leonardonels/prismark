@@ -146,7 +146,7 @@ int pal_init(pmk_machine *m) {
       m->cpus[id].smt = 0;
     }
   }
-  for (; id < n; id++) m->cpus[id] = (pmk_cpu){id, levels - 1, 0, 0, id, 0};
+  for (; id < n; id++) m->cpus[id] = (pmk_cpu){id, levels - 1, 0, 0, id, 0, 0};
   m->llc_bytes = sysctl_u64("hw.l3cachesize", 0);
   if (!m->llc_bytes) m->llc_bytes = sysctl_u64("hw.perflevel0.l2cachesize", sysctl_u64("hw.l2cachesize", 0));
   m->caps.qos_only = 1;
@@ -214,20 +214,39 @@ int pal_set_timer_slack_min(void) {
   return t_kq >= 0 ? 0 : -1;
 }
 
-/* macOS: the pages that are free, or that the system gives up without compressing or swapping (inactive file
-   pages, purgeable memory). 0 means unknown, so no test is limited by it. */
+static int vm_stats(vm_statistics64_data_t *vm, uint64_t *page) {
+  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
+  vm_size_t pg = 0;
+  if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)vm, &count) != KERN_SUCCESS ||
+      host_page_size(mach_host_self(), &pg) != KERN_SUCCESS)
+    return -1;
+  *page = (uint64_t)pg;
+  return 0;
+}
+
+/* macOS: the kernel's own free level (kern.memorystatus_level, the percentage memory_pressure reports as free),
+   which counts what it can still compress or swap out of other programs, as it does when a test asks for memory.
+   Without it, the pages that are free or given up without compressing (inactive, purgeable). 0 means unknown, so
+   no test is limited by it. */
 uint64_t pal_mem_available(void) {
 #if TARGET_OS_IOS
   return os_proc_available_memory(); /* what this app may still use before iOS ends it, not what the device has free */
 #else
+  int level = sysctl_int("kern.memorystatus_level", -1);
+  uint64_t total = sysctl_u64("hw.memsize", 0);
+  if (level >= 0 && level <= 100 && total) return total / 100 * (uint64_t)level;
   vm_statistics64_data_t vm;
-  mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
-  vm_size_t page = 0;
-  if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)&vm, &count) != KERN_SUCCESS ||
-      host_page_size(mach_host_self(), &page) != KERN_SUCCESS)
-    return 0;
-  return ((uint64_t)vm.free_count + (uint64_t)vm.inactive_count + (uint64_t)vm.purgeable_count) * (uint64_t)page;
+  uint64_t page;
+  if (vm_stats(&vm, &page)) return 0;
+  return ((uint64_t)vm.free_count + (uint64_t)vm.inactive_count + (uint64_t)vm.purgeable_count) * page;
 #endif
+}
+/* Pages compressed, swapped in and swapped out since boot, in bytes: the work of making room in memory. */
+uint64_t pal_paging_bytes(void) {
+  vm_statistics64_data_t vm;
+  uint64_t page;
+  if (vm_stats(&vm, &page)) return 0;
+  return ((uint64_t)vm.compressions + (uint64_t)vm.swapins + (uint64_t)vm.swapouts) * page;
 }
 /* The average clock of the CPU's core type since the previous reading (sensors.c): threads are steered to a
    core type, not pinned, so the core a thread ran on is not known, only its type. */
