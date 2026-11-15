@@ -13,6 +13,15 @@
 #include "rng.h"
 
 #define PMK_MAX_CLOCK_DOMAINS 8
+/*
+ * Sessions. A series is not measured in one piece: its repetitions are taken in PMK_SESSIONS sessions, with
+ * the other series of its mode measured in between (the modes go round their tests several times). The tests
+ * are each other's wait, so the run is no longer, and every series is sampled at moments minutes apart: the
+ * spread of its session medians is the spread a second run would show, which repetitions taken back to back
+ * cannot see. Quick runs keep one session.
+ */
+#define PMK_SESSIONS 3
+#define PMK_MAX_SESS 8
 #define PMK_MAX_WRONG_CPUS 64
 
 typedef struct pmk_dvec {
@@ -68,6 +77,11 @@ typedef struct pmk_result {
   pmk_dvec power;      /* package power over each window in W, NaN if unknown */
   int clamped;         /* measured windows below the platform-clamp threshold (see wl_sustained) */
   double lowest_mhz;   /* lowest window clock among them, NaN if none */
+  double paged_mib;    /* MiB the system paged (compressed, swapped) during the measured windows; NaN if unknown */
+  /* Multi-thread series on machines with several core types: the work (in the kernel's unit, pmk_tk.unit_div
+     applied) and the time of the scored tasks that started and ended on a CPU of each type. Work / time is one
+     thread's speed on that type with every other thread of the series running. */
+  double type_work[PMK_MAX_TYPES], type_ns[PMK_MAX_TYPES];
   pmk_dvec job_ns;     /* duration of each complete job */
   double job_work;     /* work units per job (burst series), for throughput = work / time */
   double work_fraction; /* K1x: share of the whole snapshot's compile work its build covers (0 = unknown) */
@@ -80,6 +94,8 @@ typedef struct pmk_result {
   /* K7 latency */
   uint64_t ws_bytes;
   /* data, in repetition order */
+  int nsess;                         /* sessions the samples were taken in, 0 if not recorded */
+  uint32_t sess_start[PMK_MAX_SESS]; /* index of each session's first sample */
   double *samples;
   double *wake;        /* cold burst: deadline -> thread running, ns; else NaN */
   int32_t *observed;   /* CPU read at each repetition or window */
@@ -152,6 +168,18 @@ void ctx_cooldown(pmk_ctx *c, const char *phase);
 
 /* Threads can be placed: pinned to a CPU, or (QoS-only platforms) steered to its core type. */
 static inline int ctx_can_place(const pmk_ctx *c) { return c->m.caps.pinning || c->m.caps.qos_only; }
+/* Core types the single-core modes run once each: one when a CPU is given, and one where threads cannot be
+   placed at all (the series then runs wherever the scheduler puts it; see core.observed). */
+/*
+ * Core types the single-core modes measure. Where placement is only a QoS request (Apple), the performance cores
+ * alone: the one class that sends a thread to the efficiency cores, background, also holds them at about half their
+ * clock (1.2 GHz of 2.4 on an M2), so a series there measured the system's background policy, not the cores. The
+ * efficiency cores are measured in the all-core mode instead, where the scheduler gives them ordinary work at their
+ * full clock (pmk_result.type_work).
+ */
+static inline int ctx_ntypes(const pmk_ctx *c) {
+  return c->cfg.cpu >= 0 || !ctx_can_place(c) || c->m.caps.qos_only ? 1 : c->m.ntypes;
+}
 /* Picks the CPU for single-core work of the given type. */
 int ctx_cpu_for_type(const pmk_ctx *c, int type);
 int ctx_type_of_cpu(const pmk_ctx *c, int cpu);
@@ -171,6 +199,8 @@ int ctx_thread_steps(const pmk_ctx *c, int *out, int max);
 /* Clang at -O2 on the snapshot's largest unit peaks at 375 MB (median 164 MB; measured per unit, Clang 19); K1
    measured 436 MB on one thread and 719 MB on two. K1 and K1x plan 450 MB per thread: 3.6 GB at 8 threads. */
 #define PMK_COMPILE_MEM_PER_THREAD (450ull << 20)
+/* Paging during a measurement above this many MiB is reported with the series (wl_sustained). */
+#define PMK_PAGING_NOTE_MIB 256
 /* K13: its matrix and vectors (0.7 GiB), with room to spare. */
 #define PMK_SOLVER_MEM (1ull << 30)
 /* K1 measures this many times cfg.measure_s: one job is a whole translation unit. */
@@ -179,6 +209,13 @@ int ctx_thread_steps(const pmk_ctx *c, int *out, int max);
 int ctx_memory_allows(pmk_ctx *c, const char *kernel, int n, uint64_t per_thread);
 /* True once the median CI half-width is within 1% or max_reps is reached. */
 int ctx_precise_enough(pmk_ctx *c, const pmk_result *r, int max_reps);
+/* Sessions per series in this run. */
+static inline int ctx_sessions(const pmk_ctx *c) { return c->cfg.quick_inputs ? 1 : PMK_SESSIONS; }
+/* Marks that the samples pushed from here on belong to a new session. */
+void result_session(pmk_result *r);
+/* The same test as ctx_precise_enough for one session of `rounds`: over the samples from index `from` on, with
+   the series' repetition limits shared out between its sessions (at least 8 each, so a session has a median). */
+int ctx_session_done(pmk_ctx *c, const pmk_result *r, size_t from, int rounds, int max_reps);
 void ctx_shuffle(pmk_rng *r, int *v, int n);
 
 /* ---------- throughput-kernel helpers (workload.c) ---------- */
@@ -216,6 +253,9 @@ typedef struct sus_spec {
  * measured window.
  */
 int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r);
+/* Appends one session of a sustained series (v, from wl_sustained) to the series: its scored windows only, as
+   a new session. The series then holds scored windows alone (steady_from 0). */
+int wl_merge_session(pmk_result *dst, pmk_result *v);
 
 /* ---------- modes ---------- */
 

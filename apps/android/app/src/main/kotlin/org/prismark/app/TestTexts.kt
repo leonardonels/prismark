@@ -23,8 +23,8 @@ val testTexts = mapOf(
     "s_cc" to TestText(
         "Each core in turn",
         "Vector maths on a single core at its highest clock, moving to the next core every 10 seconds and around again, so a single weak core shows up.",
-        "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed and clock are recorded every 5 seconds where the system allows it, and every result is checked against the first. The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes keeps its curve but has no score. The score is the slowest core's speed.",
-        "Higher is better, in GFLOP/s: the slowest core's speed.",
+        "Full load without a pause for the length you choose: 10 minutes, 30 minutes, or until you stop it. Speed and clock are recorded every 5 seconds where the system allows it, and every result is checked against the first. The score is the speed in the 10th minute, so runs of any length compare; a run stopped before 10 minutes keeps its curve but has no score. The score is the median core's speed; the slowest core is shown beside it.",
+        "Higher is better, in GFLOP/s: the median core's speed.",
     ),
     "s_mem" to TestText(
         "Memory under stress",

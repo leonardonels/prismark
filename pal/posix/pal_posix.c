@@ -9,9 +9,11 @@
 #include <fcntl.h>
 #include <pthread.h>
 #include <signal.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/mman.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
@@ -72,9 +74,21 @@ void pal_lock_release(pal_lock *l) { pthread_mutex_unlock(&l->m); }
 void pal_lock_wait(pal_lock *l) { pthread_cond_wait(&l->c, &l->m); }
 void pal_lock_broadcast(pal_lock *l) { pthread_cond_broadcast(&l->c); }
 
+/*
+ * The pointer-chase rings. On Linux they are kept on ordinary pages: whether a large allocation gets transparent
+ * huge pages depends on the distribution's setting ("always" on some, "madvise" on others), and with them the
+ * chase skips most page-table walks (measured: 11 % faster at 64 MiB), so the same processor scored by its
+ * distribution. Windows gives ordinary pages as well.
+ */
 void *pal_aligned_alloc(size_t align, size_t n) {
   void *p = NULL;
-  return posix_memalign(&p, align < sizeof(void *) ? sizeof(void *) : align, n ? n : 1) ? NULL : p;
+  if (posix_memalign(&p, align < sizeof(void *) ? sizeof(void *) : align, n ? n : 1)) return NULL;
+#if defined(__linux__) && defined(MADV_NOHUGEPAGE)
+  uintptr_t page = (uintptr_t)sysconf(_SC_PAGESIZE), lo = ((uintptr_t)p + page - 1) & ~(page - 1),
+            hi = ((uintptr_t)p + n) & ~(page - 1);
+  if (hi > lo) madvise((void *)lo, hi - lo, MADV_NOHUGEPAGE);
+#endif
+  return p;
 }
 
 void pal_aligned_free(void *p) { free(p); }

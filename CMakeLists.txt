@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
-project(prismark VERSION 0.5.4 LANGUAGES C)
+project(prismark VERSION 0.6.0 LANGUAGES C)
 
 set(CMAKE_C_STANDARD 11)
 set(CMAKE_C_STANDARD_REQUIRED ON)
@@ -119,7 +119,9 @@ elseif(PRISMARK_PAL STREQUAL "darwin")
   if(IOS)
     set(PRISMARK_PAL_LIBS "")
   else()
-    set(PRISMARK_PAL_LIBS "-framework CoreGraphics" "-framework CoreFoundation" "-framework IOKit")
+    # Foundation: NSProcessInfo, for Low Power Mode in the recorded machine state.
+    set(PRISMARK_PAL_LIBS "-framework CoreGraphics" "-framework CoreFoundation" "-framework IOKit"
+      "-framework Foundation")
   endif()
 else()
   set(PRISMARK_PAL_SOURCES pal/windows/pal_windows.c)

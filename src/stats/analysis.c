@@ -22,6 +22,7 @@ typedef struct cb_row { /* one (core type, W) point of the responsiveness curve 
   const pmk_result *wr, *cr;
   pmk_ci tw, tc, rr;
   double wake_med;
+  double tc_p90, tc_p99; /* the slow starts: a median hides a deep idle state that only some wake-ups meet */
 } cb_row;
 
 typedef struct pd_row {
@@ -92,6 +93,8 @@ void analysis_compute(pmk_ctx *c) {
       row->tc = pmk_boot_median(cr->samples, cr->n, PMK_BOOT_B, &c->stat_rng);
       row->rr = pmk_boot_median_ratio(wr->samples, wr->n, cr->samples, cr->n, PMK_BOOT_B, &c->stat_rng);
       row->wake_med = pmk_median(cr->wake, cr->n);
+      row->tc_p90 = pmk_quantile(cr->samples, cr->n, 0.90);
+      row->tc_p99 = pmk_quantile(cr->samples, cr->n, 0.99);
     }
   }
 
@@ -169,6 +172,9 @@ void analysis_json(pmk_ctx *c, pmk_jw *w, const char *key) {
     ci_json(w, "t_cold_ns", r->tc);
     jw_num(w, "t_warm_ci_rel", rel_halfwidth(r->tw));
     jw_num(w, "t_cold_ci_rel", rel_halfwidth(r->tc));
+    jw_num(w, "t_cold_p90_ns", r->tc_p90);
+    jw_num(w, "t_cold_p99_ns", r->tc_p99);
+    jw_bool(w, "t_cold_p99_reliable", r->cr->n >= 1000);
     jw_num(w, "wake_ns_median", r->wake_med);
     ci_json(w, "R_resp", r->rr);
     jw_obj_end(w);
@@ -233,13 +239,13 @@ char *analysis_text(pmk_ctx *c, const char *run_id, const char *note) {
     if (isfinite(cal->cycles_spread_rel)) buf_printf(&b, ", spread %.2f%%", cal->cycles_spread_rel * 100);
     buf_printf(&b, "), %.0f MHz\n", cal->implied_mhz);
 
-    buf_printf(&b, "  %8s  %10s  %10s  %10s  %6s  %-22s\n", "W", "t_warm", "t_cold", "wake", "n", "R_resp [95% CI]");
+    buf_printf(&b, "  %8s  %10s  %10s  %10s  %10s  %6s  %-22s\n", "W", "t_warm", "t_cold", "cold p90", "wake", "n", "R_resp [95% CI]");
     for (size_t i = 0; i < a->ncb; i++) {
       const cb_row *r = &a->cb[i];
       if (r->type != t) continue;
-      buf_printf(&b, "  %6g ms  %10s  %10s  %10s  %6zu  %.3f [%.3f, %.3f]\n", r->w_ms, fmt_ns(x, sizeof x, r->tw.est),
-                 fmt_ns(y, sizeof y, r->tc.est), fmt_ns(z, sizeof z, r->wake_med), r->cr->n, r->rr.est, r->rr.lo,
-                 r->rr.hi);
+      buf_printf(&b, "  %6g ms  %10s  %10s  %10s  %10s  %6zu  %.3f [%.3f, %.3f]\n", r->w_ms, fmt_ns(x, sizeof x, r->tw.est),
+                 fmt_ns(y, sizeof y, r->tc.est), fmt_ns(u, sizeof u, r->tc_p90), fmt_ns(z, sizeof z, r->wake_med),
+                 r->cr->n, r->rr.est, r->rr.lo, r->rr.hi);
     }
   }
 

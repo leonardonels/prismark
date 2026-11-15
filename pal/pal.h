@@ -122,9 +122,16 @@ void pal_aligned_free(void *p);
 int pal_run(const char *const *argv, const char *cwd, const char *log_path, int (*cancelled)(void));
 /*
  * Memory a new allocation can get without swapping, in bytes (Linux: MemAvailable, after returning the
- * process's own unused heap to the OS); 0 when the OS does not say.
+ * process's own unused heap to the OS; macOS: the kernel's own free level, which counts what it can compress;
+ * iOS: what this app may still use); 0 when the OS does not say.
  */
 uint64_t pal_mem_available(void);
+/*
+ * Bytes the system has moved to make room in memory since boot (macOS: pages compressed, swapped in and out;
+ * Linux: swapped in and out), a running count: the difference over a measurement is the paging it overlapped.
+ * 0 when the OS does not say.
+ */
+uint64_t pal_paging_bytes(void);
 /* Current clock of a CPU in kHz as the OS reports it (averaged over a short interval); 0 if unknown. */
 int pal_cpu_cur_khz(int cpu);
 /* A scratch directory for build trees, RAM-backed where the OS has one; 0 on success. */

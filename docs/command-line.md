@@ -88,8 +88,14 @@ Either side may be a reference system from [`references/`](../references/README.
 its file name; placeholders are labelled as such. `references add RUN NAME`
 (or Past runs in the menu) saves one of your runs there, and the desktop app
 shows it in its rankings. `--detail` compares every
-measured series instead, and needs two measured results. It refuses runs
-measured under different capabilities, and reports a
+measured series instead, and needs two measured results. It pairs series
+that ran alike: pinned threads, threads steered to one core type by a QoS
+class (macOS) and threads that keep every CPU busy compare with each other;
+efficiency cores at background priority and threads left to the scheduler on
+part of the machine compare only with a series placed the same way. The
+wake-up test compares only between runs that both had, or both lacked, a cycle
+counter. Across two operating systems it shows the wake-up test and the timers
+without judging them. It reports a
 profile only when every kernel it names exists in both runs.
 
 A run first measures background load for 5 seconds. Above 5% of all CPUs it warns

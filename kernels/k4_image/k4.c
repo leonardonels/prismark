@@ -3,6 +3,10 @@
  * stb_image (its SSE2/NEON paths disabled: STBI_NO_SIMD) and downscales it to
  * 60 % with a separable triangle filter written here.
  *
+ * The decoder's memory (the decoded image, 6 MB at 1920 x 1080, and its work buffers) comes from a buffer kept
+ * per thread, not from malloc: a fresh block of that size is new pages from the operating system on every job,
+ * and the time to map and clear them differs more between systems than between processors.
+ *
  * The JPEGs are produced at create() time: a procedural image is encoded with
  * stb_image_write at a fixed quality, so no third-party images are shipped.
  *
@@ -13,6 +17,14 @@
 
 #include "kernels.h"
 #include "rng.h"
+
+/* stb_image's allocator: a bump allocator over the calling thread's buffer (see k4_task); nothing is freed
+   singly, the buffer is reused whole by the next task. A request that does not fit fails, as malloc can. */
+static void *k4_alloc(size_t n);
+static void *k4_realloc(void *p, size_t oldn, size_t n);
+#define STBI_MALLOC(n) k4_alloc(n)
+#define STBI_REALLOC_SIZED(p, oldn, n) k4_realloc(p, oldn, n)
+#define STBI_FREE(p) ((void)(p))
 
 #define STBI_NO_SIMD
 #define STBI_ONLY_JPEG
@@ -55,7 +67,26 @@ typedef struct scratch {
   float *row;     /* horizontally filtered rows */
   unsigned char *out;
   size_t row_cap, out_cap;
+  unsigned char *arena; /* the decoder's memory for one task */
+  size_t arena_cap, arena_used;
 } scratch;
+
+static _Thread_local scratch *t_scratch; /* the scratch of the task this thread is running */
+
+static void *k4_alloc(size_t n) {
+  scratch *sc = t_scratch;
+  n = (n + 15) & ~(size_t)15;
+  if (!sc || n > sc->arena_cap - sc->arena_used) return NULL;
+  void *p = sc->arena + sc->arena_used;
+  sc->arena_used += n;
+  return p;
+}
+
+static void *k4_realloc(void *p, size_t oldn, size_t n) {
+  void *q = k4_alloc(n);
+  if (q && p) memcpy(q, p, oldn < n ? oldn : n);
+  return q;
+}
 
 /* ---------- procedural source image ---------- */
 
@@ -154,8 +185,20 @@ static uint64_t k4_task_work(const void *p, size_t i) {
 }
 
 static void *k4_scratch_new(const void *p) {
-  (void)p;
-  return calloc(1, sizeof(scratch));
+  const k4 *s = p;
+  scratch *sc = calloc(1, sizeof *sc);
+  if (!sc) return NULL;
+  /* The decoded image (3 bytes a pixel), the decoder's planes (up to 3 more) and its line buffers. */
+  for (size_t i = 0; i < s->n; i++) {
+    size_t need = (size_t)s->img[i].w * (size_t)s->img[i].h * 8 + ((size_t)1 << 20);
+    if (need > sc->arena_cap) sc->arena_cap = need;
+  }
+  sc->arena = malloc(sc->arena_cap);
+  if (!sc->arena) {
+    free(sc);
+    return NULL;
+  }
+  return sc;
 }
 
 static void k4_scratch_free(void *p) {
@@ -163,6 +206,7 @@ static void k4_scratch_free(void *p) {
   if (!sc) return;
   free(sc->row);
   free(sc->out);
+  free(sc->arena);
   free(sc);
 }
 
@@ -234,12 +278,14 @@ static uint64_t k4_task(const void *p, void *sp, size_t i) {
   const jpeg *j = &((const k4 *)p)->img[i];
   scratch *sc = sp;
   int w, h, comp;
+  t_scratch = sc;
+  sc->arena_used = 0;
   unsigned char *px = stbi_load_from_memory(j->data, (int)j->len, &w, &h, &comp, 3);
+  t_scratch = NULL;
   if (!px) return 0;
   int ow = w * SCALE_NUM / SCALE_DEN, oh = h * SCALE_NUM / SCALE_DEN;
   resize(sc, px, w, h, ow, oh);
-  uint64_t hsh = pmk_hash_bytes(px, (size_t)w * (size_t)h * 3, 4);
-  stbi_image_free(px);
+  uint64_t hsh = pmk_hash_bytes(px, (size_t)w * (size_t)h * 3, 4); /* px is the thread's buffer: nothing to free */
   return sc->out ? pmk_hash_bytes(sc->out, (size_t)ow * (size_t)oh * 3, hsh) : 0;
 }
 

@@ -5,7 +5,7 @@
  *   one core     vector maths (K12: AVX-512, AVX2 or NEON fused multiply-adds, the hottest load) on one CPU of
  *                the fastest core type
  *   all cores    vector maths on every CPU
- *   each core    vector maths on one core at a time, moving to the next physical core every 10 s and around again
+ *   each core    vector maths on one core at a time, moving to the next physical core every 20 s and around again
  *                (OCCT's core cycling): each core at its single-core boost, where per-core instability shows
  *   memory       K11 on every CPU: about three quarters of the free memory written and checked over and over,
  *                with four patterns in turn (a memory test, and its bandwidth)
@@ -70,13 +70,17 @@ double mode_stress_est(const pmk_ctx *c) {
 }
 
 /* Core cycling: seconds on each core per visit. */
-#define CYCLE_S 10.0
+#define CYCLE_S 20.0
 
 /* Appends a visit's windows and checks to a core's series; offset_s is when the visit began in the part. */
 static int merge_visit(pmk_result *dst, pmk_result *v, double offset_s) {
-  for (size_t i = 0; i < v->n; i++)
+  /* A visit's first window holds its start (the thread starting, the clock rising to this core's boost): with a
+     few windows per visit it would be a large share of a core's samples, so it is run but not kept. The core's
+     time (elapsed_s) counts it. */
+  size_t from = v->n > 1 ? 1 : 0;
+  for (size_t i = from; i < v->n; i++)
     if (result_push(dst, v->samples[i], NAN, v->observed[i])) return PMK_ERR_NOMEM;
-  for (size_t i = 0; i < v->temps.n; i++)
+  for (size_t i = from; i < v->temps.n; i++)
     if (dvec_push(&dst->temps, v->temps.v[i]) || dvec_push(&dst->mhz, i < v->mhz.n ? v->mhz.v[i] : 0) ||
         dvec_push(&dst->power, i < v->power.n ? v->power.v[i] : NAN))
       return PMK_ERR_NOMEM;
@@ -89,12 +93,13 @@ static int merge_visit(pmk_result *dst, pmk_result *v, double offset_s) {
   dst->elapsed_s += v->elapsed_s;
   dst->input_hash = v->input_hash;
   dst->checksum = v->checksum;
-  dst->checksum_ok = (dst->checksum_ok || dst->n == v->n) && v->checksum_ok;
+  dst->checksum_ok = (dst->checksum_ok || dst->elapsed_s == v->elapsed_s) && v->checksum_ok; /* the first visit sets it */
   dst->isa = v->isa;
   dst->errors += v->errors;
   dst->wrong_tasks += v->wrong_tasks;
   dst->clamped += v->clamped;
   if (v->clamped && !(dst->lowest_mhz <= v->lowest_mhz)) dst->lowest_mhz = v->lowest_mhz;
+  if (!isnan(v->paged_mib)) dst->paged_mib = isnan(dst->paged_mib) ? v->paged_mib : dst->paged_mib + v->paged_mib;
   if (isfinite(v->first_wrong_s) && !isfinite(dst->first_wrong_s)) {
     dst->first_wrong_s = offset_s + v->first_wrong_s;
     dst->first_wrong_cpu = v->first_wrong_cpu;
@@ -144,6 +149,7 @@ static int each_core(pmk_ctx *c, const pmk_tk *tk, void *inst, const int *order,
     r->first_wrong_s = NAN;
     r->first_wrong_cpu = -1;
     r->lowest_mhz = NAN;
+    r->paged_mib = NAN;
     idx[n] = c->nres - 1;
     cores[n++] = cpu->id;
   }

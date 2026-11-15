@@ -4,10 +4,16 @@
  * from source and runs it: the short launch burst of an embedded scripting
  * runtime. The script returns an integer, which is the task checksum.
  *
+ * Lua's memory comes from an arena of this file (one per thread, reset for every task), not from the C library:
+ * the interpreter allocates and frees thousands of small blocks per run, and with malloc the result followed
+ * the operating system's allocator more than the processor (the same laptop took 1.6 times longer under
+ * Windows than under Linux).
+ *
  * Copyright 2026 The Prismark Authors. Apache-2.0.
  */
 #include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 
 #include "kernels.h"
 #include "lauxlib.h"
@@ -69,6 +75,80 @@ typedef struct k6 {
   size_t runs;
 } k6;
 
+/*
+ * The arena: blocks are cut from one buffer and, when freed, kept in a list per size class for reuse. Classes
+ * are multiples of 16 bytes up to 512, then powers of two. Lua passes a block's size when it frees or resizes
+ * it, so blocks carry no header. The arena is far larger than the script needs, and a
+ * request it cannot meet fails like a failed malloc (the task then returns 0, a wrong checksum).
+ */
+#define K6_ARENA ((size_t)32 << 20)
+#define K6_SMALL 512
+#define K6_CLASSES (K6_SMALL / 16 + 40)
+
+typedef struct arena {
+  unsigned char *base;
+  size_t used;
+  void *free_list[K6_CLASSES];
+} arena;
+
+static size_t size_class(size_t n, size_t *rounded) {
+  if (n <= K6_SMALL) {
+    size_t c = n ? (n - 1) / 16 : 0;
+    *rounded = (c + 1) * 16;
+    return c;
+  }
+  size_t c = K6_SMALL / 16, sz = K6_SMALL * 2;
+  while (sz < n) sz *= 2, c++;
+  *rounded = sz;
+  return c;
+}
+
+static void *arena_alloc(void *ud, void *ptr, size_t osize, size_t nsize) {
+  arena *a = ud;
+  size_t orounded = 0, nrounded = 0, oc = ptr ? size_class(osize, &orounded) : 0;
+  if (nsize == 0) {
+    if (ptr) {
+      *(void **)ptr = a->free_list[oc];
+      a->free_list[oc] = ptr;
+    }
+    return NULL;
+  }
+  size_t nc = size_class(nsize, &nrounded);
+  if (ptr && nc == oc) return ptr;
+  if (nc >= K6_CLASSES) return NULL;
+  void *p = a->free_list[nc];
+  if (p) {
+    a->free_list[nc] = *(void **)p;
+  } else {
+    if (nrounded > K6_ARENA - a->used) return NULL;
+    p = a->base + a->used;
+    a->used += nrounded;
+  }
+  if (ptr) {
+    memcpy(p, ptr, osize < nsize ? osize : nsize);
+    *(void **)ptr = a->free_list[oc];
+    a->free_list[oc] = ptr;
+  }
+  return p;
+}
+
+static void *k6_scratch_new(const void *p) {
+  (void)p;
+  arena *a = calloc(1, sizeof *a);
+  if (a && !(a->base = malloc(K6_ARENA))) {
+    free(a);
+    a = NULL;
+  }
+  return a;
+}
+
+static void k6_scratch_free(void *p) {
+  arena *a = p;
+  if (!a) return;
+  free(a->base);
+  free(a);
+}
+
 static void *k6_create(const pmk_tk_args *a) {
   k6 *s = malloc(sizeof *s);
   if (!s) {
@@ -93,8 +173,10 @@ static const luaL_Reg LIBS[] = {{LUA_GNAME, luaopen_base},          {LUA_COLIBNA
 
 static uint64_t k6_task(const void *p, void *sp, size_t i) {
   (void)p;
-  (void)sp;
-  lua_State *L = luaL_newstate();
+  arena *a = sp;
+  a->used = 0;
+  memset(a->free_list, 0, sizeof a->free_list);
+  lua_State *L = lua_newstate(arena_alloc, a);
   if (!L) return 0;
   for (const luaL_Reg *lib = LIBS; lib->func; lib++) {
     luaL_requiref(L, lib->name, lib->func, 1);
@@ -122,6 +204,8 @@ const pmk_tk PMK_SYM(pmk_k6_tk) = {
     .destroy = free,
     .ntasks = k6_ntasks,
     .task_work = k6_task_work,
+    .scratch_new = k6_scratch_new,
+    .scratch_free = k6_scratch_free,
     .task = k6_task,
     .input_hash = k6_input_hash,
 };

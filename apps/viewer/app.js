@@ -73,7 +73,9 @@ function k7(nPick) {
   return (d) => {
     const rows = series(d).filter((r) => r.kernel === 'K7');
     if (!rows.length) return null;
-    const ws = Math.max(...rows.map((r) => r.working_set_bytes));
+    // the same 256 MiB on every machine; results from before it was measured keep their largest set
+    const sizes = rows.map((r) => r.working_set_bytes);
+    const ws = sizes.includes(268435456) ? 268435456 : Math.max(...sizes);
     const at = rows.filter((r) => r.working_set_bytes === ws);
     const r = nPick === 'max' ? largestN(at) : at.find((x) => x.n === 1);
     return r ? ci(r.median) : null;
@@ -146,8 +148,8 @@ const METRICS = [
     desc: 'One core at full load for 10 minutes or more; speed in the 10th minute.', get: stress('one_core') },
   { id: 's_mc', group: 'stress', name: 'K12 vector, all cores', sub: 'stress · 10th minute', unit: 'GFLOP/s', better: 'higher',
     desc: 'Every CPU at full load for 10 minutes or more; speed in the 10th minute.', get: stress('all_cores') },
-  { id: 's_cc', group: 'stress', name: 'K12 vector, each core in turn', sub: 'stress · slowest core', unit: 'GFLOP/s', better: 'higher',
-    desc: 'One physical core at a time, 10 s each, around and around; the slowest core.', get: stress('each_core') },
+  { id: 's_cc', group: 'stress', name: 'K12 vector, each core in turn', sub: 'stress · median core', unit: 'GFLOP/s', better: 'higher',
+    desc: 'One physical core at a time, 20 s each, around and around; the median core, the slowest beside it.', get: stress('each_core') },
   { id: 's_mem', group: 'stress', name: 'K11 memory bandwidth', sub: 'stress · 10th minute', unit: 'GB/s', better: 'higher',
     desc: '2 GiB written and checked on every CPU; bandwidth in the 10th minute.', get: stress('memory') },
 

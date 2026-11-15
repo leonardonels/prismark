@@ -84,6 +84,9 @@ std::function<std::optional<Value>(const QJsonObject &)> k7(bool all) {
     if (rows.isEmpty()) return std::nullopt;
     double ws = 0;
     for (const auto &r : rows) ws = std::max(ws, r["working_set_bytes"].toDouble());
+    /* The same 256 MiB on every machine (headline.c); results from before it was measured keep their largest. */
+    for (const auto &r : rows)
+      if (r["working_set_bytes"].toDouble() == 268435456.0) ws = 268435456.0;
     QVector<QJsonObject> at;
     for (const auto &r : rows)
       if (r["working_set_bytes"].toDouble() == ws) at.push_back(r);
@@ -326,12 +329,12 @@ const QVector<Metric> &metrics() {
        stress("all_cores")},
       {"s_cc", "stress", "Each core in turn", "Each core in turn (core cycling)",
        "One core at a time, every core in turn", "GFLOP/s",
-       "Vector maths on a single core at its highest boost clock, moving to the next physical core every 10 seconds "
+       "Vector maths on a single core at its highest boost clock, moving to the next physical core every 20 seconds "
        "and around again. Each core reaches its own top clock only when it runs alone, so this is where a single "
        "weak or degraded core, or a too aggressive per-core tuning (such as AMD's Curve Optimizer), shows up.",
-       kStressHow + " The score is the slowest core's speed.",
-       "Higher is better, in GFLOP/s: the slowest core's speed. The test page lists every core, and any core that "
-       "computed a wrong result.",
+       kStressHow + " The score is the median core's speed; the slowest core is shown beside it.",
+       "Higher is better, in GFLOP/s: the median core's speed. The test page lists every core, the slowest one, and "
+       "any core that computed a wrong result.",
        "stress:each_core", true, {"stress"}, "K12", stress("each_core")},
       {"s_mem", "stress", "Memory", "Memory under stress", "Most of the free memory, tested on every core", "GB/s",
        "A memory test: every core writes about three quarters of the free memory and checks every word on the next "
@@ -487,9 +490,9 @@ QString plainKernel(const QString &kernel, const QString &variant) {
   static const QMap<QString, QString> names = {
       {"K1", "Compiling code"},    {"K1x", "Full software build"}, {"K2", "3D rendering"},
       {"K3", "Compression"},       {"K4", "Opening a photo"},     {"K5", "Reading JSON"},
-      {"K6", "Starting a script"}, {"K7", "Memory delay"},        {"K8", "Matrix maths"},
-      {"K9", "Wake-up test"},      {"K10", "Timer punctuality"},   {"K11", "Memory bandwidth"},
-      {"K12", "Vector maths"},     {"K13", "Simulation solver"}};
+      {"K6", "Starting a script"}, {"K7", "Memory delay"},        {"K9", "Wake-up test"},
+      {"K10", "Timer punctuality"}, {"K11", "Memory bandwidth"},  {"K12", "Vector maths"},
+      {"K13", "Simulation solver"}};
   QString n = names.value(kernel, kernel);
   if (variant == "fp32") n += ", decimals";
   else if (variant == "int8") n += ", small integers";
@@ -510,8 +513,7 @@ QString plainMode(const QString &mode) {
 QString plainRatio(const QString &name) {
   static const QMap<QString, QString> names = {
       {"R_build", "Full build vs. in-memory compile"},
-      {"R_resp", "Speed from rest vs. busy"},
-      {"U_ISA", "Gain from newest instructions"}};
+      {"R_resp", "Speed from rest vs. busy"}};
   return names.value(name, name);
 }
 
@@ -542,10 +544,10 @@ QString glossaryHtml() {
        "A task asks to wake every millisecond and we record how late each wake-up is. Averages hide rare long "
        "delays, so the result is the lateness of the worst 1 in 1000 wake-ups (the 99.9th percentile, p99.9)."},
       {"Memory delay", "Time for one read from main memory when the data is in no cache. Lower is better."},
-      {"Instruction set, new instructions",
-       "The vocabulary of operations a CPU understands. Newer CPUs add instructions (AVX2, AVX-512 on Intel/AMD; "
-       "SVE2 on Arm) that do more per step. Prismark builds each test for a common baseline (x86-64-v2 or "
-       "Armv8.2-A) and, separately, for the newest level the CPU supports."},
+      {"Instruction set",
+       "The vocabulary of operations a CPU understands. Newer CPUs add instructions (AVX2, AVX-512 on Intel/AMD) "
+       "that do more per step. Prismark builds every test for a common baseline (x86-64-v2 or Armv8.2-A), so "
+       "every machine runs the same instructions; Vector maths alone uses the widest vectors the CPU has."},
       {"Uncertainty (95 % range)",
        "Measurements vary a little from run to run. The thin line on each bar shows the range the true value lies "
        "in with 95 % confidence. If two bars’ ranges overlap, treat them as equal."},
