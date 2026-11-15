@@ -63,6 +63,7 @@ typedef struct series {
   const jv *r;
   const char *kernel, *variant, *mode, *tier, *purpose, *core, *size, *start, *condition, *input_hash;
   int n;            /* threads or instances; 1 for single-core */
+  int place;        /* PLACED, BACKGROUND or SCHEDULER (place_of) */
   double ws;        /* K7 working set */
   double w_ms;      /* K9 W */
   int higher_better;
@@ -81,7 +82,26 @@ typedef struct run {
   size_t ns;
   int max_n_threaded, max_n_instances;
   const char *fast_core; /* name of core type 0 */
+  const char *os;
+  int ncpu, pinning, perf_counters;
 } run;
+
+/*
+ * Where a series ran. Pinned threads and threads steered by a QoS class to one core type both run on the core
+ * type asked for at its full clock, and threads that keep every CPU busy leave nothing to place: those compare
+ * across systems. A background QoS class (macOS efficiency cores) runs at a clock the system holds low, and
+ * threads left to the scheduler on part of a machine run wherever it put them: those compare only with a series
+ * placed the same way.
+ */
+enum { PLACED, BACKGROUND, SCHEDULER };
+
+static int place_of(const run *R, const jv *r, int n) {
+  const char *p = jv_str(jv_path(r, "core.placement"), NULL);
+  if (!p) p = R->pinning ? "pinned" : "unpinned"; /* recorded only where threads were not pinned */
+  if (!strcmp(p, "pinned") || !strcmp(p, "qos-interactive")) return PLACED;
+  if (!strcmp(p, "qos-background")) return BACKGROUND;
+  return R->ncpu > 0 && n >= R->ncpu ? PLACED : SCHEDULER; /* "unsteered", "unpinned" */
+}
 
 static const char *str_or(const jv *v, const char *key, const char *def) { return jv_str(jv_get(v, key), def); }
 
@@ -93,6 +113,10 @@ static int load_series(run *R, char *err, size_t errlen) {
   R->fast_core = "P";
   const jv *cores = jv_path(R->root, "machine.cpu.cores");
   if (jv_len(cores)) R->fast_core = str_or(&cores->items[0], "type", "P");
+  R->ncpu = (int)jv_len(cores);
+  R->os = jv_str(jv_path(R->root, "machine.os"), "");
+  R->pinning = jv_bool(jv_path(R->root, "machine.capabilities.pinning"), 0) == 1;
+  R->perf_counters = jv_bool(jv_path(R->root, "machine.capabilities.perf_counters"), -1);
   for (size_t i = 0; i < n; i++) {
     const jv *r = &results->items[i];
     const jv *params = jv_get(r, "params"), *samples = jv_get(r, "samples");
@@ -116,6 +140,7 @@ static int load_series(run *R, char *err, size_t errlen) {
     s->n = (int)jv_num(jv_get(params, "threads"), jv_num(jv_get(params, "instances"), 1));
     s->ws = jv_num(jv_get(params, "working_set_bytes"), 0);
     s->w_ms = jv_num(jv_get(params, "W_ms"), 0);
+    s->place = place_of(R, r, s->n);
     size_t ns = jv_len(samples);
     if (!ns) continue;
     size_t from = 0;
@@ -223,23 +248,23 @@ static void free_run(run *R) {
 }
 
 /*
- * Capabilities that affect measurements must agree: pinning decides where single-core work runs and
- * perf counters how the K9 loop is calibrated. The power telemetry source never affects a measurement.
+ * Whether two matching series measured the same thing. They must have been placed alike (place_of). The
+ * wake-up test (K9 from rest) issues W as cycles: with a cycle counter they are counted on the core, without
+ * one each add is taken as a cycle, so its series compare only between runs that calibrated it the same way.
+ * Returns 0, or why the pair is left out.
  */
-static int caps_mismatch(const run *a, const run *b, pmk_buf *why) {
-  static const char *const keys[] = {"pinning", "perf_counters"};
-  int bad = 0;
-  for (size_t i = 0; i < sizeof keys / sizeof *keys; i++) {
-    char path[64];
-    snprintf(path, sizeof path, "machine.capabilities.%s", keys[i]);
-    int x = jv_bool(jv_path(a->root, path), -1), y = jv_bool(jv_path(b->root, path), -1);
-    if (x != y) {
-      buf_printf(why, "capability %s differs (A: %s, B: %s)\n", keys[i], x == 1 ? "yes" : x == 0 ? "no" : "?",
-                 y == 1 ? "yes" : y == 0 ? "no" : "?");
-      bad = 1;
-    }
-  }
-  return bad;
+enum { PAIR_OK, PAIR_PLACED, PAIR_CALIB };
+
+static int pair_check(const run *A, const series *a, const run *Bn, const series *b) {
+  if (a->place != b->place) return PAIR_PLACED;
+  if (!strcmp(a->kernel, "K9") && !strcmp(a->mode, "cold_burst") && A->perf_counters != Bn->perf_counters)
+    return PAIR_CALIB;
+  return PAIR_OK;
+}
+
+/* Waking from rest follows the operating system's idle policy as much as the processor (headline.c). */
+static int os_bound(const run *A, const run *Bn, const series *a) {
+  return *A->os && *Bn->os && strcmp(A->os, Bn->os) && !strcmp(a->kernel, "K9") && !strcmp(a->mode, "cold_burst");
 }
 
 static void tail_json(pmk_jw *w, const char *key, const series *s) {
@@ -306,13 +331,16 @@ static void profile(pmk_jw *w, pmk_buf *t, const jv *p, const run *A, const run 
 
   if (!strcmp(kind, "tail")) {
     buf_printf(t, "\n%s (tail latency, never averaged)\n", name);
+    /* Timers follow the operating system as much as the processor (headline.c): side by side, never judged. */
+    if (*A->os && *Bn->os && strcmp(A->os, Bn->os))
+      buf_printf(t, "  timers follow the operating system: %s against %s, shown, not judged\n", A->os, Bn->os);
     jw_arr_begin(w, "conditions");
     int shown = 0;
     for (size_t i = 0; i < A->ns; i++) {
       const series *a = &A->s[i];
       if (strcmp(a->mode, "periodic")) continue;
       const series *b = match(Bn, a, a->n);
-      if (!b) continue;
+      if (!b || pair_check(A, a, Bn, b)) continue;
       jw_obj_begin(w, NULL);
       jw_str(w, "condition", a->condition);
       tail_json(w, "a", a);
@@ -348,6 +376,11 @@ static void profile(pmk_jw *w, pmk_buf *t, const jv *p, const run *A, const run 
       missing = why;
     } else if (it[i].a->input_hash && it[i].b->input_hash && strcmp(it[i].a->input_hash, it[i].b->input_hash)) {
       snprintf(why, sizeof why, "%s inputs differ between the runs", it[i].a->kernel);
+      missing = why;
+    } else if (pair_check(A, it[i].a, Bn, it[i].b)) {
+      snprintf(why, sizeof why, "%s %s %s", it[i].a->kernel, it[i].a->mode,
+               pair_check(A, it[i].a, Bn, it[i].b) == PAIR_CALIB ? "calibrated differently in the two runs"
+                                                                   : "placed differently in the two runs");
       missing = why;
     }
   }
@@ -451,10 +484,6 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
       rc = PMK_ERR_INVALID;
     }
   }
-  if (rc == PMK_OK && caps_mismatch(&A, &Bn, &t)) {
-    buf_printf(&t, "The runs were measured under different capabilities and are not compared.\n");
-    rc = PMK_ERR_INVALID;
-  }
   if (rc != PMK_OK) {
     if (report_text) *report_text = buf_take(&t);
     else buf_free(&t);
@@ -485,7 +514,8 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
   /* Per-kernel ratios over every matching series. */
   jw_arr_begin(&w, "kernels");
   double *reps = malloc(B * sizeof *reps);
-  size_t matched = 0, skipped_inputs = 0;
+  size_t matched = 0, skipped_inputs = 0, skipped_placed = 0, skipped_calib = 0;
+  int os_note = 0;
   buf_printf(&t, "\nPer test (* = CI excludes 1)\n");
   for (size_t i = 0; reps && i < A.ns; i++) {
     const series *a = &A.s[i];
@@ -496,12 +526,19 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
       skipped_inputs++;
       continue;
     }
+    int pc = pair_check(&A, a, &Bn, b);
+    if (pc) {
+      pc == PAIR_CALIB ? skipped_calib++ : skipped_placed++;
+      continue;
+    }
+    int judged = !os_bound(&A, &Bn, a);
     double est;
     if (ratio_reps(a, b, &rng, &est, reps)) continue;
     pmk_ci ci = pmk_ci_from_reps(est, reps, B);
     if (!(a->sdf && b->sdf) && (a->nx < PMK_BOOT_MIN_N || b->nx < PMK_BOOT_MIN_N))
       ci.lo = ci.hi = NAN; /* too few samples for an interval */
-    int differ = ci.lo > 1 || ci.hi < 1;
+    int differ = judged && (ci.lo > 1 || ci.hi < 1);
+    os_note |= !judged;
     char lab[160];
     series_label(lab, sizeof lab, a);
     jw_obj_begin(&w, NULL);
@@ -517,14 +554,23 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
     if (a->w_ms > 0) jw_num(&w, "W_ms", a->w_ms);
     ci_json(&w, "r", ci);
     jw_bool(&w, "different", differ);
+    jw_bool(&w, "judged", judged);
     jw_obj_end(&w);
-    buf_printf(&t, "  %-66s %7.3f [%.3f, %.3f]%s\n", lab, ci.est, ci.lo, ci.hi, differ ? " *" : "");
+    buf_printf(&t, "  %-66s %7.3f [%.3f, %.3f]%s\n", lab, ci.est, ci.lo, ci.hi, differ ? " *" : !judged ? " -" : "");
     matched++;
   }
   jw_arr_end(&w);
   free(reps);
   if (!matched) buf_printf(&t, "  no series in common\n");
   if (skipped_inputs) buf_printf(&t, "  %zu series skipped: different input hashes\n", skipped_inputs);
+  if (skipped_placed)
+    buf_printf(&t, "  %zu series skipped: placed differently (efficiency cores at background priority, or threads left "
+                   "to the scheduler on part of the machine)\n", skipped_placed);
+  if (skipped_calib)
+    buf_printf(&t, "  %zu series skipped: the wake-up test was calibrated with a cycle counter in one run only\n",
+               skipped_calib);
+  if (os_note)
+    buf_printf(&t, "  - shown, not judged: waking from rest follows the operating system (%s against %s)\n", A.os, Bn.os);
 
   jw_arr_begin(&w, "profiles");
   const jv *profiles = jv_get(jdoc_root(pdoc), "profiles");

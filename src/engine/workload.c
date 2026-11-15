@@ -81,6 +81,13 @@ typedef struct shared {
   uint64_t last_job_raw; /* when the previous job completed, under lock */
   atomic_int pin_failed;
 
+  /* Speed by core type (pmk_result.type_work): tasks that start and end on CPUs of one type within the scored
+     windows, [score_from, score_to) after t0_raw. type_of[id] is a CPU id's type, -1 where unknown; NULL: off. */
+  signed char *type_of;
+  int ntype_ids;
+  uint64_t score_from, score_to;
+  _Atomic uint64_t type_work[PMK_MAX_TYPES], type_ns[PMK_MAX_TYPES];
+
   /* threaded job control */
   pal_lock *lock;
   uint64_t gen;           /* job generation, under lock */
@@ -137,6 +144,22 @@ static void account(shared *sh, int w, uint64_t t_start, uint64_t work) {
     given += part;
     atomic_fetch_add_explicit(&row[idx], part, memory_order_relaxed);
   }
+}
+
+/*
+ * A finished task's work and time to its core type, when it started and ended on CPUs of that type and ran inside
+ * the scored windows. A task that moved to the other type and back in between is counted as one type's: tasks are
+ * milliseconds long, and on macOS a thread stays on the efficiency cores for several milliseconds at a time.
+ */
+static void by_type(shared *sh, int cpu_a, uint64_t t_start, uint64_t work) {
+  uint64_t t_end = pal_now_raw_ns();
+  int cpu_b = pal_current_cpu();
+  if (cpu_a < 0 || cpu_b < 0 || cpu_a >= sh->ntype_ids || cpu_b >= sh->ntype_ids) return;
+  int t = sh->type_of[cpu_a];
+  if (t < 0 || t != sh->type_of[cpu_b] || t_start < sh->t0_raw + sh->score_from || t_end > sh->t0_raw + sh->score_to)
+    return;
+  atomic_fetch_add_explicit(&sh->type_work[t], work, memory_order_relaxed);
+  atomic_fetch_add_explicit(&sh->type_ns[t], t_end - t_start, memory_order_relaxed);
 }
 
 /* The first wrong result: when (since the start) and on which CPU (-1 if not known). */
@@ -221,10 +244,12 @@ static void *stream_main(void *arg) {
     while (job >= atomic_load(&sh->base_job) + sh->nslots && !atomic_load(&sh->stop) && !ctx_cancelled())
       pal_sleep_ns(50000); /* its slot still belongs to a job a slow thread has not finished */
     if (job >= atomic_load(&sh->base_job) + sh->nslots) break; /* the run ended during the wait */
-    if (wk->index == 0) atomic_store_explicit(&sh->cpu0, pal_current_cpu(), memory_order_relaxed);
+    int cpu_a = pal_current_cpu();
+    if (wk->index == 0) atomic_store_explicit(&sh->cpu0, cpu_a, memory_order_relaxed);
     uint64_t t_start = pal_now_raw_ns();
     uint64_t h = sh->tk->task(inst, scratch, i);
     account(sh, wk->index, t_start, sh->tk->task_work(inst, i));
+    if (sh->type_of) by_type(sh, cpu_a, t_start, sh->tk->task_work(inst, i));
     atomic_fetch_add(&sl->sum, pmk_job_combine(0, i, h));
     if (atomic_fetch_add(&sl->done, 1) + 1 == sh->ntasks) {
       pal_lock_acquire(sh->lock);
@@ -386,6 +411,7 @@ int wl_merge_session(pmk_result *dst, pmk_result *v) {
   dst->clamped += v->clamped;
   if (v->clamped && !(dst->lowest_mhz <= v->lowest_mhz)) dst->lowest_mhz = v->lowest_mhz;
   if (first && !v->clamped) dst->lowest_mhz = NAN;
+  for (int t = 0; t < PMK_MAX_TYPES; t++) dst->type_work[t] += v->type_work[t], dst->type_ns[t] += v->type_ns[t];
   dst->paged_mib = first || isnan(dst->paged_mib) ? v->paged_mib : isnan(v->paged_mib) ? dst->paged_mib : dst->paged_mib + v->paged_mib;
   return PMK_OK;
 }
@@ -442,6 +468,17 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
   }
   atomic_store(&sh->cpu0, -1);
   sh->stream = !s->check_tasks;
+  if (sh->stream && s->nthreads > 1 && c->m.ntypes > 1) {
+    for (int i = 0; i < c->m.ncpu; i++)
+      if (c->m.cpus[i].id >= sh->ntype_ids) sh->ntype_ids = c->m.cpus[i].id + 1;
+    sh->type_of = malloc((size_t)sh->ntype_ids);
+    if (sh->type_of) {
+      memset(sh->type_of, -1, (size_t)sh->ntype_ids);
+      for (int i = 0; i < c->m.ncpu; i++) sh->type_of[c->m.cpus[i].id] = (signed char)c->m.cpus[i].type;
+    }
+    sh->score_from = (uint64_t)warm_w * sh->win_ns;
+    sh->score_to = (uint64_t)total_w * sh->win_ns;
+  }
   sh->nslots = (size_t)s->nthreads / (sh->ntasks ? sh->ntasks : 1) + 8;
   sh->slots = calloc(sh->nslots, sizeof *sh->slots);
   if (!sh->work || !sh->lock || !sh->slots || !sh->ntasks) rc = PMK_ERR_NOMEM;
@@ -595,6 +632,11 @@ int wl_sustained(pmk_ctx *c, const sus_spec *s, pmk_result *r) {
              "%s n=%d: the system paged %.0f MiB of memory during the measurement (compressed or swapped), so the "
              "score includes waiting for memory",
              tk->id, s->nthreads, r->paged_mib);
+  for (int t = 0; sh->type_of && t < PMK_MAX_TYPES; t++) {
+    r->type_work[t] = (double)atomic_load(&sh->type_work[t]) / tk->unit_div;
+    r->type_ns[t] = (double)atomic_load(&sh->type_ns[t]);
+  }
+  free(sh->type_of);
   r->job_ns = sh->job_ns;
   r->checksum = sh->checksum;
   r->checksum_ok = sh->checksum_set && !sh->checksum_bad && !atomic_load(&sh->wrong_tasks);

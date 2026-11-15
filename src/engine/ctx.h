@@ -78,6 +78,10 @@ typedef struct pmk_result {
   int clamped;         /* measured windows below the platform-clamp threshold (see wl_sustained) */
   double lowest_mhz;   /* lowest window clock among them, NaN if none */
   double paged_mib;    /* MiB the system paged (compressed, swapped) during the measured windows; NaN if unknown */
+  /* Multi-thread series on machines with several core types: the work (in the kernel's unit, pmk_tk.unit_div
+     applied) and the time of the scored tasks that started and ended on a CPU of each type. Work / time is one
+     thread's speed on that type with every other thread of the series running. */
+  double type_work[PMK_MAX_TYPES], type_ns[PMK_MAX_TYPES];
   pmk_dvec job_ns;     /* duration of each complete job */
   double job_work;     /* work units per job (burst series), for throughput = work / time */
   double work_fraction; /* K1x: share of the whole snapshot's compile work its build covers (0 = unknown) */
@@ -166,7 +170,16 @@ void ctx_cooldown(pmk_ctx *c, const char *phase);
 static inline int ctx_can_place(const pmk_ctx *c) { return c->m.caps.pinning || c->m.caps.qos_only; }
 /* Core types the single-core modes run once each: one when a CPU is given, and one where threads cannot be
    placed at all (the series then runs wherever the scheduler puts it; see core.observed). */
-static inline int ctx_ntypes(const pmk_ctx *c) { return c->cfg.cpu >= 0 || !ctx_can_place(c) ? 1 : c->m.ntypes; }
+/*
+ * Core types the single-core modes measure. Where placement is only a QoS request (Apple), the performance cores
+ * alone: the one class that sends a thread to the efficiency cores, background, also holds them at about half their
+ * clock (1.2 GHz of 2.4 on an M2), so a series there measured the system's background policy, not the cores. The
+ * efficiency cores are measured in the all-core mode instead, where the scheduler gives them ordinary work at their
+ * full clock (pmk_result.type_work).
+ */
+static inline int ctx_ntypes(const pmk_ctx *c) {
+  return c->cfg.cpu >= 0 || !ctx_can_place(c) || c->m.caps.qos_only ? 1 : c->m.ntypes;
+}
 /* Picks the CPU for single-core work of the given type. */
 int ctx_cpu_for_type(const pmk_ctx *c, int type);
 int ctx_type_of_cpu(const pmk_ctx *c, int cpu);

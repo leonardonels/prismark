@@ -21,15 +21,10 @@
 /*
  * Rows of C kept in registers at once. With K12_COLS vectors each they are the independent fma chains of the
  * inner loop, and a core runs at most chains / fma latency of them per cycle. x86-64 cores have two fma units
- * and 4 cycles of latency: 8 chains fill them, and 16 registers hold no more. ARM64 cores with four units
- * (Apple's, Oryon, Cortex-X) need 16 chains, and have 32 registers for them; with 8 they stopped at 2 fma per
- * cycle. The order of the operations on each element does not change, so neither do the results.
+ * and 4 cycles of latency: 8 chains fill them, and 16 registers hold no more. ARM64 has its own block below.
+ * The order of the operations on each element does not change, so neither do the results.
  */
-#if defined(__aarch64__) || defined(_M_ARM64)
-#define K12_ROWS 8
-#else
 #define K12_ROWS 4
-#endif
 #define K12_COLS 2  /* vectors of C per row kept in registers at once */
 
 typedef void (*k12_block_fn)(const double *a, size_t lda, const double *bp, int n, double *c);
@@ -67,7 +62,42 @@ typedef void (*k12_block_fn)(const double *a, size_t lda, const double *bp, int 
     }                                                                                                     \
   }
 
-K12_BLOCK(block_base, 2, ) /* SSE (x86-64-v2 has no FMA: each fma is a library call, slow but exact) or NEON */
+#if defined(__aarch64__) || defined(_M_ARM64)
+#include <arm_neon.h>
+/*
+ * ARM64 cores with four fma units (Apple's, Oryon, Cortex-X) need 16 chains, and have 32 registers for them:
+ * 4 rows of C by 4 vectors. Each element of A is a scalar load, used by element (fmla v, v, v[0]). Written as a
+ * broadcast, (v){0} + a or a load-and-replicate, it cost an add or a slower load beside every 4 fma, and
+ * compilers chose differently; this form runs the same under Apple's clang and LLVM's. On an Apple M2 P core it
+ * did 33 GFLOP/s against 26 for 8 rows by 2 vectors (E core 5.2 against 4.5), with the same checksums.
+ */
+#define K12_NROWS 4
+#define K12_NCOLS 4
+static void block_neon(const double *a, size_t lda, const double *bp, int n, double *c) {
+  for (int k0 = 0; k0 < n; k0 += K12_KC) {
+    int k1 = k0 + K12_KC < n ? k0 + K12_KC : n;
+    for (int i = 0; i < K12_TILE; i += K12_NROWS)
+      for (int j = 0; j < K12_TILE; j += K12_NCOLS * 2) {
+        float64x2_t acc[K12_NROWS][K12_NCOLS];
+        for (int r = 0; r < K12_NROWS; r++)
+          for (int v = 0; v < K12_NCOLS; v++)
+            acc[r][v] = k0 ? vld1q_f64(c + (i + r) * K12_TILE + j + v * 2) : vdupq_n_f64(0);
+        for (int k = k0; k < k1; k++) {
+          float64x2_t b[K12_NCOLS];
+          for (int v = 0; v < K12_NCOLS; v++) b[v] = vld1q_f64(bp + (size_t)k * K12_TILE + j + v * 2);
+          for (int r = 0; r < K12_NROWS; r++) {
+            float64x2_t x = vsetq_lane_f64(a[(size_t)(i + r) * lda + (size_t)k], vdupq_n_f64(0), 0);
+            for (int v = 0; v < K12_NCOLS; v++) acc[r][v] = vfmaq_laneq_f64(acc[r][v], b[v], x, 0);
+          }
+        }
+        for (int r = 0; r < K12_NROWS; r++)
+          for (int v = 0; v < K12_NCOLS; v++) vst1q_f64(c + (i + r) * K12_TILE + j + v * 2, acc[r][v]);
+      }
+  }
+}
+#else
+K12_BLOCK(block_base, 2, ) /* SSE (x86-64-v2 has no FMA: each fma is a library call, slow but exact) */
+#endif
 #if defined(__x86_64__) || defined(_M_X64)
 K12_BLOCK(block_avx2, 4, __attribute__((target("avx2,fma"))))
 K12_BLOCK(block_avx512, 8, __attribute__((target("avx512f,fma"), min_vector_width(512))))
@@ -83,10 +113,11 @@ typedef struct k12 {
 /* The widest the CPU (and the OS) supports; PRISMARK_VECTOR_ISA=base|avx2|avx512 asks for a narrower one. */
 static void pick(k12 *s) {
   const char *want = getenv("PRISMARK_VECTOR_ISA");
-  s->block = block_base;
 #if defined(__aarch64__) || defined(_M_ARM64)
+  s->block = block_neon;
   s->isa = "NEON";
 #else
+  s->block = block_base;
   /* Without FMA instructions every fma is a call into the C library: the speed is then that library's. */
   s->isa = __builtin_cpu_supports("fma") ? "SSE4.2" : "SSE4.2, software FMA";
   int avx2 = __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma"), avx512 = avx2 && __builtin_cpu_supports("avx512f");

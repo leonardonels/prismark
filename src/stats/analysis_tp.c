@@ -603,6 +603,14 @@ void analysis_tp_json(pmk_ctx *c, pmk_jw *w) {
       jw_int(w, "clamped_windows", r->clamped);
       jw_num(w, "clamped_lowest_mhz", r->lowest_mhz);
       jw_num(w, "paged_mib", r->paged_mib);
+      double tns = 0;
+      for (int t = 0; t < c->m.ntypes && t < PMK_MAX_TYPES; t++) tns += r->type_ns[t];
+      if (tns > 0) { /* one thread's speed on each core type, from the tasks timed on it (pmk_result.type_work) */
+        jw_obj_begin(w, "per_thread_by_core_type");
+        for (int t = 0; t < c->m.ntypes && t < PMK_MAX_TYPES; t++)
+          if (r->type_ns[t] > 0) jw_num(w, c->m.type_names[t], r->type_work[t] / (r->type_ns[t] / 1e9));
+        jw_obj_end(w);
+      }
       jw_num(w, "mhz", steady_median(r, &r->mhz));
       if (r->nclock_dom) {
         jw_obj_begin(w, "mhz_by_domain");
@@ -810,6 +818,16 @@ void analysis_tp_text(pmk_ctx *c, pmk_buf *b) {
       else buf_printf(b, " (%.0f s run)", r->elapsed_s);
       if (r->purpose) buf_printf(b, "  [%s]", r->purpose);
       buf_printf(b, "\n");
+      double tns = 0;
+      for (int t = 0; t < c->m.ntypes && t < PMK_MAX_TYPES; t++) tns += r->type_ns[t];
+      if (tns > 0) {
+        buf_printf(b, "  %-24s %-8s %4s per thread:", "", "", "");
+        for (int t = 0, k = 0; t < c->m.ntypes && t < PMK_MAX_TYPES; t++)
+          if (r->type_ns[t] >= 0.01 * tns) /* a few stray tasks are in the file, not the summary */
+            buf_printf(b, "%s core %s %.4g %s (%.0f%% of task time)", k++ ? "," : "", c->m.type_names[t],
+                       r->type_work[t] / (r->type_ns[t] / 1e9), unit_of(r), 100 * r->type_ns[t] / tns);
+        buf_printf(b, "\n");
+      }
     }
   }
 

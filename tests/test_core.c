@@ -303,6 +303,8 @@ static void test_throughput_kernels(void) {
 }
 
 /* A minimal result document with one windowed K2 series and one burst K3 series. */
+/* pinning 0: a QoS-only machine (macOS), K2 on the performance cores, K3 on the efficiency cores at background
+   priority. */
 static char *fake_result(double k2_perf, double k3_ns, int pinning) {
   pmk_jw w = {0};
   jw_obj_begin(&w, NULL);
@@ -320,6 +322,7 @@ static char *fake_result(double k2_perf, double k3_ns, int pinning) {
   jw_obj_begin(&w, "capabilities");
   jw_bool(&w, "pinning", pinning);
   jw_bool(&w, "perf_counters", 0);
+  jw_bool(&w, "qos_only", !pinning);
   jw_obj_end(&w);
   jw_obj_end(&w);
   jw_arr_begin(&w, "results");
@@ -335,6 +338,7 @@ static char *fake_result(double k2_perf, double k3_ns, int pinning) {
     jw_obj_end(&w);
     jw_obj_begin(&w, "core");
     jw_str(&w, "requested", "P");
+    if (!pinning) jw_str(&w, "placement", "qos-interactive");
     jw_obj_end(&w);
     jw_str(&w, "unit", "Msamples/s");
     jw_arr_begin(&w, "samples");
@@ -355,6 +359,7 @@ static char *fake_result(double k2_perf, double k3_ns, int pinning) {
   jw_obj_end(&w);
   jw_obj_begin(&w, "core");
   jw_str(&w, "requested", "P");
+  if (!pinning) jw_str(&w, "placement", "qos-background");
   jw_obj_end(&w);
   jw_str(&w, "unit", "ns");
   jw_arr_begin(&w, "samples");
@@ -414,9 +419,13 @@ static void test_compare(void) {
   pmk_free(json);
   pmk_free(text);
 
-  /* Different capabilities: refused. */
+  /* A pinned machine against a QoS-only one: compared, except the series at background priority. */
   rc = pmk_compare(a, c, NULL, &json, &text);
-  CHECK(rc == PMK_ERR_INVALID && json == NULL && text && strstr(text, "pinning"));
+  CHECK(rc == PMK_OK && json && text && strstr(text, "1 series skipped: placed differently"));
+  d = json ? jdoc_parse(json, NULL, 0) : NULL;
+  CHECK(d && jv_len(jv_get(jdoc_root(d), "kernels")) == 2);
+  if (d) jdoc_free(d);
+  pmk_free(json);
   pmk_free(text);
 
   /* Files from before ABI 4: the old root-only capabilities are ignored, and series measured with changed

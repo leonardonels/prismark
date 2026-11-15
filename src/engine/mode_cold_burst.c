@@ -259,9 +259,9 @@ double mode_cold_burst_est(const pmk_ctx *c) {
 int mode_cold_burst(pmk_ctx *c) {
   pal_set_timer_slack_min();
   int order[PMK_MAX_TYPES] = {0, 1, 2, 3};
-  ctx_shuffle(&c->rng, order, c->m.ntypes);
   int rc = PMK_OK;
-  int ntypes = ctx_ntypes(c); /* an explicit CPU means one core type */
+  int ntypes = ctx_ntypes(c); /* an explicit CPU means one core type; QoS-only systems, the fastest */
+  ctx_shuffle(&c->rng, order, ntypes);
   for (int i = 0; i < ntypes && rc == PMK_OK; i++)
     if (ctx_kernel_selected(c, "K9")) rc = run_type(c, c->cfg.cpu >= 0 ? ctx_type_of_cpu(c, c->cfg.cpu) : ctx_can_place(c) ? order[i] : 0);
 

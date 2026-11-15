@@ -109,7 +109,12 @@ with them.
 - Memory delay is read at 256 MiB on every machine; older files hold a set sized by each machine's cache
   (64 to 384 MiB), which is what the app falls back to for them.
 - macOS waits on critical timers, so its Reacting from rest and Timer punctuality results change completely.
-- Vector maths keeps 16 accumulation chains on ARM64 instead of 8.
+- macOS and iOS no longer measure the efficiency cores on one core (background priority held them at half their
+  clock); the M2 and M3 Pro files still hold those series. Multi-thread series record each core type's speed per
+  thread (`by_core_type`), which older files lack.
+- Vector maths keeps 16 accumulation chains on ARM64 instead of 8, as 4 rows by 4 vectors that use each
+  element of A by lane (about 30 % faster on an Apple M2 P core, 17 % on an E core). The 8845HS runs are
+  x86-64 and do not change.
 - Series are measured in three sessions (`results[].sessions` holds where each starts) and intervals come from
   their spread; files without sessions keep intervals over their repetitions, which are narrower than they
   should be. `tools/merge-best.py` still recomputes scaling and ratios with those.

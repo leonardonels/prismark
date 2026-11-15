@@ -114,7 +114,9 @@ against ARM64).
   blocks of consecutive windows, and fewer than 8 samples give no interval.
 - Timer punctuality and reacting from rest depend on the operating system's
   timers as much as on the processor: `prismark compare` shows them across two
-  systems without judging them.
+  systems without judging them. `--detail` does the same, and leaves out a
+  pair of series placed differently (efficiency cores at background priority,
+  threads left to the scheduler) rather than refusing the two runs.
 - The short tasks take their memory from buffers kept per thread, not from
   the C library, so they time the processor and not the system's allocator.
 - Profiles in `prismark compare --detail` report the weighted geometric mean
@@ -141,6 +143,16 @@ against ARM64).
   60 s covers the turbo budget (about 28 s on Intel laptops) and the thermal
   time constant (2–20 s). Short tasks, responsiveness, memory and timer
   tests have no warm-up.
+- On macOS and iOS the single-core modes measure the performance cores only.
+  The one way to send a thread to the efficiency cores there, background
+  priority, also holds them at about half their clock (1.2 GHz of 2.4 on an
+  Apple M2), so those series measured the system's background policy rather
+  than the cores. The efficiency cores are measured in the all-core mode
+  instead: when every core is busy the scheduler gives them ordinary work at
+  their full clock. On any machine with two core types, each multi-thread
+  series records one thread's speed on each type (`by_core_type`), from the
+  tasks that started and ended on a CPU of that type during the scored windows,
+  and the share of task time each type had.
 - A full run takes about 30 minutes on a 4-core laptop (i5-1035G1), less on
   faster machines.
 - Everything is built once, for a common instruction-set level (x86-64-v2,

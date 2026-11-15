@@ -478,6 +478,24 @@ static void samples_json(pmk_jw *w, const char *key, const double *v, size_t n, 
 
 static void hex64(char out[19], uint64_t v) { snprintf(out, 19, "%016llx", (unsigned long long)v); }
 
+/* One thread's speed on each core type during a multi-thread series (pmk_result.type_work), and the share of the
+   timed task time each type had. Only types with timed tasks are listed. */
+static void by_core_type_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
+  double total = 0;
+  for (int t = 0; t < c->m.ntypes && t < PMK_MAX_TYPES; t++) total += r->type_ns[t];
+  if (!(total > 0)) return;
+  jw_obj_begin(w, "by_core_type");
+  for (int t = 0; t < c->m.ntypes && t < PMK_MAX_TYPES; t++) {
+    if (!(r->type_ns[t] > 0)) continue;
+    jw_obj_begin(w, c->m.type_names[t]);
+    jw_num(w, "per_thread", r->type_work[t] / (r->type_ns[t] / 1e9));
+    jw_num(w, "time_share", r->type_ns[t] / total);
+    jw_num(w, "task_s", r->type_ns[t] / 1e9);
+    jw_obj_end(w);
+  }
+  jw_obj_end(w);
+}
+
 static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
   char hx[19];
   jw_obj_begin(w, NULL);
@@ -567,6 +585,7 @@ static void result_to_json(pmk_jw *w, const pmk_ctx *c, const pmk_result *r) {
     jw_int(w, "clamped_windows", r->clamped);
     jw_num(w, "clamped_lowest_mhz", r->lowest_mhz);
     jw_num(w, "paged_mib", r->paged_mib);
+    by_core_type_json(w, c, r);
   }
   if (r->input_hash) {
     hex64(hx, r->input_hash);
