@@ -22,11 +22,83 @@ on:
 # Build, unit tests and the cross-ISA checksum gate. Shared runners are too
 # noisy for timing; performance is measured on controlled hardware.
 jobs:
-  build:
+  # The compile tests' compiler (tools/build-llvm.sh): one recipe for every package, so "Compiling code" and
+  # "Full software build" time the same compiler everywhere. Built once per target and cached, keyed on the
+  # recipe; the jobs that need it restore the cache. On a hit this job only looks the cache up. Linux is built
+  # in Ubuntu 22.04 like the Linux packages, Windows cross-compiled with llvm-mingw like the Windows package.
+  compiler:
     strategy:
       fail-fast: false
       matrix:
-        runner: [ubuntu-24.04, ubuntu-24.04-arm]
+        include:
+          - { target: linux-x86_64, runner: ubuntu-24.04, container: "ubuntu:22.04" }
+          - { target: linux-aarch64, runner: ubuntu-24.04-arm, container: "ubuntu:22.04" }
+          - { target: windows-x86_64, runner: ubuntu-24.04, container: "" }
+          - { target: macos-arm64, runner: macos-15, container: "" }
+    runs-on: ${{ matrix.runner }}
+    container: ${{ matrix.container }}
+    timeout-minutes: 360
+    env:
+      CLANG_VERSION: "19"
+      LLVM_MINGW: llvm-mingw-20250114-ucrt-ubuntu-20.04-x86_64
+      DEBIAN_FRONTEND: noninteractive
+    steps:
+      # The cache's compression must match the jobs that restore it (zstd on every runner).
+      - name: Install zstd
+        if: matrix.container != ''
+        run: apt-get update && apt-get install -y --no-install-recommends zstd ca-certificates git
+
+      - uses: actions/checkout@v4
+
+      - name: Look up the cached compiler
+        id: cached
+        uses: actions/cache/restore@v4
+        with:
+          path: llvm-19-${{ matrix.target }}
+          key: compiler-${{ matrix.target }}-${{ hashFiles('tools/build-llvm.sh') }}
+          lookup-only: true
+
+      - name: Install the builder (Linux)
+        if: steps.cached.outputs.cache-hit != 'true' && startsWith(matrix.target, 'linux-')
+        run: |
+          apt-get install -y --no-install-recommends curl wget gnupg lsb-release software-properties-common \
+            xz-utils binutils python3 python3-pip ninja-build
+          curl -sSfL --retry 8 --retry-delay 20 --retry-all-errors -o llvm.sh https://apt.llvm.org/llvm.sh
+          bash llvm.sh "$CLANG_VERSION"
+          python3 -m pip install --no-cache-dir "cmake>=3.25,<4"
+
+      - name: Install the builder (Windows, cross)
+        if: steps.cached.outputs.cache-hit != 'true' && matrix.target == 'windows-x86_64'
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          sudo apt-get install -y ninja-build
+          curl -sSfL "https://github.com/mstorsjo/llvm-mingw/releases/download/20250114/$LLVM_MINGW.tar.xz" | tar xJ
+          echo "LLVM_MINGW=$PWD/$LLVM_MINGW" >> "$GITHUB_ENV"
+
+      - name: Install the builder (macOS)
+        if: steps.cached.outputs.cache-hit != 'true' && matrix.target == 'macos-arm64'
+        run: brew install llvm@19 ninja
+
+      - name: Build the compiler
+        if: steps.cached.outputs.cache-hit != 'true'
+        run: |
+          tools/build-llvm.sh ${{ matrix.target }} llvm-19-${{ matrix.target }} "$RUNNER_TEMP/llvm-work"
+          rm -rf "$RUNNER_TEMP/llvm-work"
+
+      - uses: actions/cache/save@v4
+        if: steps.cached.outputs.cache-hit != 'true'
+        with:
+          path: llvm-19-${{ matrix.target }}
+          key: compiler-${{ matrix.target }}-${{ hashFiles('tools/build-llvm.sh') }}
+
+  build:
+    needs: compiler
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { runner: ubuntu-24.04, target: linux-x86_64 }
+          - { runner: ubuntu-24.04-arm, target: linux-aarch64 }
     runs-on: ${{ matrix.runner }}
     env:
       CLANG_VERSION: "19"
@@ -40,8 +112,16 @@ jobs:
           sudo apt-get install -y ninja-build
           cmake --version
 
+      - uses: actions/cache/restore@v4
+        with:
+          path: llvm-19-${{ matrix.target }}
+          key: compiler-${{ matrix.target }}-${{ hashFiles('tools/build-llvm.sh') }}
+          fail-on-cache-miss: true
+
       - name: Configure
-        run: cmake --preset linux-clang -DPRISMARK_CLANG_VERSION="$CLANG_VERSION"
+        run: >
+          cmake --preset linux-clang -DPRISMARK_CLANG_VERSION="$CLANG_VERSION"
+          -DPRISMARK_K1=ON -DPRISMARK_K1_LLVM_DIR="$PWD/llvm-19-${{ matrix.target }}"
 
       - name: Build
         run: cmake --build --preset linux-clang
@@ -67,10 +147,11 @@ jobs:
   # folder, zipped (tools/package-windows.sh, which fails when a DLL any binary needs is neither beside it nor
   # part of Windows). Built only: nothing runs Windows binaries here.
   #
-  # Two slow inputs are cached: the Clang and LLVM libraries for Windows (tools/build-llvm-windows.sh, 1-3 h
-  # when the script changes) and the snapshot (tools/k1x/prepare.py, up to an hour). The snapshot's unit costs
-  # are measured where it is prepared, so the cached one keeps every package doing the same work.
+  # The compile tests' compiler is the compiler job's (tools/build-llvm.sh windows-x86_64); the snapshot
+  # (tools/k1x/prepare.py, up to an hour) is cached here. The snapshot's unit costs are measured where it is
+  # prepared, so the cached one keeps every package doing the same work.
   windows-portable:
+    needs: compiler
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     env:
@@ -106,18 +187,17 @@ jobs:
           aqt install-qt windows desktop "$QT_VERSION" win64_llvm_mingw -O Qt
           aqt install-qt linux desktop "$QT_VERSION" linux_gcc_64 -O Qt
 
-      - name: Cache Clang and LLVM for Windows
-        id: k1llvm
-        uses: actions/cache@v4
-        with:
-          path: llvm-19-windows
-          key: llvm-19-windows-${{ hashFiles('tools/build-llvm-windows.sh', 'cmake/toolchains/windows-cross-llvm-mingw.cmake') }}
-
-      - name: Build Clang and LLVM for Windows
-        if: steps.k1llvm.outputs.cache-hit != 'true'
+      - name: Use this workflow's packaging script
+        if: inputs.ref != ''
         run: |
-          tools/build-llvm-windows.sh "$LLVM_MINGW" llvm-19-windows "$RUNNER_TEMP/llvm-work"
-          rm -rf "$RUNNER_TEMP/llvm-work"
+          git fetch --depth=1 origin ${{ github.sha }}
+          git checkout FETCH_HEAD -- tools/package-windows.sh tools/build-llvm.sh
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: llvm-19-windows-x86_64
+          key: compiler-windows-x86_64-${{ hashFiles('tools/build-llvm.sh') }}
+          fail-on-cache-miss: true
 
       - name: Cache the compile-test snapshot
         id: k1x
@@ -134,8 +214,17 @@ jobs:
 
       - name: Build and package
         run: >
-          K1_LLVM=llvm-19-windows K1X_SNAPSHOT=k1x-snapshot
+          K1_LLVM=llvm-19-windows-x86_64 K1X_SNAPSHOT=k1x-snapshot
           tools/package-windows.sh "$LLVM_MINGW" "Qt/$QT_VERSION/llvm-mingw_64" "Qt/$QT_VERSION/gcc_64" dist
+
+      # Nothing runs Windows binaries here: the gate checks the compiler build the package carries.
+      - name: Record the package's compiler
+        run: unzip -p dist/*.zip '*/tools/prismark-compiler.json' > compiler-windows-x86_64.json
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compiler-check-windows-x86_64
+          path: compiler-*.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -155,6 +244,7 @@ jobs:
   # fails when anything in a package needs a glibc newer than 22.04's (2.35). The snapshot is the Windows job's
   # cached one, so every package does the same work.
   linux-packages:
+    needs: compiler
     strategy:
       fail-fast: false
       matrix:
@@ -183,7 +273,6 @@ jobs:
             libwayland-cursor0 libwayland-egl1 rpm
           curl -sSfL --retry 8 --retry-delay 20 --retry-all-errors -o llvm.sh https://apt.llvm.org/llvm.sh
           bash llvm.sh "$CLANG_VERSION"
-          apt-get install -y --no-install-recommends "libclang-$CLANG_VERSION-dev" "llvm-$CLANG_VERSION-dev"
           # 22.04 ships CMake 3.22; the build needs 3.25 or later.
           python3 -m pip install --no-cache-dir "cmake>=3.25,<4" aqtinstall
           cmake --version
@@ -199,7 +288,13 @@ jobs:
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
           git fetch --depth=1 origin ${{ github.sha }}
-          git checkout FETCH_HEAD -- tools/package-linux.sh tools/build-qt-linux.sh
+          git checkout FETCH_HEAD -- tools/package-linux.sh tools/build-qt-linux.sh tools/build-llvm.sh
+
+      - uses: actions/cache/restore@v4
+        with:
+          path: llvm-19-linux-${{ matrix.arch }}
+          key: compiler-linux-${{ matrix.arch }}-${{ hashFiles('tools/build-llvm.sh') }}
+          fail-on-cache-miss: true
 
       - name: Cache Qt
         id: qt
@@ -238,7 +333,9 @@ jobs:
           rm -rf "$RUNNER_TEMP/k1x-work"
 
       - name: Build and package
-        run: K1X_SNAPSHOT=k1x-snapshot tools/package-linux.sh "$(ls -d Qt/"$QT_VERSION"/gcc_*64 | head -1)" dist
+        run: >
+          K1_LLVM=llvm-19-linux-${{ matrix.arch }} K1X_SNAPSHOT=k1x-snapshot
+          tools/package-linux.sh "$(ls -d Qt/"$QT_VERSION"/gcc_*64 | head -1)" dist
 
       - name: Check the package
         run: |
@@ -248,11 +345,20 @@ jobs:
           rpm -qp --requires dist/prismark-*.rpm
           "$d/prismark" --version
           "$d/prismark" tests > /dev/null
+          "$d/prismark" checksums --k1-data "$d/k1x" --tests K1 -o "k1-checksums-linux-${{ matrix.arch }}.json"
+          cp "$d/tools/prismark-compiler.json" "compiler-linux-${{ matrix.arch }}.json"
           newest=$(find "$d" -path "$d/k1x" -prune -o -type f \( -name '*.so*' -o -perm -u+x \) -print |
             while read -r f; do file -b "$f" | grep -q '^ELF' && objdump -T "$f"; done |
             grep -o 'GLIBC_[0-9.]*' | sed 's/GLIBC_//' | sort -Vu | tail -1)
           echo "newest glibc needed: $newest (allowed: $GLIBC_MAX)"
           [ "$(printf '%s\n' "$newest" "$GLIBC_MAX" | sort -V | tail -1)" = "$GLIBC_MAX" ]
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compiler-check-linux-${{ matrix.arch }}
+          path: |
+            k1-checksums-*.json
+            compiler-*.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -263,16 +369,15 @@ jobs:
 
   # macOS package for Apple silicon (tools/package-macos.sh): Prismark.app with the runner, Qt and the compile
   # tests (Clang built in, the snapshot, Clang/CMake/Ninja), ad-hoc signed, in a disk image. The snapshot is the
-  # Windows job's, so every package does the same work. LLVM is LLVM's own macOS release, which runs on older
-  # macOS than Homebrew's; Qt 6.10, as 6.8 does not link with the macOS 26 SDK (no AGL). Checked by opening the
-  # image and starting the runner, the app and the bundled tools from it.
+  # Windows job's, so every package does the same work; the compiler is the compiler job's. Qt 6.10, as 6.8
+  # does not link with the macOS 26 SDK (no AGL). Checked by opening the image and starting the runner, the app
+  # and the bundled tools from it.
   macos-package:
-    needs: windows-portable
+    needs: [compiler, windows-portable]
     runs-on: macos-15
     timeout-minutes: 120
     env:
       QT_VERSION: "6.10.3"
-      LLVM_RELEASE: LLVM-19.1.7-macOS-ARM64
     steps:
       - uses: actions/checkout@v4
         with:
@@ -282,7 +387,7 @@ jobs:
         if: inputs.ref != ''
         run: |
           git fetch --depth=1 origin ${{ github.sha }}
-          git checkout FETCH_HEAD -- tools/package-macos.sh
+          git checkout FETCH_HEAD -- tools/package-macos.sh tools/build-llvm.sh
 
       - name: Install Clang 19, Ninja and aqtinstall
         run: |
@@ -300,19 +405,11 @@ jobs:
         if: steps.qt.outputs.cache-hit != 'true'
         run: aqt install-qt mac desktop "$QT_VERSION" clang_64 -O Qt
 
-      - name: Cache LLVM for macOS
-        id: llvm
-        uses: actions/cache@v4
+      - uses: actions/cache/restore@v4
         with:
-          path: ${{ env.LLVM_RELEASE }}
-          key: ${{ env.LLVM_RELEASE }}
-
-      - name: Download LLVM for macOS
-        if: steps.llvm.outputs.cache-hit != 'true'
-        run: |
-          curl -sSfLO "https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/$LLVM_RELEASE.tar.xz"
-          echo "d93bf12952d89fe4ec7501c40475718b722407da6a8d651f05c995863468e570  $LLVM_RELEASE.tar.xz" | shasum -a 256 -c
-          tar -xJf "$LLVM_RELEASE.tar.xz" && rm "$LLVM_RELEASE.tar.xz"
+          path: llvm-19-macos-arm64
+          key: compiler-macos-arm64-${{ hashFiles('tools/build-llvm.sh') }}
+          fail-on-cache-miss: true
 
       - uses: actions/download-artifact@v4
         with:
@@ -320,7 +417,7 @@ jobs:
           path: k1x-snapshot
 
       - name: Build and package
-        run: K1_LLVM="$LLVM_RELEASE" K1X_SNAPSHOT=k1x-snapshot tools/package-macos.sh "Qt/$QT_VERSION/macos" dist
+        run: K1_LLVM=llvm-19-macos-arm64 K1X_SNAPSHOT=k1x-snapshot tools/package-macos.sh "Qt/$QT_VERSION/macos" dist
 
       - name: Check the package
         run: |
@@ -329,12 +426,21 @@ jobs:
           codesign --verify --deep --strict "$app"
           "$app/Contents/MacOS/prismark" --version
           "$app/Contents/MacOS/prismark" tests > /dev/null
+          "$app/Contents/MacOS/prismark" checksums --k1-data "$app/Contents/Resources/k1x" --tests K1 -o k1-checksums-macos-arm64.json
+          cp "$app/Contents/Resources/tools/prismark-compiler.json" compiler-macos-arm64.json
           "$app/Contents/MacOS/prismark" --quick --skip-preflight --max-threads 2 --mode st_burst --kernels K2,K3,K5 -o "$RUNNER_TEMP/smoke.json"
           "$app/Contents/Resources/tools/bin/clang++-19" --version
           "$app/Contents/Resources/tools/bin/cmake" --version
           PRISMARK_GUI_SCREENSHOT="$RUNNER_TEMP/app.png" "$app/Contents/MacOS/prismark-gui"
           test -s "$RUNNER_TEMP/app.png"
           hdiutil detach "$RUNNER_TEMP/m"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: compiler-check-macos-arm64
+          path: |
+            k1-checksums-*.json
+            compiler-*.json
 
       - uses: actions/upload-artifact@v4
         with:
@@ -403,6 +509,29 @@ jobs:
           merge-multiple: true
       - name: Compare checksums across ISAs
         run: python3 tools/ci/compare_checksums.py checksums-x86_64.json checksums-aarch64.json
+
+  # Gate 3: the compile tests time one compiler build. Every package carries the same compiler id, and Compiling
+  # code gives the same output from the Linux and macOS packages (Windows packages are built only).
+  compiler-gate:
+    needs: [linux-packages, macos-package, windows-portable]
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: compiler-check-*
+          merge-multiple: true
+      - name: Compare the compilers and Compiling code's output
+        run: |
+          python3 - compiler-*.json <<'PY'
+          import json, sys
+          ids = {p: json.load(open(p))["id"] for p in sys.argv[1:]}
+          for p, i in sorted(ids.items()):
+              print(f"{p}: {i}")
+          sys.exit(0 if len(ids) == 4 and len(set(ids.values())) == 1 else "the packages carry different compiler builds")
+          PY
+          python3 tools/ci/compare_checksums.py --require K1 k1-checksums-linux-x86_64.json \
+            k1-checksums-linux-aarch64.json k1-checksums-macos-arm64.json
 
   # Android ARM64 (tools/build-android.sh): the core, the kernels and the JNI bridge with the android-arm64 preset
   # (NDK Clang), then the app (apps/android) as a debug APK, installable without a signing key. Built only: no
@@ -491,7 +620,7 @@ jobs:
   # A pushed v* tag: every package goes to its GitHub release (a draft is made when there is none yet).
   release:
     if: startsWith(github.ref, 'refs/tags/v')
-    needs: [linux-packages, linux-install-check, windows-portable, macos-package, android]
+    needs: [linux-packages, linux-install-check, windows-portable, macos-package, android, compiler-gate]
     runs-on: ubuntu-24.04
     permissions:
       contents: write

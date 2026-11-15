@@ -7,12 +7,13 @@
 # and the build tools (tools/: Clang 19, CMake, Ninja). The packages depend only on what every desktop has
 # (graphics, X11 and Wayland, fonts, D-Bus, GLib), so one build serves both families.
 #
-#   K1X_SNAPSHOT=DIR tools/package-linux.sh QT [OUT_DIR]
+#   K1_LLVM=DIR K1X_SNAPSHOT=DIR tools/package-linux.sh QT [OUT_DIR]
 #
 #   QT            Qt 6 for Linux, e.g. .../Qt/6.8.3/gcc_64 (aqt install-qt linux desktop 6.8.3 linux_gcc_64 -O Qt)
+#   K1_LLVM       the compile tests' compiler, from tools/build-llvm.sh linux-<arch>: built in, and its clang-19
+#                 shipped for the full build, so both tests time the same compiler as every other package
 #   K1X_SNAPSHOT  a prepared compile-test snapshot (tools/k1x/prepare.py), shipped as it is
 #
-# Clang and LLVM 19 come from the build machine (/usr/lib/llvm-19, apt.llvm.org), or PRISMARK_K1_LLVM_DIR.
 # Build on the oldest distribution it should run on (glibc is the system's): Ubuntu 22.04 covers 22.04 and later,
 # and every Fedora still supported. Needs dpkg-deb and rpmbuild (apt install rpm). The build tools are
 # downloaded at pinned versions and checked by SHA-256.
@@ -29,7 +30,6 @@ SRC=$(cd "$(dirname "$0")/.." && pwd)
 OUT=$(realpath -m "${2:-$SRC/build}")
 BUILD=$(realpath -m "${PRISMARK_BUILD_DIR:-$SRC/build/linux-bundle}")
 COMPILE=${PRISMARK_COMPILE_TESTS:-1}
-LLVM=${PRISMARK_K1_LLVM_DIR:-/usr/lib/llvm-19}
 # The package is for the machine it is built on; the pinned build tools are the same versions for both.
 case $(uname -m) in
   x86_64)
@@ -48,12 +48,13 @@ command -v dpkg-deb > /dev/null && command -v rpmbuild > /dev/null || { echo "dp
 
 K1_ARGS=(-DPRISMARK_K1=OFF)
 if [ "$COMPILE" != 0 ]; then
-  [ -f "$LLVM/lib/cmake/clang/ClangConfig.cmake" ] ||
-    { echo "Clang and LLVM 19 are needed in $LLVM (or PRISMARK_K1_LLVM_DIR), or PRISMARK_COMPILE_TESTS=0"; exit 2; }
+  [ -n "${K1_LLVM:-}" ] && [ -f "$K1_LLVM/prismark-compiler.json" ] ||
+    { echo "K1_LLVM: Prismark's compiler build is needed (tools/build-llvm.sh linux-$(uname -m)), or PRISMARK_COMPILE_TESTS=0"; exit 2; }
+  K1_LLVM=$(realpath "$K1_LLVM")
   [ -n "${K1X_SNAPSHOT:-}" ] && [ -f "$K1X_SNAPSHOT/manifest.json" ] ||
     { echo "K1X_SNAPSHOT: a prepared snapshot is needed (tools/k1x/prepare.py), or PRISMARK_COMPILE_TESTS=0"; exit 2; }
   K1X_SNAPSHOT=$(realpath "$K1X_SNAPSHOT")
-  K1_ARGS=(-DPRISMARK_K1=ON -DPRISMARK_K1_LLVM_DIR="$LLVM")
+  K1_ARGS=(-DPRISMARK_K1=ON -DPRISMARK_K1_LLVM_DIR="$K1_LLVM")
 fi
 
 # The programs find their libraries in lib/ beside them. DT_RPATH (not RUNPATH) also covers the libraries those
@@ -63,6 +64,12 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAI
   -DCMAKE_BUILD_WITH_INSTALL_RPATH=ON -DCMAKE_INSTALL_RPATH='$ORIGIN/lib' \
   -DCMAKE_EXE_LINKER_FLAGS=-Wl,--disable-new-dtags -DCMAKE_SHARED_LINKER_FLAGS=-Wl,--disable-new-dtags
 cmake --build "$BUILD"
+# K1 in the runner and the shipped clang-19 for K1x must be the same compiler build.
+if [ "$COMPILE" != 0 ]; then
+  id=$(sed -n 's/.*"id": "\([0-9a-f]*\)".*/\1/p' "$K1_LLVM/prismark-compiler.json")
+  grep -q "PMK_K1_COMPILER_ID \"$id\"" "$BUILD/generated/pmk_build_info.h" ||
+    { echo "the runner was not built with K1_LLVM's compiler build ($id)"; exit 1; }
+fi
 grep -q 'Qt6' "$BUILD/CMakeCache.txt" || { echo "the desktop app was not built with Qt 6 from $QT"; exit 1; }
 
 VERSION=$(sed -n 's/^project(prismark VERSION \([0-9.]*\).*/\1/p' "$SRC/CMakeLists.txt")
@@ -105,14 +112,14 @@ if [ "$COMPILE" != 0 ]; then
   cp "$T"/cmake-3.31.6-linux-$ARCH/bin/cmake "$STAGE"/tools/bin/
   cp -r "$T"/cmake-3.31.6-linux-$ARCH/share/cmake-3.31 "$STAGE"/tools/share/
   # The snapshot's toolchain asks for clang-19 and clang++-19, and CMake's compiler check for llvm-ar; the
-  # measured build itself only compiles. The real programs are in tools/llvm/bin and take their mode from the
-  # name they are started by, so tools/bin holds links to them under each name. They find LLVM and Clang's
-  # headers in ../lib (RUNPATH $ORIGIN/../lib, lib/clang/19): tools/llvm/lib is the package's lib/, so LLVM is
-  # shipped once.
-  mkdir -p "$STAGE"/tools/llvm/bin "$STAGE"/lib/clang/19
-  cp -L "$LLVM"/bin/clang-19 "$LLVM"/bin/llvm-ar "$STAGE"/tools/llvm/bin/
-  ln -s ../../lib "$STAGE"/tools/llvm/lib
-  cp -r "$LLVM"/lib/clang/19/include "$STAGE"/lib/clang/19/
+  # measured build itself only compiles. The real programs, static and self-contained, are the K1_LLVM build's,
+  # in tools/llvm/bin; they take their mode from the name they are started by, so tools/bin holds links to them
+  # under each name. Clang finds its headers in tools/llvm/lib/clang/19. tools/prismark-compiler.json says which
+  # build they are (K1x records it).
+  mkdir -p "$STAGE"/tools/llvm/bin "$STAGE"/tools/llvm/lib/clang/19
+  cp "$K1_LLVM"/bin/clang-19 "$K1_LLVM"/bin/llvm-ar "$STAGE"/tools/llvm/bin/
+  cp -r "$K1_LLVM"/lib/clang/19/include "$STAGE"/tools/llvm/lib/clang/19/
+  cp "$K1_LLVM"/prismark-compiler.json "$STAGE"/tools/
   for t in clang-19:clang-19 clang++-19:clang-19 llvm-ar:llvm-ar llvm-ranlib:llvm-ar; do
     ln -s ../llvm/bin/"${t#*:}" "$STAGE"/tools/bin/"${t%%:*}"
   done

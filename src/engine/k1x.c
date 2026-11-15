@@ -20,6 +20,7 @@
 
 #include "ctx.h"
 #include "jparse.h"
+#include "pmk_build_info.h"
 
 static int exists(const char *path) {
   struct stat st;
@@ -47,6 +48,40 @@ static char *read_text(const char *path) {
   fclose(f);
   text[len] = 0;
   return text;
+}
+
+/* The compiler build the snapshot's toolchain will run: the "id" in prismark-compiler.json in the folder above the
+ * first clang-19 in PATH (the packages ship tools/bin/clang-19 and tools/prismark-compiler.json), written to id.
+ * Returns 0 with id empty when clang-19 has no such record. */
+static int k1x_compiler_id(char *id, size_t n) {
+  id[0] = '\0';
+  const char *path = getenv("PATH");
+#ifdef _WIN32
+  const char sep = ';', *exe = "clang-19.exe";
+#else
+  const char sep = ':', *exe = "clang-19";
+#endif
+  char dir[1024], file[1200];
+  while (path && *path) {
+    const char *end = strchr(path, sep);
+    size_t len = end ? (size_t)(end - path) : strlen(path);
+    if (len && len < sizeof dir) {
+      memcpy(dir, path, len);
+      dir[len] = '\0';
+      snprintf(file, sizeof file, "%s/%s", dir, exe);
+      if (exists(file)) {
+        snprintf(file, sizeof file, "%s/../prismark-compiler.json", dir);
+        char *text = read_text(file), err[160];
+        jdoc *d = text ? jdoc_parse(text, err, sizeof err) : NULL;
+        free(text);
+        if (d) snprintf(id, n, "%s", jv_str(jv_get(jdoc_root(d), "id"), ""));
+        jdoc_free(d);
+        return 0;
+      }
+    }
+    path = end ? end + 1 : NULL;
+  }
+  return 0;
 }
 
 /* A path for comparing: '/' as separator, and on Windows (case-insensitive file names) lower case. */
@@ -164,6 +199,11 @@ int k1x_run(pmk_ctx *c, const int *steps, int nsteps, const int *order) {
   jw_str(&c->k1x, "scratch", dir);
   jw_bool(&c->k1x, "ram_backed", ram);
   jw_str(&c->k1x, "log", log);
+  /* Which compiler build the full build times, and whether it is the one built into the runner (K1). */
+  char cid[80];
+  k1x_compiler_id(cid, sizeof cid);
+  jw_str(&c->k1x, "compiler_id", cid[0] ? cid : NULL);
+  jw_bool(&c->k1x, "compiler_matches_k1", cid[0] && !strcmp(cid, PMK_K1_COMPILER_ID));
 
   ctx_emit(c, PMK_EV_PHASE, "mc_threaded", "K1x", 0, 0, "copying the snapshot to %s", dir);
   int rc = PMK_OK;

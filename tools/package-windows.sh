@@ -9,7 +9,8 @@
 #   LLVM_MINGW    llvm-mingw 20250114 (LLVM 19.1.7), ucrt-ubuntu-x86_64 release
 #   QT_WINDOWS    Qt for Windows built with llvm-mingw, e.g. .../Qt/6.8.3/llvm-mingw_64
 #   QT_HOST       host Qt of the same version, for moc and rcc, e.g. .../Qt/6.8.3/gcc_64
-#   K1_LLVM       Clang and LLVM 19 libraries for Windows, from tools/build-llvm-windows.sh
+#   K1_LLVM       the compile tests' compiler, from tools/build-llvm.sh windows-x86_64: built in, and its clang-19
+#                 shipped for the full build, so both tests time the same compiler as every other package
 #   K1X_SNAPSHOT  a prepared compile-test snapshot (tools/k1x/prepare.py), shipped as it is
 #
 # Both Qts install with aqtinstall:
@@ -32,8 +33,8 @@ COMPILE=${PRISMARK_COMPILE_TESTS:-1}
 
 K1_ARGS=(-DPRISMARK_K1=OFF)
 if [ "$COMPILE" != 0 ]; then
-  [ -n "${K1_LLVM:-}" ] && [ -f "$K1_LLVM/lib/cmake/clang/ClangConfig.cmake" ] ||
-    { echo "K1_LLVM: Clang and LLVM 19 for Windows are needed (tools/build-llvm-windows.sh), or PRISMARK_COMPILE_TESTS=0"; exit 2; }
+  [ -n "${K1_LLVM:-}" ] && [ -f "$K1_LLVM/prismark-compiler.json" ] ||
+    { echo "K1_LLVM: Prismark's compiler build is needed (tools/build-llvm.sh windows-x86_64), or PRISMARK_COMPILE_TESTS=0"; exit 2; }
   [ -n "${K1X_SNAPSHOT:-}" ] && [ -f "$K1X_SNAPSHOT/manifest.json" ] ||
     { echo "K1X_SNAPSHOT: a prepared snapshot is needed (tools/k1x/prepare.py), or PRISMARK_COMPILE_TESTS=0"; exit 2; }
   K1_LLVM=$(realpath "$K1_LLVM")
@@ -46,6 +47,12 @@ cmake -S "$SRC" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release \
   -DLLVM_MINGW="$LLVM_MINGW" -DCMAKE_PREFIX_PATH="$QT_WIN" -DQT_HOST_PATH="$QT_HOST" \
   -DPRISMARK_GUI=ON "${K1_ARGS[@]}" -DBUILD_TESTING=OFF
 cmake --build "$BUILD"
+# K1 in the runner and the shipped clang-19 for K1x must be the same compiler build.
+if [ "$COMPILE" != 0 ]; then
+  id=$(sed -n 's/.*"id": "\([0-9a-f]*\)".*/\1/p' "$K1_LLVM/prismark-compiler.json")
+  grep -q "PMK_K1_COMPILER_ID \"$id\"" "$BUILD/generated/pmk_build_info.h" ||
+    { echo "the runner was not built with K1_LLVM's compiler build ($id)"; exit 1; }
+fi
 
 VERSION=$(sed -n 's/^project(prismark VERSION \([0-9.]*\).*/\1/p' "$SRC/CMakeLists.txt")
 NAME=prismark-$VERSION-windows-x86_64
@@ -76,19 +83,21 @@ if [ "$COMPILE" != 0 ]; then
   cp -r "$K1X_SNAPSHOT" "$STAGE"/k1x
   T=$BUILD/tools-unpacked
   rm -rf "$T" && mkdir -p "$T" "$STAGE"/tools/bin "$STAGE"/tools/share
-  unzip -q "$(fetch https://github.com/mstorsjo/llvm-mingw/releases/download/20250114/llvm-mingw-20250114-ucrt-x86_64.zip \
-    9395d95c089611e6cd728c9a07219ffc5ac706e0c719833a2f7e64a706a81541 llvm-mingw-20250114-ucrt-x86_64.zip)" -d "$T"
   unzip -q "$(fetch https://github.com/Kitware/CMake/releases/download/v3.31.6/cmake-3.31.6-windows-x86_64.zip \
     d163cd3ab4959b0a53fa8988f2ddbd2e6c501658201e6a154386bad9dbe4f836 cmake-3.31.6-windows-x86_64.zip)" -d "$T"
   unzip -q "$(fetch https://github.com/ninja-build/ninja/releases/download/v1.12.1/ninja-win.zip \
     f550fec705b6d6ff58f2db3c374c2277a37691678d6aba463adcbb129108467a ninja-win-1.12.1.zip)" -d "$T"
-  # The snapshot's toolchain asks for clang-19 and clang++-19: the real compiler (clang.exe in llvm-mingw is a
-  # wrapper for MinGW targets), under both names; the driver takes its mode from its name. llvm-ar for CMake's
-  # compiler check; the measured build itself only compiles.
-  L=$T/llvm-mingw-20250114-ucrt-x86_64/bin
-  cp "$L"/clang-19.exe "$STAGE"/tools/bin/clang-19.exe
-  cp "$L"/clang-19.exe "$STAGE"/tools/bin/clang++-19.exe
-  cp "$L"/{llvm-ar,llvm-ranlib}.exe "$L"/{libclang-cpp,libLLVM-19,libc++,libunwind}.dll "$STAGE"/tools/bin/
+  # The snapshot's toolchain asks for clang-19 and clang++-19, and CMake's compiler check for llvm-ar; the
+  # measured build itself only compiles. The programs, static and self-contained, are the K1_LLVM build's, under
+  # each name (the driver takes its mode from its name); Clang finds its headers in tools\lib\clang\19.
+  # tools\prismark-compiler.json says which build they are (K1x records it).
+  cp "$K1_LLVM"/bin/clang-19.exe "$STAGE"/tools/bin/clang-19.exe
+  cp "$K1_LLVM"/bin/clang-19.exe "$STAGE"/tools/bin/clang++-19.exe
+  cp "$K1_LLVM"/bin/llvm-ar.exe "$STAGE"/tools/bin/llvm-ar.exe
+  cp "$K1_LLVM"/bin/llvm-ar.exe "$STAGE"/tools/bin/llvm-ranlib.exe
+  mkdir -p "$STAGE"/tools/lib/clang/19
+  cp -r "$K1_LLVM"/lib/clang/19/include "$STAGE"/tools/lib/clang/19/
+  cp "$K1_LLVM"/prismark-compiler.json "$STAGE"/tools/
   cp "$T"/ninja.exe "$STAGE"/tools/bin/
   cp "$T"/cmake-3.31.6-windows-x86_64/bin/cmake.exe "$STAGE"/tools/bin/
   cp -r "$T"/cmake-3.31.6-windows-x86_64/share/cmake-3.31 "$STAGE"/tools/share/

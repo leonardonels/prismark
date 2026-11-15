@@ -121,6 +121,13 @@ against ARM64).
   threads left to the scheduler) rather than refusing the two runs.
 - The short tasks take their memory from buffers kept per thread, not from
   the C library, so they time the processor and not the system's allocator.
+- The compile tests time one compiler on every system: the same Clang 19.1.7
+  build, with its own C++ library ([Packaging](packaging.md#the-compile-tests-compiler)).
+  Like timer punctuality they include the operating system, here its memory
+  allocator and file system, as a program compiled on it would. A result
+  records the compiler build's id, and `prismark compare` marks compile tests
+  timed with different builds (a build from source with a distribution's LLVM,
+  or any result before 0.6.2).
 - Profiles in `prismark compare --detail` report the weighted geometric mean
   G of the per-test ratios, which reads the same whichever machine is the
   denominator.

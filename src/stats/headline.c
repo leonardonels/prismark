@@ -221,6 +221,18 @@ static void describe(pmk_buf *t, const char *which, const doc *d) {
              jv_bool(jv_get(d->root, "complete"), 1) ? "" : ", incomplete", jv_str(jv_get(d->root, "run_id"), "?"));
 }
 
+/*
+ * Whether two results timed a compile test (K1: the compiler built into the runner; K1x: the clang-19 the full
+ * build runs) with different compiler builds: the ids differ, or only one result records one (results before
+ * 0.6.2, a build with a distribution's LLVM). Reference systems record none and are never marked.
+ */
+static int compilers_differ(const doc *A, const doc *B, how how) {
+  if (A->reference || B->reference) return 0;
+  const char *path = how == K1X ? "k1x.compiler_id" : "harness.k1_compiler.id";
+  const char *a = jv_str(jv_path(A->root, path), NULL), *b = jv_str(jv_path(B->root, path), NULL);
+  return (a || b) && !(a && b && !strcmp(a, b));
+}
+
 static const char *fmt(char *out, size_t n, double v) {
   double a = fabs(v);
   snprintf(out, n, a >= 100 ? "%.0f" : a >= 10 ? "%.1f" : a >= 1 ? "%.2f" : "%.3f", v);
@@ -247,6 +259,7 @@ int pmk_compare_headline(const char *a_json, const char *b_json, char **report_t
   buf_printf(&t, "\n  %-44s %-12s %10s %10s   %s\n", "", "unit", "A", "B", "A against B");
   const char *group = NULL;
   int shown = 0, no_interval = 0, fewer = 0, better = 0, worse = 0, any_points = 0, only[2] = {0, 0}, os_note = 0;
+  int compiler_note = 0;
   /* Timer punctuality and reacting from rest are set by the operating system's timers and idle policy as much
      as by the processor: across two systems they are shown, not judged. */
   const char *osa = jv_str(jv_path(A.root, "machine.os"), ""), *osb = jv_str(jv_path(B.root, "machine.os"), "");
@@ -293,9 +306,11 @@ int pmk_compare_headline(const char *a_json, const char *b_json, char **report_t
       continue;
     }
     if (!overlap) (points ? d >= 0 : r >= 1) ? better++ : worse++;
-    char mark[48] = "";
+    char mark[64] = "";
     if (!intervals) strcat(mark, ", may be noise"), no_interval = 1;
     if (a->fewer_threads || b->fewer_threads) strcat(mark, ", fewer threads"), fewer = 1;
+    if ((m->how == K1X || !strcmp(m->kernel, "K1")) && compilers_differ(&A, &B, m->how))
+      strcat(mark, ", other compiler"), compiler_note = 1;
     buf_printf(&t, "  %-44s %-12s %10s %10s   %s%s\n", m->name, m->unit, fmt(x, sizeof x, a->est),
                fmt(y, sizeof y, b->est), verdict, mark);
     shown++;
@@ -324,6 +339,9 @@ int pmk_compare_headline(const char *a_json, const char *b_json, char **report_t
                    "machines on the same system.\n");
   if (no_interval) buf_printf(&t, "\"may be noise\": one side has no 95 %% range, so the difference may not be real.\n");
   if (fewer) buf_printf(&t, "\"fewer threads\": measured on fewer threads than the machine has (--max-threads).\n");
+  if (compiler_note)
+    buf_printf(&t, "\"other compiler\": the compile tests were timed with different compiler builds (a result before "
+                   "0.6.2, or a build from source), so part of the difference may be the compiler's.\n");
   const char *ida = A.reference ? NULL : jv_str(jv_get(A.root, "run_id"), NULL);
   const char *idb = B.reference ? NULL : jv_str(jv_get(B.root, "run_id"), NULL);
   if (ida && idb && !strcmp(ida, idb)) buf_printf(&t, "Note: A and B are the same run.\n");

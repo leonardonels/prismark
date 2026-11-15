@@ -2,9 +2,11 @@
 # phones (the engine leaves it out of their test set). iOS/iPadOS builds need an LLVM built for iOS,
 # given with PRISMARK_K1_LLVM_DIR; the host's LLVM is never used there.
 #
-# Needs the Clang and LLVM CMake packages (e.g. libclang-19-dev and
-# llvm-19-dev from apt.llvm.org). For official results LLVM itself is built
-# at the baseline ISA (spec 3.3); a distribution build records its origin.
+# Needs the Clang and LLVM CMake packages. Packages use Prismark's own build
+# (tools/build-llvm.sh: one recipe for every system, static, its own libc++,
+# the baseline ISA of spec 3.3), whose id every result records; a distribution
+# LLVM (libclang-19-dev and llvm-19-dev from apt.llvm.org, Homebrew) also
+# works, and its results say they were not timed with that build.
 
 set(PRISMARK_K1 AUTO CACHE STRING "Build K1 (in-process Clang): AUTO, ON or OFF")
 set_property(CACHE PRISMARK_K1 PROPERTY STRINGS AUTO ON OFF)
@@ -39,22 +41,44 @@ if((PRISMARK_DESKTOP OR (IOS AND PRISMARK_K1_LLVM_DIR)) AND NOT PRISMARK_K1 STRE
     enable_language(CXX)
     set(CMAKE_CXX_STANDARD 17)
     set(CMAKE_CXX_STANDARD_REQUIRED ON)
-    if(TARGET clang-cpp AND TARGET LLVM)
+    # Prismark's own compiler build (tools/build-llvm.sh) says so in prismark-compiler.json: static libraries
+    # and its own static libc++, the same on every system. Any other LLVM still builds K1, recorded as such.
+    set(_k1_record ${_k1_prefix}/prismark-compiler.json)
+    set(_k1_opts)
+    llvm_map_components_to_libnames(_k1_llvm support core aarch64codegen aarch64asmparser aarch64desc aarch64info)
+    if(EXISTS ${_k1_record})
+      file(READ ${_k1_record} _k1_json)
+      string(JSON PRISMARK_K1_COMPILER_ID GET ${_k1_json} id)
+      set(_rt ${_k1_prefix}/runtime)
+      set(_k1_libs clangFrontend clangCodeGen clangDriver clangBasic ${_k1_llvm} -nostdlib++
+        ${_rt}/lib/libc++.a ${_rt}/lib/libc++abi.a)
+      if(EXISTS ${_rt}/lib/libunwind.a)
+        list(APPEND _k1_libs ${_rt}/lib/libunwind.a)
+      endif()
+      # Its headers, not the system's: k1.cpp must agree with the library it links.
+      list(APPEND _k1_opts -nostdinc++ -isystem ${_rt}/include/c++/v1)
+    elseif(TARGET clang-cpp AND TARGET LLVM)
+      set(PRISMARK_K1_COMPILER_ID "")
       set(_k1_libs clang-cpp LLVM)
     else()
-      llvm_map_components_to_libnames(_k1_llvm support core aarch64codegen aarch64asmparser aarch64desc aarch64info)
+      set(PRISMARK_K1_COMPILER_ID "")
       set(_k1_libs clangFrontend clangCodeGen clangDriver clangBasic ${_k1_llvm})
     endif()
     set(_k1_defs ${LLVM_DEFINITIONS})
     separate_arguments(_k1_defs)
     if(NOT LLVM_ENABLE_RTTI)
-      set_source_files_properties(kernels/k1_compile/k1.cpp PROPERTIES COMPILE_OPTIONS "-fno-rtti")
+      list(APPEND _k1_opts -fno-rtti)
     endif()
+    set_source_files_properties(kernels/k1_compile/k1.cpp PROPERTIES COMPILE_OPTIONS "${_k1_opts}")
     prismark_add_kernel(k1_compile SOURCES kernels/k1_compile/k1.cpp
       INCLUDE ${LLVM_INCLUDE_DIRS} ${CLANG_INCLUDE_DIRS} LIBS ${_k1_libs})
     set(PRISMARK_HAVE_K1 ON)
     set(PRISMARK_K1_LLVM_VERSION ${LLVM_PACKAGE_VERSION})
-    message(STATUS "K1: in-process Clang ${LLVM_PACKAGE_VERSION} from ${LLVM_DIR}")
+    if(PRISMARK_K1_COMPILER_ID)
+      message(STATUS "K1: in-process Clang ${LLVM_PACKAGE_VERSION}, Prismark's build ${PRISMARK_K1_COMPILER_ID}")
+    else()
+      message(STATUS "K1: in-process Clang ${LLVM_PACKAGE_VERSION} from ${LLVM_DIR} (not Prismark's build)")
+    endif()
   elseif(PRISMARK_K1 STREQUAL "ON")
     message(FATAL_ERROR "PRISMARK_K1=ON but the Clang development package was not found")
   else()

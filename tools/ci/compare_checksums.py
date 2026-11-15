@@ -8,6 +8,10 @@ checksum everywhere. Kernels unavailable on a host (K1 without a snapshot)
 are skipped, never estimated.
 
   tools/ci/compare_checksums.py x86_64.json aarch64.json
+  tools/ci/compare_checksums.py --require K1 linux-x86_64.json linux-aarch64.json macos-arm64.json
+
+--require KERNEL fails unless that kernel was measured in every report (the
+compile-test gate: one compiler build in every package must give one output).
 
 Copyright 2026 The Prismark Authors. Apache-2.0.
 """
@@ -35,16 +39,24 @@ def entries(path):
 
 
 def main():
-    if len(sys.argv) < 3:
+    args, required = sys.argv[1:], []
+    while len(args) >= 2 and args[0] == "--require":
+        required.append(args[1])
+        args = args[2:]
+    if len(args) < 2:
         sys.exit(__doc__)
-    reports = [entries(p) for p in sys.argv[1:]]
+    reports = [entries(p) for p in args]
     problems = [b for _, _, bad in reports for b in bad]
+    for kernel in required:
+        for path, (_, e, _) in zip(args, reports):
+            if not any(key[0] == kernel for key in e):
+                problems.append(f"{path}: {kernel} was not measured")
     common = set.intersection(*(set(e) for _, e, _ in reports))
     for key in sorted(common, key=str):
         vals = {e[key] for _, e, _ in reports}
         if len(vals) > 1:
             problems.append(f"{key}: " + "  ".join(f"{lvl}={e[key]}" for lvl, e, _ in reports))
-    print(f"{len(common)} kernel/size combinations compared across {', '.join(l for l, _, _ in reports)}")
+    print(f"{len(common)} kernel/size combinations compared across {', '.join(str(l) for l, _, _ in reports)}")
     for p in problems:
         print("MISMATCH", p)
     return 1 if problems else 0
