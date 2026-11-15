@@ -214,7 +214,7 @@ int pal_set_timer_slack_min(void) {
   return t_kq >= 0 ? 0 : -1;
 }
 
-static int vm_stats(vm_statistics64_data_t *vm, uint64_t *page) {
+static int darwin_vm_stats(vm_statistics64_data_t *vm, uint64_t *page) {
   mach_msg_type_number_t count = HOST_VM_INFO64_COUNT;
   vm_size_t pg = 0;
   if (host_statistics64(mach_host_self(), HOST_VM_INFO64, (host_info64_t)vm, &count) != KERN_SUCCESS ||
@@ -237,7 +237,7 @@ uint64_t pal_mem_available(void) {
   if (level >= 0 && level <= 100 && total) return total / 100 * (uint64_t)level;
   vm_statistics64_data_t vm;
   uint64_t page;
-  if (vm_stats(&vm, &page)) return 0;
+  if (darwin_vm_stats(&vm, &page)) return 0;
   return ((uint64_t)vm.free_count + (uint64_t)vm.inactive_count + (uint64_t)vm.purgeable_count) * page;
 #endif
 }
@@ -245,7 +245,7 @@ uint64_t pal_mem_available(void) {
 uint64_t pal_paging_bytes(void) {
   vm_statistics64_data_t vm;
   uint64_t page;
-  if (vm_stats(&vm, &page)) return 0;
+  if (darwin_vm_stats(&vm, &page)) return 0;
   return ((uint64_t)vm.compressions + (uint64_t)vm.swapins + (uint64_t)vm.swapouts) * page;
 }
 /* The average clock of the CPU's core type since the previous reading (sensors.c): threads are steered to a
