@@ -323,6 +323,23 @@ private fun TestScreen(test: Test, run: Run) {
                     }
                 }
             }
+            val speeds = remember(test, run) { runCatching { perThread(test, run.doc) }.getOrDefault(emptyList()) }
+            speeds.lastOrNull()?.let { slowest ->
+                // One thread on each type of core, from the same run of every core.
+                Column(
+                    Modifier.fillMaxWidth().background(p.panel).padding(horizontal = 20.dp, vertical = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                        BasicText("PER THREAD", style = Type.mono(12.sp, color = p.muted))
+                        BasicText(speeds.joinToString(" · ") { "${it.type} ${format(it.perThread)}" }, style = Type.mono(12.sp, true))
+                    }
+                    BasicText(
+                        "${slowest.type} CORES HAD ${Math.round(slowest.share * 100)} % OF THE TASK TIME",
+                        style = Type.mono(12.sp, color = p.muted),
+                    )
+                }
+            }
             Column(Modifier.fillMaxSize().background(p.panel).verticalScroll(rememberScrollState()).padding(bottom = bottomInset() + 8.dp)) {
                 val top = rows.maxOfOrNull { it.value.v } ?: 1.0
                 rows.forEachIndexed { index, row -> RankRow(index + 1, row, top, value?.v, highlighted = false, onTap = null) }
