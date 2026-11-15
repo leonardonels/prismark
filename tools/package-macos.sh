@@ -9,8 +9,9 @@
 #
 #   QT            Qt 6 for macOS, e.g. .../Qt/6.10.3/macos (aqt install-qt mac desktop 6.10.3 clang_64 -O Qt; 6.8
 #                 does not link with the macOS 26 SDK, which has no AGL)
-#   K1_LLVM       Clang and LLVM 19 for macOS, built in and shipped: LLVM's own release (LLVM-19.1.7-macOS-ARM64)
-#                 runs on older macOS than Homebrew's llvm@19, which is built for the machine's own release
+#   K1_LLVM       the compile tests' compiler, from tools/build-llvm.sh macos-arm64 (for macOS 13 and later): built
+#                 in, and its clang-19 shipped for the full build, so both tests time the same compiler as every
+#                 other package
 #   K1X_SNAPSHOT  a prepared compile-test snapshot (tools/k1x/prepare.py), shipped as it is
 #
 # The programs are compiled with Homebrew's Clang 19 (brew install llvm@19 ninja), as for the macos-clang preset.
@@ -37,8 +38,8 @@ esac
 
 K1_ARGS=(-DPRISMARK_K1=OFF)
 if [ "$COMPILE" != 0 ]; then
-  [ -n "${K1_LLVM:-}" ] && [ -f "$K1_LLVM/lib/cmake/clang/ClangConfig.cmake" ] ||
-    { echo "K1_LLVM: Clang and LLVM 19 for macOS are needed (LLVM's release, unpacked), or PRISMARK_COMPILE_TESTS=0"; exit 2; }
+  [ -n "${K1_LLVM:-}" ] && [ -f "$K1_LLVM/prismark-compiler.json" ] ||
+    { echo "K1_LLVM: Prismark's compiler build is needed (tools/build-llvm.sh macos-arm64), or PRISMARK_COMPILE_TESTS=0"; exit 2; }
   [ -n "${K1X_SNAPSHOT:-}" ] && [ -f "$K1X_SNAPSHOT/manifest.json" ] ||
     { echo "K1X_SNAPSHOT: a prepared snapshot is needed (tools/k1x/prepare.py), or PRISMARK_COMPILE_TESTS=0"; exit 2; }
   K1_LLVM=$(cd "$K1_LLVM" && pwd)
@@ -49,6 +50,12 @@ fi
 cmake -S "$SRC" -B "$BUILD" -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_TOOLCHAIN_FILE="$SRC/cmake/toolchains/macos-clang.cmake" \
   -DCMAKE_PREFIX_PATH="$QT" -DPRISMARK_GUI=ON "${K1_ARGS[@]}" -DBUILD_TESTING=OFF
 cmake --build "$BUILD"
+# K1 in the runner and the shipped clang-19 for K1x must be the same compiler build.
+if [ "$COMPILE" != 0 ]; then
+  id=$(sed -n 's/.*"id": "\([0-9a-f]*\)".*/\1/p' "$K1_LLVM/prismark-compiler.json")
+  grep -q "PMK_K1_COMPILER_ID \"$id\"" "$BUILD/generated/pmk_build_info.h" ||
+    { echo "the runner was not built with K1_LLVM's compiler build ($id)"; exit 1; }
+fi
 grep -q 'Qt6' "$BUILD/CMakeCache.txt" || { echo "the desktop app was not built with Qt 6 from $QT"; exit 1; }
 
 VERSION=$(sed -n 's/^project(prismark VERSION \([0-9.]*\).*/\1/p' "$SRC/CMakeLists.txt")
@@ -97,30 +104,24 @@ if [ "$COMPILE" != 0 ]; then
   cp "$T"/cmake-3.31.6-macos-universal/CMake.app/Contents/bin/cmake "$RES"/tools/bin/
   cp -R "$T"/cmake-3.31.6-macos-universal/CMake.app/Contents/share/cmake-3.31 "$RES"/tools/share/
   # The snapshot's toolchain asks for clang-19 and clang++-19, and CMake's compiler check for llvm-ar; the
-  # measured build itself only compiles. The real programs are in tools/llvm/bin and take their mode from the
-  # name they are started by, so tools/bin holds links to them under each name; Clang finds its headers in
-  # tools/llvm/lib/clang/19.
+  # measured build itself only compiles. The real programs, static and self-contained, are the K1_LLVM build's,
+  # in tools/llvm/bin; they take their mode from the name they are started by, so tools/bin holds links to them
+  # under each name. Clang finds its headers in tools/llvm/lib/clang/19. tools/prismark-compiler.json says which
+  # build they are (K1x records it).
   mkdir -p "$RES"/tools/llvm/bin "$RES"/tools/llvm/lib/clang/19
-  cp -L "$K1_LLVM"/bin/clang-19 "$K1_LLVM"/bin/llvm-ar "$RES"/tools/llvm/bin/
+  cp "$K1_LLVM"/bin/clang-19 "$K1_LLVM"/bin/llvm-ar "$RES"/tools/llvm/bin/
   cp -R "$K1_LLVM"/lib/clang/19/include "$RES"/tools/llvm/lib/clang/19/
+  cp "$K1_LLVM"/prismark-compiler.json "$RES"/tools/
   for t in clang-19:clang-19 clang++-19:clang-19 llvm-ar:llvm-ar llvm-ranlib:llvm-ar; do
     ln -s ../llvm/bin/"${t#*:}" "$RES"/tools/bin/"${t%%:*}"
   done
 fi
 
-# The tools in Resources: libraries they load from outside macOS come into Contents/Frameworks, found through
-# their rpath.
+# The tools in Resources load nothing from outside macOS (tools/build-llvm.sh links them statically).
 if [ "$COMPILE" != 0 ]; then
   for f in "$RES"/tools/llvm/bin/*; do
-    for dep in $(otool -L "$f" | awk 'NR > 1 {print $1}' | grep -v '^/System/\|^/usr/lib/' || true); do
-      lib=${dep##*/}
-      [ -e "$FW/$lib" ] || cp -L "$K1_LLVM/lib/$lib" "$FW/$lib"
-      install_name_tool -change "$dep" "@rpath/$lib" "$f" 2> /dev/null
-    done
-    for rp in $(otool -l "$f" | awk '/LC_RPATH/ {r = 1} r && $1 == "path" {print $2; r = 0}'); do
-      install_name_tool -delete_rpath "$rp" "$f"
-    done
-    install_name_tool -add_rpath @loader_path/../../../../Frameworks "$f"
+    ext=$(otool -L "$f" | awk 'NR > 1 {print $1}' | grep -v '^/System/\|^/usr/lib/' || true)
+    [ -z "$ext" ] || { echo "${f#"$APP"/} needs libraries outside macOS: $ext"; exit 1; }
   done
 fi
 

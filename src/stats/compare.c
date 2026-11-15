@@ -83,6 +83,7 @@ typedef struct run {
   int max_n_threaded, max_n_instances;
   const char *fast_core; /* name of core type 0 */
   const char *os;
+  const char *k1_compiler, *k1x_compiler; /* compile tests' compiler build ids, NULL when not recorded */
   int ncpu, pinning, perf_counters;
 } run;
 
@@ -115,6 +116,8 @@ static int load_series(run *R, char *err, size_t errlen) {
   if (jv_len(cores)) R->fast_core = str_or(&cores->items[0], "type", "P");
   R->ncpu = (int)jv_len(cores);
   R->os = jv_str(jv_path(R->root, "machine.os"), "");
+  R->k1_compiler = jv_str(jv_path(R->root, "harness.k1_compiler.id"), NULL);
+  R->k1x_compiler = jv_str(jv_path(R->root, "k1x.compiler_id"), NULL);
   R->pinning = jv_bool(jv_path(R->root, "machine.capabilities.pinning"), 0) == 1;
   R->perf_counters = jv_bool(jv_path(R->root, "machine.capabilities.perf_counters"), -1);
   for (size_t i = 0; i < n; i++) {
@@ -251,12 +254,19 @@ static void free_run(run *R) {
  * Whether two matching series measured the same thing. They must have been placed alike (place_of). The
  * wake-up test (K9 from rest) issues W as cycles: with a cycle counter they are counted on the core, without
  * one each add is taken as a cycle, so its series compare only between runs that calibrated it the same way.
+ * The compile tests time a compiler: they compare only between runs that timed the same compiler build (both
+ * ids recorded and equal, or neither recorded, as between two results from before 0.6.2).
  * Returns 0, or why the pair is left out.
  */
-enum { PAIR_OK, PAIR_PLACED, PAIR_CALIB };
+enum { PAIR_OK, PAIR_PLACED, PAIR_CALIB, PAIR_COMPILER };
 
 static int pair_check(const run *A, const series *a, const run *Bn, const series *b) {
   if (a->place != b->place) return PAIR_PLACED;
+  int k1 = !strcmp(a->kernel, "K1"), k1x = !strcmp(a->kernel, "K1x");
+  if (k1 || k1x) {
+    const char *ia = k1 ? A->k1_compiler : A->k1x_compiler, *ib = k1 ? Bn->k1_compiler : Bn->k1x_compiler;
+    if ((ia || ib) && !eq(ia, ib)) return PAIR_COMPILER;
+  }
   if (!strcmp(a->kernel, "K9") && !strcmp(a->mode, "cold_burst") && A->perf_counters != Bn->perf_counters)
     return PAIR_CALIB;
   return PAIR_OK;
@@ -378,9 +388,11 @@ static void profile(pmk_jw *w, pmk_buf *t, const jv *p, const run *A, const run 
       snprintf(why, sizeof why, "%s inputs differ between the runs", it[i].a->kernel);
       missing = why;
     } else if (pair_check(A, it[i].a, Bn, it[i].b)) {
+      int pc = pair_check(A, it[i].a, Bn, it[i].b);
       snprintf(why, sizeof why, "%s %s %s", it[i].a->kernel, it[i].a->mode,
-               pair_check(A, it[i].a, Bn, it[i].b) == PAIR_CALIB ? "calibrated differently in the two runs"
-                                                                   : "placed differently in the two runs");
+               pc == PAIR_CALIB      ? "calibrated differently in the two runs"
+               : pc == PAIR_COMPILER ? "timed with different compiler builds in the two runs"
+                                     : "placed differently in the two runs");
       missing = why;
     }
   }
@@ -514,7 +526,7 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
   /* Per-kernel ratios over every matching series. */
   jw_arr_begin(&w, "kernels");
   double *reps = malloc(B * sizeof *reps);
-  size_t matched = 0, skipped_inputs = 0, skipped_placed = 0, skipped_calib = 0;
+  size_t matched = 0, skipped_inputs = 0, skipped_placed = 0, skipped_calib = 0, skipped_compiler = 0;
   int os_note = 0;
   buf_printf(&t, "\nPer test (* = CI excludes 1)\n");
   for (size_t i = 0; reps && i < A.ns; i++) {
@@ -528,7 +540,7 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
     }
     int pc = pair_check(&A, a, &Bn, b);
     if (pc) {
-      pc == PAIR_CALIB ? skipped_calib++ : skipped_placed++;
+      pc == PAIR_CALIB ? skipped_calib++ : pc == PAIR_COMPILER ? skipped_compiler++ : skipped_placed++;
       continue;
     }
     int judged = !os_bound(&A, &Bn, a);
@@ -569,6 +581,9 @@ int pmk_compare(const char *a_json, const char *b_json, const char *profiles_jso
   if (skipped_calib)
     buf_printf(&t, "  %zu series skipped: the wake-up test was calibrated with a cycle counter in one run only\n",
                skipped_calib);
+  if (skipped_compiler)
+    buf_printf(&t, "  %zu series skipped: the compile tests were timed with different compiler builds (a result "
+                   "before 0.6.2, or a build from source)\n", skipped_compiler);
   if (os_note)
     buf_printf(&t, "  - shown, not judged: waking from rest follows the operating system (%s against %s)\n", A.os, Bn.os);
 

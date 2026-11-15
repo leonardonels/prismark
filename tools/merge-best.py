@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Merge result files of the same machine, keeping the best run of each test.
 
-usage: tools/merge-best.py OUT RUN RUN...
+usage: tools/merge-best.py [--replace K1,K1x] OUT RUN RUN...
 
 Copyright 2026 The Prismark Authors. Apache-2.0.
 
@@ -12,6 +12,9 @@ A test is chosen as a whole (its series, raw results and derived rows come from 
   - K10 timer per condition: lowest p99.9
 Scaling and the ratios are then recomputed from the merged samples, as analysis_tp.c does.
 Runs may be partial (a few tests each, as the app runs one test): the merge covers every test any run has.
+
+--replace KERNELS: those kernels' tests come from the last run that has them, not the best one, e.g. to put
+compile tests timed with a new compiler build into a reference; the result then records that run's compiler.
 """
 import json, random, statistics, sys, uuid
 
@@ -55,7 +58,11 @@ def steady(r):
     return r["samples"][r["steady"]["from_window"]:] if "steady" in r else r["samples"]
 
 
-runs = [json.load(open(f)) for f in sys.argv[2:]]
+args = sys.argv[1:]
+replace = set()
+if args and args[0] == "--replace":
+    replace, args = set(args[1].split(",")), args[2:]
+runs = [json.load(open(f)) for f in args[1:]]
 for d in runs[1:]:
     assert d["machine"]["cpu"]["model"] == runs[0]["machine"]["cpu"]["model"]
 
@@ -111,7 +118,14 @@ keys = list(idx[0])
 for u in idx[1:]:
     keys += [k for k in u if k not in keys]
 chosen = {}
+def kernel_of(key):
+    return key[1] if key and key[0] in ("series", "rest") else None
+
+
 for key in keys:
+    if kernel_of(key) in replace:
+        chosen[key] = max(i for i, u in enumerate(idx) if key in u)
+        continue
     cands = [(score(key, u[key]), -i) for i, u in enumerate(idx) if key in u and score(key, u[key]) is not None]
     chosen[key] = -max(cands)[1] if cands else 0
 
@@ -197,19 +211,32 @@ an["ratios"] = ratios
 
 ids = [d["run_id"] for d in runs]
 out["run_id"] = str(uuid.uuid5(uuid.NAMESPACE_URL, "prismark-merge:" + ",".join(ids)))
-out["merged_from"] = ids
+# A merged file merged again: list the runs it came from, not its own id.
+out["merged_from"] = [m for d in runs for m in d.get("merged_from", [d["run_id"]])]
 if any(d["config"].get("kernels") != runs[0]["config"].get("kernels") for d in runs):
     # A run of every test (no list) stays one: naming the tests of the partial runs would hide the rest.
     out["config"]["kernels"] = None if any(not d["config"].get("kernels") for d in runs) else ",".join(
         dict.fromkeys(k for d in runs for k in d["config"]["kernels"].split(",") if k))
 # The machine's line of the first run's summary; results from before summaries were stored have the model only.
-machine_line = runs[0]["summary"].split("\n")[1] if runs[0].get("summary") else runs[0]["machine"]["cpu"]["model"]
+# A merged file's summary starts with that line; a run's has its header line first.
+lines = runs[0]["summary"].split("\n") if runs[0].get("summary") else []
+machine_line = (lines[0] if "merged_from" in runs[0] else lines[1]) if lines else runs[0]["machine"]["cpu"]["model"]
+merged = out["merged_from"]
 out["summary"] = machine_line + "\nBest of %d runs (%s), each test from the run where it scored best.\n" % (
-    len(runs), ", ".join(i[:8] for i in ids))
+    len(merged), ", ".join(i[:8] for i in merged))
+if replace:
+    out["summary"] = out["summary"].replace(" scored best.", " scored best; %s from the last run that has them." % (
+        ", ".join(sorted(replace))))
 
 src = {}
 for key in keys:
     src.setdefault(ids[chosen[key]][:8], []).append(key)
 for i, ks in src.items():
     print(i, len(ks), "tests")
-json.dump(out, open(sys.argv[1], "w"), separators=(",", ":"))
+# Replaced compile tests: the compiler they were timed with.
+for i, d in enumerate(runs):
+    if "K1" in replace and any(chosen[k] == i for k in keys if kernel_of(k) == "K1") and "k1_compiler" in d["harness"]:
+        out["harness"]["k1_compiler"] = d["harness"]["k1_compiler"]
+    if "K1x" in replace and any(chosen[k] == i for k in keys if kernel_of(k) == "K1x"):
+        out["k1x"] = d["k1x"]
+json.dump(out, open(args[0], "w"), separators=(",", ":"))

@@ -26,7 +26,7 @@ set(CMAKE_C_COMPILER ${LLVM_MINGW}/bin/x86_64-w64-mingw32-clang)
 set(CMAKE_CXX_COMPILER ${LLVM_MINGW}/bin/x86_64-w64-mingw32-clang++)
 set(CMAKE_RC_COMPILER ${LLVM_MINGW}/bin/x86_64-w64-mingw32-windres)
 set(CMAKE_FIND_ROOT_PATH ${LLVM_MINGW}/x86_64-w64-mingw32)
-# Clang and LLVM for Windows, for K1 (tools/build-llvm-windows.sh): headers and libraries are searched only below
+# Clang and LLVM for Windows, for K1 (tools/build-llvm.sh windows-x86_64): headers and libraries are searched only below
 # the root paths, so it is one of them.
 list(APPEND CMAKE_TRY_COMPILE_PLATFORM_VARIABLES PRISMARK_K1_LLVM_DIR)
 if(PRISMARK_K1_LLVM_DIR)

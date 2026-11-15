@@ -770,6 +770,11 @@ int pmk_start(const pmk_config *cfg_in, pmk_progress_fn cb, void *user, char **r
   jw_int(&w, "abi", PMK_ABI_VERSION);
   jw_raw(&w, "sources", PMK_SOURCES_JSON);
   jw_str(&w, "k1_llvm", PMK_K1_LLVM_VERSION[0] ? PMK_K1_LLVM_VERSION : NULL);
+  /* The compile tests' compiler build (tools/build-llvm.sh); null for any other LLVM. */
+  jw_obj_begin(&w, "k1_compiler");
+  jw_str(&w, "version", PMK_K1_LLVM_VERSION[0] ? PMK_K1_LLVM_VERSION : NULL);
+  jw_str(&w, "id", PMK_K1_COMPILER_ID[0] ? PMK_K1_COMPILER_ID : NULL);
+  jw_obj_end(&w);
   jw_obj_end(&w);
   jw_bool(&w, "verified", 0);
   jw_obj_begin(&w, "frontend");
@@ -933,6 +938,11 @@ int pmk_info(char **info_json) {
   jw_int(&w, "abi", PMK_ABI_VERSION);
   jw_bool(&w, "k1_built", pmk_find_tk(c->k, "K1", NULL) != NULL);
   jw_str(&w, "k1_llvm", PMK_K1_LLVM_VERSION[0] ? PMK_K1_LLVM_VERSION : NULL);
+  /* The compile tests' compiler build (tools/build-llvm.sh); null for any other LLVM. */
+  jw_obj_begin(&w, "k1_compiler");
+  jw_str(&w, "version", PMK_K1_LLVM_VERSION[0] ? PMK_K1_LLVM_VERSION : NULL);
+  jw_str(&w, "id", PMK_K1_COMPILER_ID[0] ? PMK_K1_COMPILER_ID : NULL);
+  jw_obj_end(&w);
   if (ok) {
     tiers_json(&w, c);
     machine_json(&w, &c->m);

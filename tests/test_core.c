@@ -160,6 +160,52 @@ static void test_compare_headline(void) {
   pmk_free(text);
 }
 
+/* A result with one Compiling code series (K1, all cores) timed with compiler build id (NULL: none recorded). */
+static char *k1_result(const char *run_id, const char *id, double perf) {
+  pmk_buf b = {0};
+  buf_printf(&b,
+             "{\"schema\":\"prismark/1\",\"run_id\":\"%s\",\"harness\":{%s%s%s},\"machine\":{\"os\":\"linux\","
+             "\"cpu\":{\"model\":\"m\",\"cores\":[{\"type\":\"P\"}]},\"capabilities\":{\"pinning\":true}},"
+             "\"results\":[{\"kernel\":\"K1\",\"mode\":\"mc_threaded\",\"tier\":\"baseline\",\"params\":{\"size\":"
+             "\"full\",\"threads\":1,\"window_ms\":5000},\"core\":{\"requested\":\"P\"},\"unit\":\"builds/h\","
+             "\"input_hash\":\"00000000000000cc\",\"samples\":[",
+             run_id, id ? "\"k1_compiler\":{\"id\":\"" : "", id ? id : "", id ? "\"}" : "");
+  for (int i = 0; i < 30; i++) buf_printf(&b, "%s%g", i ? "," : "", perf * (1 + 0.001 * (i % 5)));
+  buf_printf(&b, "]}],\"analysis\":{\"series\":[{\"kernel\":\"K1\",\"mode\":\"mc_threaded\",\"tier\":\"baseline\",\"n\":1,"
+                 "\"perf_steady\":{\"est\":%g,\"lo\":%g,\"hi\":%g}}]}}", perf, perf * 0.99, perf * 1.01);
+  return buf_take(&b);
+}
+
+/* The compile tests compare only between runs that timed the same compiler build: --detail leaves the pair
+   out, the headline shows it marked. Two runs that both record none (before 0.6.2) compare as before. */
+static void test_compare_compiler(void) {
+  static const struct {
+    const char *a, *b;
+    int same;
+  } cases[] = {{"x", "x", 1}, {"x", "y", 0}, {"x", NULL, 0}, {NULL, NULL, 1}};
+  for (size_t k = 0; k < sizeof cases / sizeof *cases; k++) {
+    char *a = k1_result("a", cases[k].a, 200), *b = k1_result("b", cases[k].b, 100);
+    char *json = NULL, *text = NULL;
+    CHECK(pmk_compare(a, b, NULL, &json, &text) == PMK_OK && json && text);
+    jdoc *d = json ? jdoc_parse(json, NULL, 0) : NULL;
+    CHECK(d && jv_len(jv_get(jdoc_root(d), "kernels")) == (cases[k].same ? 1u : 0u));
+    CHECK(!text || (strstr(text, "different compiler builds") == NULL) == cases[k].same);
+    if (d) jdoc_free(d);
+    pmk_free(json);
+    pmk_free(text);
+    text = NULL;
+    CHECK(pmk_compare_headline(a, b, &text) == PMK_OK && text);
+    if (text) {
+      const char *row = strstr(text, "Compiling code on all cores");
+      CHECK(row && strstr(row, "2.00x better"));
+      CHECK((strstr(text, "other compiler") == NULL) == cases[k].same);
+    }
+    pmk_free(text);
+    free(a);
+    free(b);
+  }
+}
+
 static void test_json(void) {
   pmk_jw w = {0};
   jw_obj_begin(&w, NULL);
@@ -515,6 +561,7 @@ int main(void) {
   test_throughput_kernels();
   test_compare();
   test_compare_headline();
+  test_compare_compiler();
   if (failures) {
     fprintf(stderr, "%d check(s) failed\n", failures);
     return 1;

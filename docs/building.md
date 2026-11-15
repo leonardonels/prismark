@@ -63,6 +63,18 @@ libraries are not found, Compiling code is listed as unavailable in results;
 point CMake at a custom install with `-DPRISMARK_K1_LLVM_DIR=<prefix>`. Without
 Qt, only the command-line runner is built.
 
+A distribution's LLVM is fine for development, but its compile-test results
+say they were not timed with the packages' compiler (`… (not Prismark's
+build)` in the configure output), and `prismark compare` marks them. For
+compile-test results that compare with the packages', build that compiler
+once (1-3 hours, about 8 GB of disk; see
+[Packaging](packaging.md#the-compile-tests-compiler)) and point CMake at it:
+
+```sh
+tools/build-llvm.sh linux-$(uname -m) build/llvm-19-linux-$(uname -m)
+cmake --preset linux-clang -DPRISMARK_K1_LLVM_DIR="$PWD/build/llvm-19-linux-$(uname -m)"
+```
+
 For development with any other compiler, use the `dev` preset instead
 (`cmake --preset dev`); results from such builds are not comparable to
 official ones. Other presets: `windows-clang`, `macos-clang`, `android-arm64`

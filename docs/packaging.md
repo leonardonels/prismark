@@ -4,6 +4,31 @@
 
 How the release packages are made. Each script builds for the machine it runs on (Windows is cross-built on Linux) and refuses to pack anything that would need a file from outside the package.
 
+## The compile tests' compiler
+
+Compiling code (K1) and Full software build (K1x) time a compiler, so every
+package carries the same one: Clang and LLVM 19.1.7 built by
+`tools/build-llvm.sh` with one recipe for every system. It is built from the
+same checked source by Clang 19.1.7, statically, with its own libc++ 19.1.7
+(no system C++ library), the AArch64 target only and the baseline ISA of every
+module (x86-64-v2, armv8.2-a). K1 links its libraries into the runner and K1x
+runs its `clang-19`, so on one system the two tests use the same compiler too.
+The memory allocator is each system's own, as part of the platform.
+
+```sh
+tools/build-llvm.sh linux-x86_64 build/llvm-19-linux-x86_64     # or linux-aarch64, macos-arm64,
+                                                               # windows-x86_64 (on Linux, LLVM_MINGW=...)
+```
+
+It takes 1-3 hours and about 8 GB of disk. The prefix holds
+`prismark-compiler.json`, whose `id` covers the recipe and the source (not the
+system), and every package ships it beside its tools. Each package script
+refuses a runner not built with the compiler it ships; results record the id,
+and `prismark compare` marks compile tests timed with different builds. CI
+builds the compiler once per system and caches it (`compiler`), and checks
+that every package carries the same id and that Compiling code gives the same
+output from the Linux and macOS packages (`compiler-gate`).
+
 ## Windows
 
 Windows is shipped as a portable zip, not an installer: unzip it and start
@@ -16,8 +41,8 @@ builds it in CI (`windows-portable`, downloadable from the run). It is
 cross-compiled on Linux with llvm-mingw and Qt for Windows:
 
 ```sh
-tools/build-llvm-windows.sh <llvm-mingw> build/llvm-19-windows    # once: Clang and LLVM 19 libraries for Windows
-K1_LLVM=build/llvm-19-windows K1X_SNAPSHOT=~/.local/share/prismark/k1x \
+LLVM_MINGW=<llvm-mingw> tools/build-llvm.sh windows-x86_64 build/llvm-19-windows-x86_64    # once
+K1_LLVM=build/llvm-19-windows-x86_64 K1X_SNAPSHOT=~/.local/share/prismark/k1x \
   tools/package-windows.sh <llvm-mingw> <Qt/6.8.3/llvm-mingw_64> <Qt/6.8.3/gcc_64>
 ```
 
@@ -33,8 +58,8 @@ an `.rpm` for Fedora, for x86-64 and ARM64. Install with the system's own tool,
 which also brings in the few libraries every desktop has:
 
 ```sh
-sudo apt install ./prismark_0.6.1_amd64.deb        # Ubuntu 22.04 or later, Debian 12 or later
-sudo dnf install ./prismark-0.6.1-1.x86_64.rpm     # Fedora
+sudo apt install ./prismark_0.6.2_amd64.deb        # Ubuntu 22.04 or later, Debian 12 or later
+sudo dnf install ./prismark-0.6.2-1.x86_64.rpm     # Fedora
 ```
 
 Prismark then appears in the desktop's menu; `prismark` and `prismark-gui`
@@ -42,11 +67,14 @@ are in `/usr/bin`. Both packages hold the same files, in `/opt/prismark`: the
 app, the runner, Qt, every library a desktop distribution may lack, and the
 compile tests' snapshot and tools (Clang 19, CMake, Ninja). They are built on
 the oldest distribution they should run on (Ubuntu 22.04), with Clang 19 from
-apt.llvm.org, the official Qt 6, `dpkg-deb` and `rpmbuild` (`apt install rpm`):
+apt.llvm.org, the compile tests' compiler, the official Qt 6, `dpkg-deb` and
+`rpmbuild` (`apt install rpm`):
 
 ```sh
 aqt install-qt linux desktop 6.8.3 linux_gcc_64 -O Qt
-K1X_SNAPSHOT=~/.local/share/prismark/k1x tools/package-linux.sh Qt/6.8.3/gcc_64
+tools/build-llvm.sh linux-$(uname -m) build/llvm-19-linux-$(uname -m)    # once
+K1_LLVM=build/llvm-19-linux-$(uname -m) K1X_SNAPSHOT=~/.local/share/prismark/k1x \
+  tools/package-linux.sh Qt/6.8.3/gcc_64
 ```
 
 It refuses to pack a folder in which a program or plugin would take a
@@ -68,16 +96,15 @@ compile tests with everything they need: Clang built into the runner, and the
 snapshot and Clang 19, CMake and Ninja in `Contents/Resources`. It is signed
 ad hoc, not notarised, so macOS may stop the first start: System Settings ›
 Privacy & Security › Open Anyway. It is
-compiled with Homebrew's Clang 19 and built against LLVM's own release of
-LLVM 19 (Homebrew's is built for the machine's own macOS release) and the
-official Qt 6.10 (6.8 does not link with the macOS 26 SDK):
+compiled with Homebrew's Clang 19, the compile tests' compiler (built for
+macOS 13 and later) and the official Qt 6.10 (6.8 does not link with the
+macOS 26 SDK):
 
 ```sh
 brew install llvm@19 ninja
 aqt install-qt mac desktop 6.10.3 clang_64 -O Qt
-curl -LO https://github.com/llvm/llvm-project/releases/download/llvmorg-19.1.7/LLVM-19.1.7-macOS-ARM64.tar.xz
-tar -xJf LLVM-19.1.7-macOS-ARM64.tar.xz
-K1_LLVM=LLVM-19.1.7-macOS-ARM64 K1X_SNAPSHOT=~/Library/Application\ Support/prismark/k1x \
+tools/build-llvm.sh macos-arm64 build/llvm-19-macos-arm64    # once
+K1_LLVM=build/llvm-19-macos-arm64 K1X_SNAPSHOT=~/Library/Application\ Support/prismark/k1x \
   tools/package-macos.sh Qt/6.10.3/macos
 ```
 
